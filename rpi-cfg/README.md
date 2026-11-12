@@ -14,6 +14,7 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 | Macro | Same as the app's | What it runs |
 |---|---|---|
 | `WM_BED_LEVELING` | Bed Leveling | `G28`, `G29` (heat bed 55 C and nozzle 140 C, wipe, 49 point mesh), heaters off, `SAVE_CONFIG` |
+| `WM_SCREWS_CAL` | (no button in the app) | `G28`, heats the bed to 55 C and a nozzle to 140 C (T0 is picked up if another tool is on the carriage), wipes, `SCREWS_TILT_CALCULATE` (the four screws of `[screws_tilt_adjust]` in `printer.cfg`), heaters off. It prints how far to turn each screw (00:15 = a quarter turn, 01:00 = a full turn); run it again until every screw says 00:00. Nothing is saved: it changes no file |
 | `WM_PROBE_CALIBRATE` | PROBE_CALIBRATE | warms the bed (`BED=60`, max 100), then WonderMaker's `PROBE_CALIBRATE`; you adjust with `TESTZ Z=-0.1` and so on, run `ACCEPT`, then `_WM_PROBE_DONE` |
 | `WM_OFFSETS_RAPID` and `WM_OFFSETS_ACCURATE` | Extruder Offsets Calibration (Rapid / Accurate) | rapid: `G28`, `RAPID_MODE` per tool, `PARK_CURRENT_TOOL`. accurate (`TEMP=220`): `G28`; per tool `NOZZLE_PREPARE`, a window asks you to remove the purged debris (OK), `NOZZLE_CALIBRATE_TOOL_OFFSET`; then `RAPID_MODE` per tool; `PARK_CURRENT_TOOL`; heaters off. Same order as the screen app |
 | `WM_VIBRATION_COMP` | Vibration Compensation | `G28`, `SHAPER_CALIBRATE` (the `lis2dw` accelerometer on the EX_T board), `SAVE_CONFIG` |

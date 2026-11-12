@@ -12,7 +12,7 @@ macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
 env = jinja2.Environment(variable_start_string='{', variable_end_string='}')
-def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True, fil=None, ace=False, full=0):
+def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True, fil=None, ace=False, full=0, screws=True):
     svars = {'thr_number': 4, 'current_extruder': 0, 'fail_flag': 0, 'fail_tool': 99, 'is_nozzle_setting': 0}; svars.update(sv or {})
     printer = {'save_variables': {'variables': svars},
                'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': 'xyz'},
@@ -20,6 +20,7 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     for h in HEAT: printer[h] = {'target': (target or {}).get(h, 0.0), 'temperature': (temps or {}).get(h, 25.0)}
     cs = printer['configfile']['settings']
     for i, h in enumerate(HEAT[1:5]): cs[h]['nozzle_diameter'] = 0.4
+    if screws: cs['screws_tilt_adjust'] = {}
     if shell: cs['gcode_shell_command wm_nozzle'] = {}
     if canids: cs['gcode_shell_command wm_canids'] = {}
     for i in range(4): cs['mcu t%d' % i] = {'canbus_uuid': (ids or ['ac8b57e80210', 'ac80ddd6ebe5', 'ac4068351d2c', 'ac6290884b96'])[i]}
@@ -43,10 +44,14 @@ def want(label, lines, *must, none=()):
     for m in none:
         if m in j: bad.append("%s: unexpected %r in\n%s" % (label, m, j))
 for n in macros: env.from_string(macros[n])
-want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "_WM_CAL_STOP", "WM_CAL_HELP", "WM_BED_PID", "WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION_DONE", "_WM_NOZZLE_TYPE", "_WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
+want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_SCREWS_CAL", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "_WM_CAL_STOP", "WM_CAL_HELP", "WM_BED_PID", "WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION_DONE", "_WM_NOZZLE_TYPE", "_WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
 want("level asks first", run("WM_BED_LEVELING"), "_WM_CAL_ASK STAGE=level", none=("G29",))
 want("level runs", run("WM_BED_LEVELING", {"CONFIRM": "1"}), "G28", "G29", "TURN_OFF_HEATERS", "SAVE_CONFIG")
 want("level SAVE=0", run("WM_BED_LEVELING", {"CONFIRM": "1", "SAVE": "0"}), "G29", none=("SAVE_CONFIG",))
+want("screws asks first", run("WM_SCREWS_CAL"), "_WM_CAL_ASK STAGE=screws", none=("G28", "SCREWS_TILT_CALCULATE"))
+want("screws run: home, heat, wipe, measure, heaters off, four steps", run("WM_SCREWS_CAL", {"CONFIRM": "1"}), "G28", "M190 S55", "M109 S140", "WIPE_NOZZLE", "SCREWS_TILT_CALCULATE", "TURN_OFF_HEATERS", "step 1 of 4", "step 4 of 4", none=("\nT0",))
+want("screws picks up T0 when another tool is on the carriage", run("WM_SCREWS_CAL", {"CONFIRM": "1"}, sv={"current_extruder": 2}), "\nT0", "picking up T0")
+want("screws refuses a printer without [screws_tilt_adjust]", run("WM_SCREWS_CAL", {"CONFIRM": "1"}, screws=False), 'no [screws_tilt_adjust] section')
 want("precheck: print running", run("_WM_CAL_PRECHECK", printing="printing"), '_WM_FAIL MSG="A print is running')
 want("precheck: heater on", run("_WM_CAL_PRECHECK", target={"extruder1": 200.0}), '_WM_FAIL MSG="extruder1 has a target')
 want("precheck: bed on", run("_WM_CAL_PRECHECK", target={"heater_bed": 60.0}), '_WM_FAIL MSG="heater_bed has a target')

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.0
+
+- **New macro `WM_SCREWS_CAL`: bed screws.** It homes, heats the bed to 55 C and a nozzle to 140 C (like the bed leveling; T0 is picked up if another tool is on the carriage), wipes the nozzle and runs Klipper's `SCREWS_TILT_CALCULATE` on the four screws of `[screws_tilt_adjust]`, then turns the heaters off. The console shows how far to turn each screw (00:15 = a quarter turn); run it again until every screw says 00:00. It asks first in a Start / Cancel window, refuses during a print or with heaters on, prints "step 1 of 4" to "step 4 of 4", saves nothing and is listed in `WM_CAL_HELP`. Fluidd puts it in the Raspberry Pi category (blue) with the other `WM_*` macros.
+
 ## 2.2.1
 
 - **The Klipper, Moonraker and Fluidd versions note is removed.** Fluidd never shows the `info_tags` of an update entry, so the note could not be seen. The installer's entry in Fluidd keeps its plain description, which now says that the Update button applies the update (the `wm-pi-update` watcher of 2.2.0 stays).
