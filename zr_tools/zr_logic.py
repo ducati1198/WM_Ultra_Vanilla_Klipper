@@ -347,6 +347,52 @@ def factory_restore_command(script=None):
     return ["sudo", "-n", script or BOARD_SCRIPT, "--factory-restore", "--yes", "--detach"]
 
 
+UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/VERSION"
+BOARD_VERSION_FILE = os.path.join(BOARD_DIR, "version")        # written by scripts/screen_board.sh at install and after every update
+
+
+def update_command(script=None):
+    """The Update button: the root copy of the script updates the installer folder and the screen files, and re-starts itself under
+    systemd (--detach), because it restarts KlipperScreen. sudoers allows exactly this command."""
+    return ["sudo", "-n", script or BOARD_SCRIPT, "--update", "--yes", "--detach"]
+
+
+def version_tuple(text):
+    """'2.0.7' -> (2, 0, 7); anything that is not numbers like that gives None."""
+    parts = (text or "").strip().split(".")
+    if not parts or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def version_newer(latest, installed):
+    """True when latest is a higher version than installed. An unknown installed version counts as older (an update is offered),
+    an unreadable latest version never does."""
+    new = version_tuple(latest)
+    if new is None:
+        return False
+    old = version_tuple(installed)
+    return True if old is None else new > old
+
+
+def installed_version(path=None):
+    try:
+        with open(path or BOARD_VERSION_FILE) as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+def latest_version(url=None, timeout=10):
+    """The newest version on GitHub (one small text file). '' when it cannot be read."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url or UPDATE_VERSION_URL, timeout=timeout) as r:
+            return r.read(64).decode("ascii", "ignore").splitlines()[0].strip()
+    except Exception:
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # Wi-Fi on the screen board (wpa_supplicant + wpa_cli; no NetworkManager)
 # ---------------------------------------------------------------------------

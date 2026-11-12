@@ -7,6 +7,7 @@ import logging
 import os
 import socket
 import subprocess
+import threading
 
 import gi
 
@@ -97,8 +98,10 @@ class ViewsMixin:
         if L.collision_settings(self._collision_section()):
             items.append(("warning", "Collision", self.show_collision))
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),
-                  ("clock", "Timelapse / restart", self.show_extras),
-                  ("info", "System", self.show_system),
+                  ("clock", "Timelapse / restart", self.show_extras)]
+        if L.board_mode():          # KlipperScreen runs on the WonderMaker screen board: it can update itself from GitHub
+            items.append(("refresh", "Update", self._sys_update))
+        items += [("info", "System", self.show_system),
                   ("settings", "Screen settings", self.show_settings)]
         return items
 
@@ -531,6 +534,43 @@ class ViewsMixin:
             subprocess.Popen(L.rescue_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         except OSError as e:
             self._screen.show_popup_message("Could not open the rescue window: %s" % e)
+
+    def _sys_update(self):
+        """Update button (More): looks up the newest version on GitHub, asks, then the root copy of screen_board.sh updates
+        the installer folder and the screen files and restarts KlipperScreen."""
+        if not self._require_idle():
+            return
+        self._screen.show_popup_message("Checking for a new version ...", 1)
+
+        def _check():
+            latest = L.latest_version()
+            GLib.idle_add(self._update_answer, latest, L.installed_version())
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _update_answer(self, latest, installed):
+        try:
+            if not latest:
+                self._screen.show_popup_message("Could not check for a new version. Is the screen board online?")
+            elif not L.version_newer(latest, installed):
+                self._screen.show_popup_message("Up to date: version %s." % (installed or latest), 1)
+            else:
+                self._confirm_call("Update",
+                                   "Version %s is available (this screen has %s).\n"
+                                   "It updates the installer files and the screen, then restarts KlipperScreen and Klipper.\n"
+                                   "The screen goes dark for about a minute. Do not power off. Update now?" % (latest, installed or "an older version"),
+                                   self._run_update)
+        except Exception:
+            logging.exception("ZR Tools: update check")
+        return False
+
+    def _run_update(self):
+        if not self._require_idle():
+            return
+        try:
+            subprocess.Popen(L.update_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            self._screen.show_popup_message("Updating. The screen restarts by itself in about a minute.", 1)
+        except OSError as e:
+            self._screen.show_popup_message("Could not start the update: %s" % e)
 
     def _run_factory_restore(self):
         try:

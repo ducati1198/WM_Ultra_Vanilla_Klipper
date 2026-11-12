@@ -189,6 +189,47 @@ class Logic(unittest.TestCase):
         self.assertFalse(L.rescue_available(["/nonexistent/wm-screen-rescue.service"]))
         shutil.rmtree(d)
 
+    def test_update_button_logic(self):
+        self.assertEqual(L.update_command("/x/wm"), ["sudo", "-n", "/x/wm", "--update", "--yes", "--detach"])
+        self.assertTrue(L.version_newer("2.0.8", "2.0.7"))
+        self.assertTrue(L.version_newer("2.1.0", "2.0.9"))
+        self.assertTrue(L.version_newer("2.0.10", "2.0.9"))        # numbers, not text
+        self.assertFalse(L.version_newer("2.0.7", "2.0.7"))
+        self.assertFalse(L.version_newer("2.0.6", "2.0.7"))
+        self.assertTrue(L.version_newer("2.0.7", ""))              # installed version unknown: offer the update
+        self.assertFalse(L.version_newer("", "2.0.7"))             # GitHub unreachable or a garbage answer: never offer
+        self.assertFalse(L.version_newer("<html>", "2.0.7"))
+        d = tempfile.mkdtemp(); f = os.path.join(d, "version")
+        self.assertEqual(L.installed_version(f), "")
+        open(f, "w").write("2.0.7\n")
+        self.assertEqual(L.installed_version(f), "2.0.7")
+        self.assertEqual(L.latest_version("http://127.0.0.1:9/none", timeout=1), "")
+        shutil.rmtree(d)
+
+    def test_job_status_light_patch_always_shows_the_button(self):
+        d = tempfile.mkdtemp(); f = os.path.join(d, "job_status.py")
+        b = '            self.buttons["button_grid"].attach(self.buttons["control"], 3, 0, 1, 1)\n'
+        src = ('class P:\n    def __init__(self):\n'
+               '        self.buttons["control"].connect("clicked", self._screen._go_to_submenu, "")\n'
+               '    def set_state(self, state):\n        if state == "printing":\n' + b + '        elif state == "paused":\n' + b +
+               '    def save_offset(self, widget, device):\n        pass\n')
+        open(f, "w").write(src)
+        import subprocess
+        patch = os.path.join(SRC, "patch_job_status_light.py")
+        self.assertEqual(subprocess.run([sys.executable, patch, f]).returncode, 0)
+        s = open(f).read(); compile(s, f, "exec")
+        self.assertEqual(s.count('attach(self.buttons["wm_light"], 4, 0, 1, 1)'), 2)     # printing and paused
+        self.assertNotIn('os.path.exists("/usr/local/sbin/wm-chamber-light")', s)         # not hidden when the helper is missing
+        # a file patched by the older version (button only when the helper exists) is corrected, and a second run changes nothing
+        old = s.replace('            self.buttons["button_grid"].attach(self.buttons["wm_light"], 4, 0, 1, 1)\n',
+                        '            if os.path.exists("/usr/local/sbin/wm-chamber-light"):\n                self.buttons["button_grid"].attach(self.buttons["wm_light"], 4, 0, 1, 1)\n')
+        open(f, "w").write(old)
+        subprocess.run([sys.executable, patch, f], check=True)
+        self.assertEqual(open(f).read(), s)
+        subprocess.run([sys.executable, patch, f], check=True)
+        self.assertEqual(open(f).read(), s)
+        shutil.rmtree(d)
+
     def test_throttled_text(self):
         self.assertEqual(L.throttled_text("0x0"), "ok")
         self.assertEqual(L.throttled_text("0x50005"), "under-voltage now")

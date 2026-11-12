@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.8
+
+- **Screen board install: the board user gets sudo without a password.** The install asks once (default yes, `--yes` accepts) and writes `/etc/sudoers.d/wm-user-nopasswd` (checked with `visudo`). After that the install, the Update button and later updates never stop at a password prompt. Anyone who can log in as that user then has full control of the board, so Factory mode and `--factory-restore` remove the rule again. `--no-sudo-rule` skips it.
+- **KlipperScreen: Update button** (ZR Tools > More > Update, screen board only). It reads the newest version from GitHub (one small file), says "Up to date" or offers the new version, then updates the installer folder and the screen files from the small screen bundle and restarts KlipperScreen and Klipper. It refuses during a print. It runs through the root copy of the script and one extra sudoers line (`--update --yes --detach`), as a separate systemd unit with a log in `~/wm-screen-backup/update.log`, and gives the files back to the board user. The screen remembers its version in `~/wm-screen-backup/version` and the installer folder in `~/wm-screen-backup/installer_dir`, so the button works even when the script is run as a lone copy. **A board installed before 2.0.8 needs one `bash scripts/screen_board.sh --update` over SSH first**, which adds the sudoers line and the button.
+- **KlipperScreen: the Light button is always on the print screen** (while printing and paused). It used to be added only when the root light helper existed, so a missing helper hid it without a word. Now tapping it says "The chamber light helper is not installed." when the helper is missing. A print screen patched by an older version is corrected on the next update.
+
 ## 2.0.7
 
 - **Screen board: small download.** The board needs only about 90 KB (`screen_board_bundle/wm-screen-board.tar.gz`), not the whole 500 MB repository. The README has a one-line command for it, and `--update` on the board uses it too (it falls back to the full download if the small file is not available). `scripts/make_screen_bundle.sh` rebuilds it and the test suite checks that it is current.

@@ -18,7 +18,7 @@
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
 #                                                            (also the "Factory mode" button on the screen: ZR Tools > More > System)
-# Options: --no-reboot (install and restore reboot the board at the end), --force (ignore a running print), --yes, --no-rescue (skip the rescue window and the USB flag, see screen_rescue/)
+# Options: --no-reboot (install and restore reboot the board at the end), --force (ignore a running print), --yes, --no-sudo-rule (do not give the board user sudo without a password), --no-rescue (skip the rescue window and the USB flag, see screen_rescue/)
 #
 # What it does: stops and DISABLES the factory screen app and the services that now run on the Pi (nothing is deleted, the list
 # is saved in ~/wm-screen-backup), installs KlipperScreen (the pinned commit) + ZR Tools, and points it at the Pi's Moonraker.
@@ -36,8 +36,11 @@ if [ -n "${WM_HOME:-}" ]; then HOME_DIR="$WM_HOME"; elif [ "$(id -u)" = 0 ]; the
 BK="$HOME_DIR/wm-screen-backup"
 KS_DIR="$HOME_DIR/KlipperScreen"; KS_ENV="$HOME_DIR/.KlipperScreen-env"
 CFG_DIR="$HOME_DIR/printer_data/config"
+# A copy of this script that runs from /usr/local/sbin (the Update and Factory mode buttons) or from ~/wm-screen-backup has no installer folder next to it:
+# it finds the folder through the path saved at install time.
+if [ ! -f "$REPO_DIR/zr_tools/zr_tools.py" ] && [ -s "$BK/installer_dir" ] && [ -f "$(cat "$BK/installer_dir")/zr_tools/zr_tools.py" ]; then REPO_DIR="$(cat "$BK/installer_dir")"; fi
 NOARGS=0; [ $# -eq 0 ] && NOARGS=1
-FIXALL=0; ARG1=""; ARG_BACKUP=""; MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0
+FIXALL=0; ARG1=""; ARG_BACKUP=""; MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0; NO_SUDO_RULE=0
 STAMP="$(date +%Y%m%d-%H%M%S)"
 # Services stopped and disabled, in this order (restore starts them in reverse order). Only those that exist are touched.
 SERVICES=(makerbase-client klipper moonraker nginx crowsnest makerbase-webcam janus klipper-mcu hostapd moonraker-obico octoapp)
@@ -163,6 +166,7 @@ while [ $# -gt 0 ]; do
         --uninstall-klipperscreen) MODE=uninstall ;;
         --factory-restore) MODE=restore ;;
         --no-rescue) RESCUE=0 ;;
+        --no-sudo-rule) NO_SUDO_RULE=1 ;;
         --no-reboot) REBOOT=0 ;;
         --force) FORCE=1 ;;
         --detach) DETACH=1 ;;
@@ -358,6 +362,8 @@ save_state() {
         [ ! -f /etc/X11/Xwrapper.config ] || [ -f "$BK/Xwrapper.config.orig" ] || cp /etc/X11/Xwrapper.config "$BK/Xwrapper.config.orig" 2>/dev/null
     fi
     cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"; [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && cp "$SCRIPT_DIR/lib_free_space.sh" "$BK/lib_free_space.sh"
+    case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) echo "$REPO_DIR" > "$BK/installer_dir" ;; esac   # the Update button refreshes this folder too
+    [ -f "$REPO_DIR/VERSION" ] && cp "$REPO_DIR/VERSION" "$BK/version"
 }
 
 step_disable_factory() {
@@ -575,6 +581,24 @@ step_start() {
     fi
     warn_later "KlipperScreen did not start. Look at: journalctl -u KlipperScreen -n 50 and ~/.local/share/xorg/Xorg.0.log. To go back: bash $BK/screen_board.sh --factory-restore"
 }
+SUDO_NOPASSWD_FILE=/etc/sudoers.d/wm-user-nopasswd
+step_sudo_nopasswd() {   # the board user gets sudo without a password, so the screen and every later update never stop at a password prompt
+    [ "$NO_SUDO_RULE" = 1 ] && { print_info "sudo without a password skipped (--no-sudo-rule)."; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would let $WM_USER use sudo without a password ($SUDO_NOPASSWD_FILE)${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] sudoers nopasswd $WM_USER" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    if [ "$(id -u)" != 0 ] && sudo -n true 2>/dev/null; then print_info "$WM_USER can already use sudo without a password."; return 0; fi
+    echo "  This lets $WM_USER use sudo without typing a password (so the install, the Update button and later updates never stop at a password)."
+    echo "  Anyone who can log in as $WM_USER then has full control of this board. It is removed again by Factory mode / --factory-restore."
+    ask_yn "Let $WM_USER use sudo without a password?" y || { echo "  Skipped. Later updates from the screen then need the password in a terminal."; return 0; }
+    printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$WM_USER" | sudo tee "$SUDO_NOPASSWD_FILE" >/dev/null
+    sudo chmod 440 "$SUDO_NOPASSWD_FILE"
+    sudo visudo -cf "$SUDO_NOPASSWD_FILE" >/dev/null && print_success "$WM_USER can use sudo without a password." || { sudo rm -f "$SUDO_NOPASSWD_FILE"; warn_later "The sudo rule was not installed (sudoers check failed)."; }
+}
+write_restore_sudoers() {   # the two commands the on-screen buttons may run as root, nothing else (the board user has no general sudo without a password)
+    local f=/etc/sudoers.d/wm-factory-restore b=/usr/local/sbin/wm-factory-restore
+    printf '%s ALL=(root) NOPASSWD: %s --factory-restore --yes --detach, %s --update --yes --detach\n' "$WM_USER" "$b" "$b" | sudo tee "$f" >/dev/null
+    sudo chmod 440 "$f"; sudo visudo -cf "$f" >/dev/null || { sudo rm -f "$f"; return 1; }
+}
 step_restore_button() {   # root-owned copy + sudoers line for the one command the on-screen "Factory mode" button runs
     print_header "Factory mode button"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install /usr/local/sbin/wm-factory-restore and a sudoers entry${NC}"; return 0; fi
@@ -582,8 +606,7 @@ step_restore_button() {   # root-owned copy + sudoers line for the one command t
     if [ "$TESTING" = 1 ]; then echo "[test] sudoers + wm-factory-restore" >> "$HOME_DIR/.sudo.log"; return 0; fi
     sudo install -o root -g root -m 755 "$SCRIPT_DIR/screen_board.sh" /usr/local/sbin/wm-factory-restore
     [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && sudo install -o root -g root -m 644 "$SCRIPT_DIR/lib_free_space.sh" /usr/local/sbin/lib_free_space.sh
-    printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/wm-factory-restore --factory-restore --yes --detach\n' "$WM_USER" | sudo tee /etc/sudoers.d/wm-factory-restore >/dev/null
-    sudo chmod 440 /etc/sudoers.d/wm-factory-restore; sudo visudo -cf /etc/sudoers.d/wm-factory-restore >/dev/null || { sudo rm -f /etc/sudoers.d/wm-factory-restore; warn_later "The Factory mode button was not enabled (sudoers check failed). Use the command line."; }
+    write_restore_sudoers || warn_later "The Factory mode and Update buttons were not enabled (sudoers check failed). Use the command line."
     print_success "Open ZR Tools > More > System > Factory mode to go back to the factory software."
 }
 
@@ -688,6 +711,7 @@ do_install() {
     step_klipperscreen          # everything that can fail comes BEFORE the factory app is stopped
     drop_swap
     step_disable_factory
+    step_sudo_nopasswd
     step_restore_button
     step_chamber_light
     step_rescue
@@ -720,7 +744,7 @@ remove_klipperscreen() {
             sudo rm -f "$TOUCH_RULE" "$KS_START" "$KS_CLIENT" "$XINPUT"; sudo udevadm control --reload; sudo udevadm trigger; sudo udevadm settle
             [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
             [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
-            sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore /usr/local/sbin/lib_free_space.sh
+            sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore /usr/local/sbin/lib_free_space.sh "$SUDO_NOPASSWD_FILE"
             sudo systemctl disable --now wm-chamber-light-http.service >/dev/null 2>&1; sudo systemctl disable wm-chamber-light.service >/dev/null 2>&1; sudo rm -f /etc/sudoers.d/wm-chamber-light "$CL_BIN" "$CL_UNIT" "$CL_HTTP" "$CL_HTTP_UNIT"
         else echo "[test] remove seat rules, X conf, sudoers" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev" "$BK/udev_rules.created"; fi
         rm -rf "$KS_DIR" "$KS_ENV"; rm -f "$BK/board_mode"
@@ -889,10 +913,15 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
     return 0
 }
-do_update_board() { do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; trap - INT TERM; return $rc; }   # the downloaded copy never stays in /tmp
+do_update_board() {
+    if [ "$DETACH" = 1 ] && [ "$TESTING" != 1 ]; then   # the update restarts KlipperScreen, which would kill the button that started it: run as a separate systemd unit
+        mkdir -p "$BK"; { echo "== update started $(date '+%F %T')"; } > "$BK/update.log"
+        exec systemd-run --no-block --unit=wm-screen-update-run -p StandardOutput=append:"$BK/update.log" -p StandardError=append:"$BK/update.log" "$(readlink -f "$0")" --update --yes
+    fi
+    do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; trap - INT TERM; return $rc; }   # the downloaded copy never stays in /tmp
 do_update_board_core() {
     print_header "Update the ZR Tools screen files"
-    local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
+    local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null || cat "$BK/version" 2>/dev/null)"
     if [ "$TESTING" = 1 ] && [ -z "${WM_TEST_UPDATE_DIR:-}" ]; then print_info "Test: no update folder."; return 0; fi
     progress_bar 0 100 "Update step 1 of 6: downloading"
     fetch_latest || die_with_fix "could not download the update." "check the internet connection."
@@ -922,7 +951,7 @@ do_update_board_core() {
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
-        mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"; cp "$w/scripts/lib_free_space.sh" "$BK/lib_free_space.sh" 2>/dev/null
+        mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"; cp "$w/scripts/lib_free_space.sh" "$BK/lib_free_space.sh" 2>/dev/null; cp "$w/VERSION" "$BK/version"
         # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)
         if [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; then
             if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 && [ "$TESTING" != 1 ]; then git -C "$REPO_DIR" pull -q --ff-only 2>/dev/null || cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR; run: cd $REPO_DIR && git pull"
@@ -939,9 +968,13 @@ i = s.find("[menu __main more pi_address]")
 open(p, "w").write(s[:i] + add + s[i:] if i >= 0 else s.rstrip("\n") + "\n\n" + add)
 PYE
         fi
-        [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore && sudo install -o root -g root -m 644 "$w/scripts/lib_free_space.sh" /usr/local/sbin/lib_free_space.sh; }
+        [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore && sudo install -o root -g root -m 644 "$w/scripts/lib_free_space.sh" /usr/local/sbin/lib_free_space.sh && write_restore_sudoers; }   # the sudoers line also gets the --update command (boards installed before the Update button)
     fi
     refresh_installer_folder "$w"
+    if [ "$TESTING" != 1 ] && [ "$(id -u)" = 0 ]; then   # started by the Update button (root): the files must stay the board user's own
+        chown -R "$WM_USER": "$BK" "$KS_DIR" "${BKDIR:-$BK}" 2>/dev/null; chown "$WM_USER": "$CFG_DIR/KlipperScreen.conf" 2>/dev/null
+        case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) chown -R "$WM_USER": "$REPO_DIR" 2>/dev/null ;; esac
+    fi
     progress_bar 55 100 "Update step 4 of 6: restarting KlipperScreen"
     SUDO systemctl restart KlipperScreen
     progress_bar 70 100 "Update step 5 of 6: restarting Klipper on the Pi"
