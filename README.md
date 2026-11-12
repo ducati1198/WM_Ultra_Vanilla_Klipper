@@ -566,11 +566,12 @@ Then on the **screen board** (SSH in as `t13dp`, it needs internet). Pick one wa
 mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main
 ```
 
-**Option B: with git** (after the clock and apt fix above, so `apt-get install -y git` works)
+**Option B: with git** (after the clock and apt fix above, so `apt-get install -y git` works). This is a *sparse* clone: it fetches only the folders the board needs (about 2 MB), not the whole 500 MB repository, and `git pull` still updates it.
 
 ```bash
 cd ~
-git clone https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper && cd WM_Ultra_Vanilla_Klipper
+git clone --depth 1 --filter=blob:none --sparse https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper && cd WM_Ultra_Vanilla_Klipper
+git sparse-checkout set scripts zr_tools screen_rescue usb_flags config/pins
 ```
 
 If you cloned it before, a `git clone` copy does **not** update by itself: run `cd WM_Ultra_Vanilla_Klipper && git pull` first (or delete the folder and clone again). With Option A, delete the old `WM_Ultra_Vanilla_Klipper-main` folder before downloading again.
