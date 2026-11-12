@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.12
+
+- **Update: the screen's version is the version of the screen's files, not of the installer folder.** After a `git pull` the installer folder is already new, so `--update` compared GitHub with the folder, said "Already up to date" and then stamped the version marks as new while the panel files were still the old ones. Now `Installed` comes from `zr_version.txt` next to the panels (then `~/wm-screen-backup/version`), and when the numbers match but the panel files differ from the newest ones, the update refreshes them anyway. `--post-update` no longer stamps the version marks unless the panel files really are that version's.
+
 ## 2.0.11
 
 - **Update never goes back to an older version.** Right after a new version is published, GitHub's raw file cache can still serve the previous small screen bundle for about 5 minutes, while the version file already says the new number. The menu then offered "Update now" with "Newest: 2.0.9" while 2.0.10 was installed, which would have been a downgrade. `--update` now stops with "the download is OLDER than the one installed" and changes nothing, and every GitHub read of the updater and of the screen's Update button carries a cache buster so it fetches the current copy.

@@ -916,13 +916,21 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
     return 0
 }
-do_post_update() {   # the system-level files that buttons need (root copy of this script, sudoers lines, version marks). An update runs this with the NEW
+panels_differ() {   # true when the screen's panel files are not the ones in folder $1 (the version marks can lie after a git pull: the files are the truth)
+    local f; for f in zr_tools zr_views zr_logic; do cmp -s "$1/zr_tools/$f.py" "$KS_DIR/panels/$f.py" || return 0; done; return 1
+}
+do_post_update() {   # optional argument: the folder that holds the newest files (default: the installer folder)   # the system-level files that buttons need (root copy of this script, sudoers lines, version marks). An update runs this with the NEW
     # script, so what a new version adds is applied even when the update itself was started by an older script. Also the fix when a button says its permission is missing.
     print_header "Screen buttons: permissions and version marks"
     need_ks; [ "$DRY" = 1 ] && { echo -e "  ${DIM}would refresh the root copy of this script, the sudoers lines and the version marks${NC}"; return 0; }
+    local src="${1:-$REPO_DIR}"
     mkdir -p "$BK"
     cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"; [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && cp "$SCRIPT_DIR/lib_free_space.sh" "$BK/lib_free_space.sh"
-    [ -f "$REPO_DIR/VERSION" ] && { cp "$REPO_DIR/VERSION" "$BK/version"; [ -d "$KS_DIR/panels" ] && cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt"; }
+    if [ -f "$src/VERSION" ] && ! panels_differ "$src"; then
+        cp "$src/VERSION" "$BK/version"; [ -d "$KS_DIR/panels" ] && cp "$src/VERSION" "$KS_DIR/panels/zr_version.txt"
+    elif [ -f "$src/VERSION" ]; then
+        print_warning "The screen files are not the files of version $(cat "$src/VERSION"): the version marks were left as they are. Run: bash scripts/screen_board.sh --update"
+    fi
     local idir="${WM_INSTALLER_DIR:-$REPO_DIR}"
     case "$(basename "$idir")" in WM_Ultra_Vanilla_Klipper*) echo "$idir" > "$BK/installer_dir" ;; esac
     step_sudo_nopasswd
@@ -937,7 +945,9 @@ do_update_board() {
     do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; trap - INT TERM; return $rc; }   # the downloaded copy never stays in /tmp
 do_update_board_core() {
     print_header "Update the ZR Tools screen files"
-    local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null || cat "$BK/version" 2>/dev/null)"
+    local new old w
+    if [ -d "$KS_DIR" ] && [ "${WM_TEST_NO_KS:-0}" != 1 ]; then old="$(cat "$KS_DIR/panels/zr_version.txt" 2>/dev/null || cat "$BK/version" 2>/dev/null || cat "$REPO_DIR/VERSION" 2>/dev/null)"   # the version of the SCREEN files, not of the installer folder (a git pull changes only the folder)
+    else old="$(cat "$REPO_DIR/VERSION" 2>/dev/null || cat "$BK/version" 2>/dev/null)"; fi
     if [ "$TESTING" = 1 ] && [ -z "${WM_TEST_UPDATE_DIR:-}" ]; then print_info "Test: no update folder."; return 0; fi
     progress_bar 0 100 "Update step 1 of 6: downloading"
     fetch_latest || die_with_fix "could not download the update." "check the internet connection."
@@ -949,13 +959,15 @@ do_update_board_core() {
         print_warning "The download is version $new, which is OLDER than the one installed ($old). GitHub can serve an old copy for a few minutes after a new version is published."
         echo "  Nothing was changed. Try again in about 5 minutes."; return 0
     fi
-    if [ "$new" = "$old" ]; then
+    if [ "$new" = "$old" ] && [ -d "$KS_DIR" ] && [ "${WM_TEST_NO_KS:-0}" != 1 ] && panels_differ "$w"; then
+        print_warning "The version marks say $new, but the screen files are not the files of $new (for example after a git pull). Refreshing them."
+    elif [ "$new" = "$old" ]; then
         print_success "Already up to date."
         # a board that is current can still lack the button permissions or the version marks (an update started by an older script never added them): repair them now
         if { [ "$TESTING" != 1 ] || [ "${WM_TEST_POST_UPDATE:-0}" = 1 ]; } && [ "$DRY" != 1 ] && { [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ]; } \
            && { [ ! -f "$KS_DIR/panels/zr_version.txt" ] || { [ "$NO_SUDO_RULE" != 1 ] && [ ! -f "$BK/no_sudo_rule" ] && [ "$TESTING" != 1 ] && ! sudo -n true 2>/dev/null; }; }; then
             print_info "The version marks or the button permissions are missing: fixing that now."
-            do_post_update
+            do_post_update "$w"
         fi
         return 0
     fi
