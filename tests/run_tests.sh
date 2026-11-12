@@ -468,6 +468,23 @@ check "crowsnest installed (unattended) in test log" "grep -q 'make install (cro
 check "crowsnest.conf placed" "[ -f $HG/printer_data/config/crowsnest.conf ]"
 check "ffmpeg requested for timelapse" "grep -q 'apt-get install -y ffmpeg' $HG/.sudo.log"
 check "moonraker.asvc lists crowsnest" "grep -q crowsnest $HG/printer_data/moonraker.asvc"
+check "webcam helper: python tests" "python3 -I -W ignore $ROOT/tests/test_crowsnest.py"
+check "crowsnest.conf is the explained v5 file (every option, the manual link)" "grep -q 'mainsail-crew/crowsnest/blob/master/README.md' $HG/printer_data/config/crowsnest.conf && grep -q '^####  max_fps' $HG/printer_data/config/crowsnest.conf && grep -q '^\[cam 1\]' $HG/printer_data/config/crowsnest.conf && ! grep -q enable_rtsp $HG/printer_data/config/crowsnest.conf"
+check "webcam: install adds [webcam Camera] to moonraker.conf" "grep -q '^\[webcam Camera\]' $HG/printer_data/config/moonraker.conf && grep -q 'stream_url: /webcam/?action=stream' $HG/printer_data/config/moonraker.conf"
+check "webcam: answers are saved for --update" "grep -q '^CAM_COUNT=' $HG/wm-rpi-backup/install.conf && grep -q '^CAM_FPS=' $HG/wm-rpi-backup/install.conf"
+WCH="$T/wch"; mkdir -p "$WCH"
+WM_TEST_PI_MODEL="Raspberry Pi 5 Model B Rev 1.0" WM_TEST_CAMERAS='[{"kind":"usb","path":"/dev/v4l/by-id/usb-A-video-index0","name":"A"}]' inst "$WCH" --from-github --model ultra-s --screen off --cameras 3 --cam-resolution 1080p --cam-fps 25 >/dev/null
+check "webcam: --cameras 3 --cam-resolution 1080p --cam-fps 25 are used (3 cams, ports 8080-8082, ustreamer on a Pi 5)" "[ \$(grep -c '^\[cam ' $WCH/printer_data/config/crowsnest.conf) = 3 ] && grep -q 'port: 8082' $WCH/printer_data/config/crowsnest.conf && grep -q 'resolution: 1920x1080' $WCH/printer_data/config/crowsnest.conf && grep -q 'max_fps: 25' $WCH/printer_data/config/crowsnest.conf && grep -q 'mode: ustreamer' $WCH/printer_data/config/crowsnest.conf && ! grep -q 'camera-streamer$' $WCH/printer_data/config/crowsnest.conf"
+check "webcam: Fluidd gets Camera, Camera 2, Camera 3" "( for n in 'Camera' 'Camera 2' 'Camera 3'; do grep -q \"^\[webcam \$n\]\" $WCH/printer_data/config/moonraker.conf || exit 1; done; grep -q '/webcam3/?action=snapshot' $WCH/printer_data/config/moonraker.conf )"
+check "webcam: Pi 4 uses camera-streamer" "WCP=$T/wcp; mkdir -p \$WCP; WM_TEST_PI_MODEL='Raspberry Pi 4 Model B Rev 1.4' inst \$WCP --from-github --model ultra-s --screen off >/dev/null; grep -q 'mode: camera-streamer' \$WCP/printer_data/config/crowsnest.conf"
+check "webcam: a bad --cam-fps stops with a fix" "mkdir -p $T/wcbad; inst $T/wcbad --screen off --cam-fps 99 | grep -q 'max_fps must be'"
+WCK="$T/wck"; mkdir -p "$WCK"; inst "$WCK" --from-github --model ultra-s --screen off >/dev/null
+printf '[cam mine]\nmode: ustreamer\nport: 8080\ndevice: /dev/video9\n' > "$WCK/printer_data/config/crowsnest.conf"; rm -rf "$WCK/crowsnest"
+inst "$WCK" --update --only-addon webcam --webcam on >/dev/null
+check "webcam: an existing crowsnest.conf is never overwritten; the explained copy is crowsnest.conf.new" "grep -q 'device: /dev/video9' $WCK/printer_data/config/crowsnest.conf && ! grep -q 'Written by the WM_Ultra' $WCK/printer_data/config/crowsnest.conf && grep -q 'Written by the WM_Ultra' $WCK/printer_data/config/crowsnest.conf.new"
+check "webcam: --webcam-setup rewrites the conf, keeps a copy, adds Camera 2" "inst $WCK --webcam-setup --cameras 2 --cam-resolution 480p --cam-fps 10 >/dev/null; [ \$(grep -c '^\[cam ' $WCK/printer_data/config/crowsnest.conf) = 2 ] && grep -q 'resolution: 640x480' $WCK/printer_data/config/crowsnest.conf && grep -q 'device: /dev/video9' $WCK/printer_data/config/crowsnest.conf.wm-before-webcam-setup-* && grep -q '^\[webcam Camera 2\]' $WCK/printer_data/config/moonraker.conf"
+check "webcam: --webcam-setup without the service installed says how to install it" "inst $T/wcbad --webcam-setup | grep -q 'not installed'"
+check "webcam: --dry-run --webcam-setup changes nothing" "inst $WCK --dry-run --webcam-setup --cameras 3 | grep -q 'would rewrite crowsnest.conf (3 camera' && [ \$(grep -c '^\[cam ' $WCK/printer_data/config/crowsnest.conf) = 2 ]"
 
 echo "== model is applied to every source"
 H8="$T/h8"; mkdir -p "$H8"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; mkstage "$T/stage_s"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; tar czf "$T/stage_s/data.tgz" -C "$T/src_home" --exclude=printer_data/gcodes printer_data fluidd TM_T1
@@ -1048,7 +1065,7 @@ OUTA="$(inst "$T/hqa" --dry-run --from-stage "$T/stage_hk" --model ultra-s --scr
 check "the install plan lists the ACE Pro as not chosen (default no) and the install asks about it" "grep -q 'Do you have an Anycubic ACE Pro to connect' $ROOT/installer.sh && echo \"\$OUTA\" | grep -E 'ace pro +no \\(add later'"
 OUTA="$(inst "$T/hqa2" --dry-run --from-stage "$T/stage_hk" --model ultra-s --screen off --acepro on)"
 check "the plan says yes with --acepro on, and the step would download the project" "echo \"\$OUTA\" | grep -E 'ace pro +yes'"
-check "the question is asked in the install and a yes answer is used" "printf 'y\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\n' | WM_TEST_NO_FETCH=1 WM_HOME=$T/hqa3 WM_INSTALLER_TEST=1 WM_TEST_PANEL_DIR=$T/stubpanel bash $ROOT/installer.sh --dry-run --from-stage $T/stage_hk --model ultra-s --screen off 2>&1 | grep -E 'ace pro +yes'"
+check "the question is asked in the install and a yes answer is used" "printf 'y\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\n' | WM_TEST_NO_FETCH=1 WM_HOME=$T/hqa3 WM_INSTALLER_TEST=1 WM_TEST_PANEL_DIR=$T/stubpanel bash $ROOT/installer.sh --dry-run --from-stage $T/stage_hk --model ultra-s --screen off --cameras 1 --cam-resolution 720p --cam-fps 15 2>&1 | grep -E 'ace pro +yes'"
 check "without --acepro the ACE project is not touched" "[ ! -e $NS/wm-ultra-fluidd-acepro-panel ] && [ ! -e $NS/.ace-stub.log ]"
 check "ACE Pro is not installed to start with, shown in the add-on list" "M '3\n0\n0\n' $NS --menu | grep -q 'Anycubic ACE Pro.*not installed'"
 inst "$NS" --update --only-addon acepro --acepro on > "$T/ace1.out"

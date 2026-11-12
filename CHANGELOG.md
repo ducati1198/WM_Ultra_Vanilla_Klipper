@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0
+
+- **Webcams (crowsnest) are set up for you.** The install asks how many cameras (1 to 4), the picture size (480p, 720p, 1080p or `WIDTHxHEIGHT`) and `max_fps`; or give `--cameras N --cam-resolution ... --cam-fps N`. The camera ports are found automatically (USB by-id names, ribbon cameras through libcamera). Pi 4 / CM4 use camera-streamer, the other models ustreamer (a ribbon camera: camera-streamer, or spyglass on a Pi 5), editable per camera in `crowsnest.conf`.
+- **`crowsnest.conf` is rewritten for crowsnest v5** (the old template had v4 options that v5 ignores) and starts with an explanation of every option and a link to the crowsnest manual. An existing `crowsnest.conf` is never overwritten: the new explained copy is saved as `crowsnest.conf.new`.
+- **Fluidd lists the cameras** as Camera, Camera 2, Camera 3 (and 4): the `[webcam ...]` sections are added to `moonraker.conf`, above anything else, and ones you made yourself are left alone.
+- **`./installer.sh --webcam-setup`** repeats the camera questions later (copy of the old file kept, service restarted).
+
 ## 2.0.12
 
 - **Update: the screen's version is the version of the screen's files, not of the installer folder.** After a `git pull` the installer folder is already new, so `--update` compared GitHub with the folder, said "Already up to date" and then stamped the version marks as new while the panel files were still the old ones. Now `Installed` comes from `zr_version.txt` next to the panels (then `~/wm-screen-backup/version`), and when the numbers match but the panel files differ from the newest ones, the update refreshes them anyway. `--post-update` no longer stamps the version marks unless the panel files really are that version's.

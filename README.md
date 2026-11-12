@@ -261,7 +261,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Timelapse | `ffmpeg` and `moonraker-timelapse` at a pinned commit (see `config/pins/addons.txt`), downloaded from mainsail-crew on GitHub and checked |
 | Klipper gcode shell command (installed automatically; `--shell-command off` skips it) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
 | Obico, OctoApp, OctoEverywhere (optional add-ons, not asked during the install; menu → Add-ons) | the makers' own projects, cloned from GitHub into `~/moonraker-obico`, `~/octoapp`, `~/octoeverywhere` and installed with their own installers, pointed at this Pi's Moonraker. See "Remote access add-ons" below |
-| Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
+| Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended. The install asks how many cameras, the picture size and the speed, and writes `~/printer_data/config/crowsnest.conf` with every option explained. See "Webcams" below |
 
 ### 3.2b Bring your own calibration over: `--import-settings`
 
@@ -763,6 +763,23 @@ verbose: True
 ```
 
 Run it with `RUN_SHELL_COMMAND CMD=hello`; extra words go in `PARAMS="a b"`. Commands run as the Pi user `t13dp` and are stopped after `timeout` seconds. Only add commands you trust, since anything that can send G-code to the printer (Fluidd console, a sliced file) can start them. If you remove the extension while `printer.cfg` still has a `[gcode_shell_command ...]` section, Klipper will not start. `--doctor` checks that the file is in place, and `--uninstall` removes it.
+
+## Webcams (crowsnest)
+
+The install asks three things (or take them from the command line, then nothing is asked):
+
+| Question | Command-line option | Default |
+|---|---|---|
+| How many cameras (1 to 4) | `--cameras N` | the number found, at least 1 |
+| Picture size: 480p (640x480), 720p (1280x720), 1080p (1920x1080) or your own `WIDTHxHEIGHT` | `--cam-resolution 480p\|720p\|1080p\|WxH` | 720p |
+| Pictures per second (`max_fps`, 1 to 60) | `--cam-fps N` | 15 |
+
+- **The camera ports are found automatically.** USB cameras are listed by their stable `/dev/v4l/by-id/...-video-index0` name (it does not change when you move the plug), a ribbon (CSI) camera by its libcamera path. See what is found: `python3 scripts/wm_crowsnest.py detect`. A camera that is not plugged in yet gets a placeholder `device:` line to fill in.
+- **The streamer** is chosen by Pi model: Pi 4 and Compute Module 4 use `camera-streamer`; every other model (Pi 3, Zero 2, Pi 5) uses `ustreamer`. A ribbon camera needs libcamera, so it gets `camera-streamer` (or `spyglass` on a Pi 5, where camera-streamer does not run). Change `mode:` in `crowsnest.conf` any time, per camera.
+- **`crowsnest.conf`** starts with a long comment that explains every option of `[crowsnest]` and `[cam ...]` and links to the full manual: https://github.com/mainsail-crew/crowsnest/blob/master/README.md . Cameras are `[cam 1]` to `[cam 4]` on ports 8080 to 8083 (`/webcam/`, `/webcam2/`, `/webcam3/`, `/webcam4/`).
+- **Fluidd** lists the cameras as `Camera`, `Camera 2`, `Camera 3` (and `Camera 4`): the installer adds the `[webcam ...]` sections to `moonraker.conf`. Webcam sections you made yourself are left alone.
+- **An existing `crowsnest.conf` is never overwritten.** The explained copy is saved next to it as `crowsnest.conf.new`, and the questions are skipped.
+- **Ask again later:** `./installer.sh --webcam-setup` repeats the questions, keeps a copy of the old file (`crowsnest.conf.wm-before-webcam-setup-...`), writes the new one and restarts the service.
 
 ## Backup before every update
 

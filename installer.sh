@@ -39,6 +39,8 @@
 # ./installer.sh --install             the normal install (skips the menu)
 # ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
+# ./installer.sh --cameras N --cam-resolution 480p|720p|1080p|WxH --cam-fps N   webcam answers given on the command line (otherwise asked)
+# ./installer.sh --webcam-setup        ask the camera questions again and rewrite crowsnest.conf (a copy of the old one is kept)
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
 # ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). Add-on only: not asked during the install
 # ./installer.sh --spoolman on|off     Spoolman (filament spool tracking, shown in Fluidd). Add-on only: not asked during the install
@@ -82,7 +84,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 MOONRAKER_CHANGED=0; IMPORT_HOST=""; SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT=""; CAM_RES=""; CAM_FPS=""; CLI_CAM_COUNT=""; CLI_CAM_RES=""; CLI_CAM_FPS=""; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -193,6 +195,10 @@ while [ $# -gt 0 ]; do
         --install)      MODE=install; EXPLICIT_INSTALL=1 ;;
         --remove)       MODE=remove; ARG1="${2:-}"; shift ;;
         --webcam)       case "${2:-}" in on|yes|1) WANT_CROWSNEST=1 ;; off|no|0) WANT_CROWSNEST=0 ;; *) print_error "--webcam needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE webcam"; CLI_WEBCAM="$WANT_CROWSNEST"; shift ;;
+        --cameras)      CAM_COUNT="${2:-}"; CLI_CAM_COUNT="$CAM_COUNT"; shift ;;
+        --cam-resolution) CAM_RES="${2:-}"; CLI_CAM_RES="$CAM_RES"; shift ;;
+        --cam-fps)      CAM_FPS="${2:-}"; CLI_CAM_FPS="$CAM_FPS"; shift ;;
+        --webcam-setup) MODE=webcamsetup ;;
         --timelapse)    case "${2:-}" in on|yes|1) WANT_TIMELAPSE=1 ;; off|no|0) WANT_TIMELAPSE=0 ;; *) print_error "--timelapse needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE timelapse"; CLI_TIMELAPSE="$WANT_TIMELAPSE"; shift ;;
         --first-start|--enable-klipper) MODE=firststart ;;
         --hw-test)      MODE=hwtest ;;
@@ -1452,13 +1458,93 @@ crowsnest_follow_camera() {   # started only when a camera is plugged in
     if camera_present; then SUDO systemctl enable crowsnest; SUDO systemctl restart crowsnest; return 0; fi
     SUDO systemctl stop crowsnest; SUDO systemctl disable crowsnest; return 1
 }
+cam_py() { echo "$SCRIPT_DIR/scripts/wm_crowsnest.py"; }
+cam_ask() {   # cam_ask "question" default check_cmd -> sets CAM_ANSWER; asks again until check_cmd accepts it. WM_ASSUME_YES: the default.
+    local q="$1" d="$2" chk="$3" a v
+    if [ "${WM_ASSUME_YES:-0}" = 1 ]; then CAM_ANSWER="$d"; return 0; fi
+    while :; do
+        read -r -p "$(echo -e "${YELLOW}?${NC} $q [${d}] ")" a || a=""
+        a="${a:-$d}"
+        v="$(python3 -I "$(cam_py)" $chk "$a" 2>&1)" && { CAM_ANSWER="$v"; return 0; }
+        print_warning "${v#wm_crowsnest: }"
+    done
+}
+camera_questions() {   # how many cameras, picture size, speed. An existing crowsnest.conf is never touched: no questions then (use --webcam-setup)
+    local py conf="$HOME_DIR/printer_data/config/crowsnest.conf" found def v r
+    py="$(cam_py)"; [ -f "$py" ] || return 0
+    if [ -f "$conf" ] && [ "$MODE" != webcamsetup ]; then
+        print_info "crowsnest.conf already exists, so it is kept as it is. A new explained copy is saved next to it as crowsnest.conf.new. To answer the camera questions again: ./installer.sh --webcam-setup"
+        return 0
+    fi
+    # values given on the command line are checked now
+    [ -z "$CAM_COUNT" ] || CAM_COUNT="$(python3 -I "$py" count "$CAM_COUNT" 2>&1)" || die_with_fix "--cameras: ${CAM_COUNT#wm_crowsnest: }" "use a number from 1 to 4."
+    [ -z "$CAM_RES" ] || CAM_RES="$(python3 -I "$py" resolution "$CAM_RES" 2>&1)" || die_with_fix "--cam-resolution: ${CAM_RES#wm_crowsnest: }" "use 480p, 720p, 1080p or WIDTHxHEIGHT."
+    [ -z "$CAM_FPS" ] || CAM_FPS="$(python3 -I "$py" fps "$CAM_FPS" 2>&1)" || die_with_fix "--cam-fps: ${CAM_FPS#wm_crowsnest: }" "use a number from 1 to 60."
+    [ -n "$CAM_COUNT" ] && [ -n "$CAM_RES" ] && [ -n "$CAM_FPS" ] && return 0
+    print_header "Webcams (crowsnest)"
+    why "Camera-streamer is used on a Pi 4 / CM4, ustreamer on the other models (a ribbon camera needs camera-streamer, or spyglass on a Pi 5). Every option stays editable in crowsnest.conf, which explains each one."
+    found="$(python3 -I "$py" detect)"; echo "  Cameras found:"; echo "$found" | sed 's/^/    /'
+    def="$(python3 -I "$py" detect --count)"; [ "${def:-0}" -ge 1 ] 2>/dev/null || def=1; [ "$def" -le 4 ] || def=4
+    if [ -z "$CAM_COUNT" ]; then cam_ask "How many cameras do you want to set up (1 to 4)?" "$def" count; CAM_COUNT="$CAM_ANSWER"; fi
+    if [ -z "$CAM_RES" ]; then
+        if [ "${WM_ASSUME_YES:-0}" != 1 ]; then echo "  Picture size:  1) 480p (640x480, lightest)   2) 720p (1280x720)   3) 1080p (1920x1080, heaviest)   or type WIDTHxHEIGHT"; fi
+        cam_ask "Picture size (1, 2, 3 or WIDTHxHEIGHT)?" 2 resolution; CAM_RES="$CAM_ANSWER"
+    fi
+    if [ -z "$CAM_FPS" ]; then cam_ask "Pictures per second (max_fps, 1 to 60)?" 15 fps; CAM_FPS="$CAM_ANSWER"; fi
+    return 0
+}
+crowsnest_conf_make() {   # a fresh crowsnest.conf with every option explained; one that exists is kept and the explained copy goes next to it
+    local conf="$HOME_DIR/printer_data/config/crowsnest.conf" py model rc n
+    py="$(cam_py)"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would write crowsnest.conf (explained; an existing one is kept, the new copy goes next to it as crowsnest.conf.new)${NC}"; return 0; fi
+    if [ ! -f "$py" ]; then [ -f "$conf" ] || cp "$SCRIPT_DIR/config/crowsnest.conf" "$conf"; return 0; fi
+    model="$(pi_model)"; n="${CAM_COUNT:-1}"
+    local args=(--model "$model" --count "$n" --resolution "${CAM_RES:-720p}" --fps "${CAM_FPS:-15}")
+    if [ ! -f "$conf" ]; then
+        python3 -I "$py" conf "${args[@]}" --out "$conf" >/dev/null; rc=$?
+        [ "$rc" = 10 ] && print_success "crowsnest.conf written: $n camera(s), ${CAM_RES:-720p}, ${CAM_FPS:-15} fps. Every option is explained at the top of the file." || warn_later "crowsnest.conf could not be written."
+    elif ! grep -q 'Written by the WM_Ultra_Vanilla_Klipper installer' "$conf" && [ ! -f "$conf.new" ]; then
+        python3 -I "$py" conf "${args[@]}" --out "$conf" --keep >/dev/null
+        print_info "Your crowsnest.conf is kept as it is. A new copy that explains every option is next to it: crowsnest.conf.new"
+    fi
+}
+moonraker_webcams() {   # the cameras Fluidd lists: [webcam Camera], [webcam Camera 2], [webcam Camera 3] ... in moonraker.conf (existing ones are left alone)
+    local conf="$HOME_DIR/printer_data/config/moonraker.conf" py n out rc
+    py="$(cam_py)"; [ -f "$py" ] && [ -f "$conf" ] || return 0
+    n="$CAM_COUNT"; [ -n "$n" ] || n="$(python3 -I "$py" cams "$HOME_DIR/printer_data/config/crowsnest.conf")"; [ "${n:-0}" -ge 1 ] 2>/dev/null || n=1
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add the missing [webcam Camera ...] sections to moonraker.conf${NC}"; return 0; fi
+    out="$(python3 -I "$py" moonraker "$conf" --count "$n")"; rc=$?
+    if [ "$rc" = 10 ]; then
+        cp -p "$conf" "$conf.wm-before-webcams-$STAMP"
+        python3 -I "$py" moonraker "$conf" --count "$n" --write >/dev/null && { print_success "moonraker.conf: ${out#would add: } now listed as webcams in Fluidd (copy: moonraker.conf.wm-before-webcams-$STAMP)"; MOONRAKER_CHANGED=1; }
+    else print_success "moonraker.conf already lists the webcams"; fi
+}
+do_webcam_setup() {   # ./installer.sh --webcam-setup
+    print_header "Webcam setup"
+    load_answers || true
+    [ -d "$HOME_DIR/crowsnest" ] || die_with_fix "the webcam service is not installed." "install it first: ./installer.sh --update --only-addon webcam --webcam on"
+    local conf="$HOME_DIR/printer_data/config/crowsnest.conf"
+    camera_questions
+    CAM_COUNT="${CAM_COUNT:-1}"; CAM_RES="${CAM_RES:-720p}"; CAM_FPS="${CAM_FPS:-15}"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rewrite crowsnest.conf ($CAM_COUNT camera(s), $CAM_RES, $CAM_FPS fps; a copy of the old one is kept)${NC}"; return 0; fi
+    if [ -f "$conf" ]; then
+        ask_yn "Replace crowsnest.conf with these settings? A copy of the old one is kept." y || { echo "Nothing changed."; return 0; }
+        cp -p "$conf" "$conf.wm-before-webcam-setup-$STAMP"; rm -f "$conf"
+    fi
+    crowsnest_conf_make
+    moonraker_webcams
+    save_answers
+    if [ -f /etc/systemd/system/crowsnest.service ] || [ "$TESTING" = 1 ]; then crowsnest_follow_camera && print_success "crowsnest restarted with the new settings." || print_info "No camera found, so the webcam service stays off. Plug one in, then run this again or: ./installer.sh --first-start"; fi
+    [ "${MOONRAKER_CHANGED:-0}" = 1 ] && SUDO systemctl restart moonraker
+    return 0
+}
 step_crowsnest() {
     [ "$WANT_CROWSNEST" = 1 ] || return 0
     print_header "Step 13: webcam service (crowsnest)"
     why "Streams USB cameras on ports 8080-8083, where the nginx config looks for them. Built from the version WonderMaker ships."
     local pin url sha; pin="$(addon_pin crowsnest)"; url="${pin%|*}"; sha="${pin#*|}"
     fetch_addon "$url" "$sha" "$HOME_DIR/crowsnest" || { warn_later "Could not download crowsnest (network?)."; return 0; }
-    [ -f "$HOME_DIR/printer_data/config/crowsnest.conf" ] || run cp "$SCRIPT_DIR/config/crowsnest.conf" "$HOME_DIR/printer_data/config/crowsnest.conf"
+    crowsnest_conf_make
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo make install in ~/crowsnest (unattended; builds ustreamer, installs crowsnest.service)${NC}"
     elif [ "$TESTING" = 1 ]; then echo "[test] sudo make install (crowsnest)" >> "$HOME_DIR/.sudo.log"
     else
@@ -1469,6 +1555,7 @@ step_crowsnest() {
         cp "$conf.wm-keep" "$conf"; rm -f "$conf.wm-keep"
     fi
     record "HOMEDIR crowsnest"; record "FILE /etc/systemd/system/crowsnest.service"
+    moonraker_webcams
     if crowsnest_follow_camera; then print_success "crowsnest installed and started: a camera was found."
     else print_success "crowsnest installed. No camera found, so it is not started. Plug a camera in, then: sudo systemctl enable --now crowsnest   (or ./installer.sh --first-start)"; fi
 }
@@ -1494,6 +1581,7 @@ questions() {
     print_header "A few questions"
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
     ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
+    [ "$WANT_CROWSNEST" = 1 ] && camera_questions
     ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
     if [ "$WANT_ACEPRO" = ask ]; then   # the ACE Pro driver and config come from the wm-ultra-fluidd-acepro-panel project (downloaded)
         ask_yn "Do you have an Anycubic ACE Pro to connect (adds its Klipper driver and config)?" n && WANT_ACEPRO=1 || WANT_ACEPRO=0
@@ -1695,6 +1783,9 @@ REPO_DIR=$REPO_DIR
 KS_PIN=$(addon_pin klipperscreen | cut -d'|' -f2)
 WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
+CAM_COUNT=$CAM_COUNT
+CAM_RES=$CAM_RES
+CAM_FPS=$CAM_FPS
 WANT_SHELLCMD=$WANT_SHELLCMD
 WANT_OBICO=$WANT_OBICO
 WANT_OCTOAPP=$WANT_OCTOAPP
@@ -1716,6 +1807,7 @@ load_answers() {
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
             WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|WANT_SPOOLMAN|WANT_ACEPRO|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
+            CAM_COUNT) [ -n "${CLI_CAM_COUNT:-}" ] || CAM_COUNT="$v" ;; CAM_RES) [ -n "${CLI_CAM_RES:-}" ] || CAM_RES="$v" ;; CAM_FPS) [ -n "${CLI_CAM_FPS:-}" ] || CAM_FPS="$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
@@ -3184,6 +3276,7 @@ case "$MODE" in
     zrtools)    do_zr_tools; exit $? ;;
     pisensors)  guard_not_printing; step_pi_sensors; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     rpicfg)     do_rpicfg; exit $? ;;
+    webcamsetup) do_webcam_setup; exit $? ;;
     pidcfg)     do_pidcfg; exit $? ;;
     importset)  do_import_settings; exit $? ;;
     canids)     do_can_ids; exit $? ;;
