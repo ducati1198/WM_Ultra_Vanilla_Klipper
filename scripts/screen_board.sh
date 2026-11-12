@@ -14,6 +14,7 @@
 # bash scripts/screen_board.sh --zr-pi --pi HOST            check the ZR Tools macros on the Pi (asks its user name and password), install them when missing
 # bash scripts/screen_board.sh --fix-clock                   turn on automatic time sync (NTP), fix apt's date check
 # bash scripts/screen_board.sh --free-space                  list what is safe to erase (sizes, warnings), erase what you pick and confirm
+# bash scripts/screen_board.sh --post-update                 (re)apply the permissions the Update and Factory mode buttons need (sudoers, root copy) and the version marks
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
@@ -151,6 +152,7 @@ while [ $# -gt 0 ]; do
         --zr-pi) MODE=zrpi ;;
         --install) MODE=install; NOARGS=0 ;;
         --update) MODE=update ;;
+        --post-update) MODE=postupdate ;;
         --check-updates|--whats-new) MODE=whatsnew ;;
         --remove) MODE=removefiles; ARG1="${2:-}"; shift ;;
         --doctor) MODE=doctor ;;
@@ -442,7 +444,7 @@ step_klipperscreen() {
     fi
     # ZR Tools panel files
     if [ "$DRY" != 1 ]; then
-        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
+        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt" 2>/dev/null
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
@@ -913,6 +915,19 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
     return 0
 }
+do_post_update() {   # the system-level files that buttons need (root copy of this script, sudoers lines, version marks). An update runs this with the NEW
+    # script, so what a new version adds is applied even when the update itself was started by an older script. Also the fix when a button says its permission is missing.
+    print_header "Screen buttons: permissions and version marks"
+    need_ks; [ "$DRY" = 1 ] && { echo -e "  ${DIM}would refresh the root copy of this script, the sudoers lines and the version marks${NC}"; return 0; }
+    mkdir -p "$BK"
+    cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"; [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && cp "$SCRIPT_DIR/lib_free_space.sh" "$BK/lib_free_space.sh"
+    [ -f "$REPO_DIR/VERSION" ] && { cp "$REPO_DIR/VERSION" "$BK/version"; [ -d "$KS_DIR/panels" ] && cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt"; }
+    local idir="${WM_INSTALLER_DIR:-$REPO_DIR}"
+    case "$(basename "$idir")" in WM_Ultra_Vanilla_Klipper*) echo "$idir" > "$BK/installer_dir" ;; esac
+    step_sudo_nopasswd
+    step_restore_button
+    print_success "Done. The Update and Factory mode buttons have their permission, and the version is $(cat "$BK/version" 2>/dev/null)."
+}
 do_update_board() {
     if [ "$DETACH" = 1 ] && [ "$TESTING" != 1 ]; then   # the update restarts KlipperScreen, which would kill the button that started it: run as a separate systemd unit
         mkdir -p "$BK"; { echo "== update started $(date '+%F %T')"; } > "$BK/update.log"
@@ -947,7 +962,7 @@ do_update_board_core() {
     ls -1t "$BKDIR"/screen-backup-*-before-update.tgz 2>/dev/null | tail -n +6 | while read -r o; do rm -f "$o"; done   # only the newest 5 automatic backups stay; ones you made yourself are never deleted
     progress_bar 40 100 "Update step 3 of 6: copying the new files"
     if [ "$DRY" != 1 ]; then
-        mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
+        mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; cp "$w/VERSION" "$KS_DIR/panels/zr_version.txt"
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
@@ -971,6 +986,7 @@ PYE
         [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore && sudo install -o root -g root -m 644 "$w/scripts/lib_free_space.sh" /usr/local/sbin/lib_free_space.sh && write_restore_sudoers; }   # the sudoers line also gets the --update command (boards installed before the Update button)
     fi
     refresh_installer_folder "$w"
+    [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] || WM_INSTALLER_DIR="$REPO_DIR" WM_ASSUME_YES=1 bash "$w/scripts/screen_board.sh" --post-update --yes 2>&1 | sed 's/^/  /'   # with the NEW script: sudoers, root copy, version marks
     if [ "$TESTING" != 1 ] && [ "$(id -u)" = 0 ]; then   # started by the Update button (root): the files must stay the board user's own
         chown -R "$WM_USER": "$BK" "$KS_DIR" "${BKDIR:-$BK}" 2>/dev/null; chown "$WM_USER": "$CFG_DIR/KlipperScreen.conf" 2>/dev/null
         case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) chown -R "$WM_USER": "$REPO_DIR" 2>/dev/null ;; esac
@@ -1256,6 +1272,7 @@ case "$MODE" in
     zrpi) do_zr_pi ;;
     setdriver) do_setdriver ;;
     update) do_update_board ;;
+    postupdate) do_post_update ;;
     whatsnew) do_whatsnew_board ;;
     removefiles) do_remove_files ;;
     doctor) do_doctor_board ;;

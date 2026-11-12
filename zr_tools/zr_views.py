@@ -548,16 +548,17 @@ class ViewsMixin:
         threading.Thread(target=_check, daemon=True).start()
 
     def _update_answer(self, latest, installed):
+        versions = "Installed: %s    Latest: %s" % (installed or "unknown", latest or "unknown")
         try:
             if not latest:
-                self._screen.show_popup_message("Could not check for a new version. Is the screen board online?")
+                self._screen.show_popup_message("Could not check for a new version. Is the screen board online?\n" + versions)
             elif not L.version_newer(latest, installed):
-                self._screen.show_popup_message("Up to date: version %s." % (installed or latest), 1)
+                self._screen.show_popup_message("Up to date.\n" + versions, 1)
             else:
                 self._confirm_call("Update",
-                                   "Version %s is available (this screen has %s).\n"
+                                   "A new version is available.\n%s\n"
                                    "It updates the installer files and the screen, then restarts KlipperScreen and Klipper.\n"
-                                   "The screen goes dark for about a minute. Do not power off. Update now?" % (latest, installed or "an older version"),
+                                   "The screen goes dark for about a minute. Do not power off. Update now?" % versions,
                                    self._run_update)
         except Exception:
             logging.exception("ZR Tools: update check")
@@ -566,11 +567,26 @@ class ViewsMixin:
     def _run_update(self):
         if not self._require_idle():
             return
+
+        def _go():
+            ok, msg = L.start_update()
+            GLib.idle_add(self._update_started, ok, msg)
+        self._screen.show_popup_message("Starting the update ...", 1)
+        threading.Thread(target=_go, daemon=True).start()
+
+    def _update_started(self, ok, msg):
         try:
-            subprocess.Popen(L.update_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-            self._screen.show_popup_message("Updating. The screen restarts by itself in about a minute.", 1)
-        except OSError as e:
-            self._screen.show_popup_message("Could not start the update: %s" % e)
+            if ok:
+                self._screen.show_popup_message("Updating. The screen restarts by itself in about a minute.", 1)
+            else:
+                logging.error("ZR Tools: update did not start: %s", msg)
+                hint = ""
+                if "password" in msg.lower() or "not allowed" in msg.lower():
+                    hint = "\nThe update permission is missing. In a terminal on the board run once:\nbash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --post-update"
+                self._screen.show_popup_message("Could not start the update: %s%s" % (msg, hint))
+        except Exception:
+            logging.exception("ZR Tools: update start")
+        return False
 
     def _run_factory_restore(self):
         try:

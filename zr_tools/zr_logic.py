@@ -2,7 +2,9 @@
 # Settings, ACE state, calibration list, collision settings, dryer presets, small helpers.
 
 import configparser
+import glob
 import os
+import subprocess
 
 SETTINGS_FILE = os.path.expanduser("~/printer_data/config/zr_screen.conf")
 DEFAULTS = {"layout": "tabs", "density": "comfortable", "theme": "dark", "style": "soft"}
@@ -376,11 +378,34 @@ def version_newer(latest, installed):
 
 
 def installed_version(path=None):
+    """The version of the files on this screen. Every install and update writes it next to the panels (zr_version.txt) and to
+    ~/wm-screen-backup/version; the installer folder's VERSION is the last resort. '' when none can be read."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    files = [path] if path else [os.path.join(here, "zr_version.txt"), BOARD_VERSION_FILE] + sorted(glob.glob(os.path.expanduser("~/WM_Ultra_Vanilla_Klipper*/VERSION")))
+    for f in files:
+        try:
+            with open(f) as fh:
+                v = fh.readline().strip()
+            if version_tuple(v):
+                return v
+        except OSError:
+            pass
+    return ""
+
+
+def start_update(cmd=None, timeout=25):
+    """Runs the Update command (sudo, root copy of the script, --detach: it hands over to systemd and returns at once).
+    Returns (ok, message). A refused sudo (missing rule) gives ok=False and the reason, instead of silently doing nothing."""
     try:
-        with open(path or BOARD_VERSION_FILE) as f:
-            return f.readline().strip()
-    except OSError:
-        return ""
+        r = subprocess.run(cmd or update_command(), capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return True, ""             # still running after the hand-over: it is working
+    except OSError as e:
+        return False, str(e)
+    if r.returncode == 0:
+        return True, ""
+    lines = (r.stderr or r.stdout or "").strip().splitlines()
+    return False, lines[-1] if lines else "exit code %d" % r.returncode
 
 
 def latest_version(url=None, timeout=10):

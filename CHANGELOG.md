@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.9
+
+- **Update button: it showed "new version" when the screen already had the latest.** The screen read its version from a file that only a 2.0.8 install wrote, so an update run by an older script left it "unknown" and every check offered an update. Now every install and update writes the version next to the panels (`zr_version.txt`) and to `~/wm-screen-backup/version`, and the screen reads its own panel version first. The dialog shows **Installed** and **Latest** in every case (up to date, new version, GitHub unreachable).
+- **Update button: it did nothing when the sudoers rule was missing**, and said nothing. It now reports why it could not start, with the command to fix it. An update started by an older script used to leave the old sudoers line, so the new button could not run; an update now runs the new script's `--post-update` at its end, which refreshes the root copy of the script, the sudoers lines and the version marks.
+- **New `--post-update`**: (re)applies the permissions the Update and Factory mode buttons need. Run it once over SSH on a board whose Update button says the permission is missing.
+
 ## 2.0.8
 
 - **Screen board install: the board user gets sudo without a password.** The install asks once (default yes, `--yes` accepts) and writes `/etc/sudoers.d/wm-user-nopasswd` (checked with `visudo`). After that the install, the Update button and later updates never stop at a password prompt. Anyone who can log in as that user then has full control of the board, so Factory mode and `--factory-restore` remove the rule again. `--no-sudo-rule` skips it.

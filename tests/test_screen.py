@@ -204,6 +204,21 @@ class Logic(unittest.TestCase):
         open(f, "w").write("2.0.7\n")
         self.assertEqual(L.installed_version(f), "2.0.7")
         self.assertEqual(L.latest_version("http://127.0.0.1:9/none", timeout=1), "")
+        # the version file next to the panels is found first, so the screen never says "unknown" and offers the update it already has
+        with mock.patch.object(L, "BOARD_VERSION_FILE", os.path.join(d, "none")):
+            panel = os.path.join(SRC, "zr_version.txt")
+            had = os.path.exists(panel)
+            try:
+                open(panel, "w").write("7.7.7\n")
+                self.assertEqual(L.installed_version(), "7.7.7")
+            finally:
+                if not had:
+                    os.remove(panel)
+        # a failed start (sudo refused) is reported, not swallowed
+        ok, msg = L.start_update(["/bin/sh", "-c", "echo 'sudo: a password is required' >&2; exit 1"])
+        self.assertFalse(ok); self.assertIn("password is required", msg)
+        self.assertEqual(L.start_update(["/bin/true"]), (True, ""))
+        self.assertEqual(L.start_update(["/bin/sleep", "3"], timeout=1), (True, ""))
         shutil.rmtree(d)
 
     def test_job_status_light_patch_always_shows_the_button(self):
