@@ -1306,6 +1306,11 @@ check "dev box: the Doctor says dev mode is on" "yes n | WM_HOME=$DBH WM_INSTALL
 check "dev box: --pid-cfg and --cfg-merge say it too" "WM_HOME=$DBH WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --pid-cfg 2>&1 </dev/null | grep -q 'Dev box mode is ON' && WM_HOME=$DBH WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --cfg-merge 2>&1 </dev/null | grep -q 'Dev box mode is ON'"
 
 echo "== vanilla Klipper and Moonraker (WM_Ultra_Vanilla_Klipper)"
+if [ -d "$ROOT/.git" ]; then
+for m in ultra ultra-s; do
+check "$m: every file in SHA256SUMS and modules.sha256 is tracked by git (the bundled Klipper's .gitignore hides *.so)" "cd $ROOT && ! (awk '{print \"factory/$m/\" \$2}' factory/$m/SHA256SUMS; awk '{print \"factory/$m/klipper/\" \$2}' factory/$m/modules.sha256) | sort -u | comm -23 - <(git ls-files | sort) | grep -q ."
+done
+fi
 for m in ultra ultra-s; do
 check "$m: Klipper is the pinned upstream tree (COPYING, klippy.py, lib/) with the Pi-side modules" "[ -f $ROOT/factory/$m/klipper/COPYING ] && [ -f $ROOT/factory/$m/klipper/klippy/klippy.py ] && [ -d $ROOT/factory/$m/klipper/lib ] && for f in wm_adaptive_mesh wm_mcu_tweaks wm_pin_pulse wm_stepper_diag wm_gcode_compat wm_ready_compat; do [ -f $ROOT/factory/$m/klipper/klippy/extras/\$f.py ] || exit 1; done"
 check "$m: WonderMaker's 5 compiled modules are the factory files (modules.sha256)" "(cd $ROOT/factory/$m/klipper && sha256sum -c ../modules.sha256)"
