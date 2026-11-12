@@ -1,9 +1,12 @@
 # Changelog
 
+## 2.2.1
+
+- **The Klipper, Moonraker and Fluidd versions note is removed.** Fluidd never shows the `info_tags` of an update entry, so the note could not be seen. The installer's entry in Fluidd keeps its plain description, which now says that the Update button applies the update (the `wm-pi-update` watcher of 2.2.0 stays).
+
 ## 2.2.0
 
 - **Fluidd's Update button applies the installer update.** Moonraker only runs `git pull` on the installer folder. A small systemd watcher (`wm-pi-update.path`, started by the install and by `--update`) notices the new commit and runs `./installer.sh --update --yes` for you (`scripts/pi_update.sh`), outside Moonraker so its restart does not stop it. It does nothing when the installed version already is the new one, when a print is running or paused (Moonraker also refuses to update during a print), or when your user has no passwordless sudo (then run `./installer.sh --update` in SSH). Log: `~/wm-pi-update.log`. The units are removed by the uninstall.
-- **Klipper, Moonraker and Fluidd versions in Fluidd's software update.** Klipper and Moonraker here are the tested files from this repository, not git clones, so Fluidd cannot read their versions. The installer's entry in Fluidd now carries them as a note (`Installed: Klipper v0.13.0-827-g29d4ec2d6, Moonraker v0.11.0-4-gb559b9a, Fluidd v1.37.7`), refreshed at every install and update.
 
 ## 2.1.1
 

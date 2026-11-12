@@ -783,7 +783,7 @@ The install asks three things (or take them from the command line, then nothing 
 
 ## Update from Fluidd
 
-In Fluidd's software update page the entry `WM_Ultra_Vanilla_Klipper` shows the installed Klipper, Moonraker and Fluidd versions in its description (Klipper and Moonraker are the tested files from this repository, not git clones, so Fluidd cannot read them itself). Its **Update** button downloads the new installer; a small service (`wm-pi-update`) then runs `./installer.sh --update --yes` for you, the same as in SSH: backup first, then packages, configs, the Fluidd panel and add-ons, and a restart of Klipper and Moonraker at the end (Fluidd disconnects for about a minute). Nothing is applied while a print is running or paused (Moonraker refuses the update then too), when the installed version already is the new one, or when your user has no passwordless sudo: run `./installer.sh --update` in SSH then. Log: `~/wm-pi-update.log`.
+In Fluidd's software update page the entry `WM_Ultra_Vanilla_Klipper` has an **Update** button. It downloads the new installer; a small service (`wm-pi-update`) then runs `./installer.sh --update --yes` for you, the same as in SSH: backup first, then packages, configs, the Fluidd panel and add-ons, and a restart of Klipper and Moonraker at the end (Fluidd disconnects for about a minute). Nothing is applied while a print is running or paused (Moonraker refuses the update then too), when the installed version already is the new one, or when your user has no passwordless sudo: run `./installer.sh --update` in SSH then. Log: `~/wm-pi-update.log`.
 
 ## Backup before every update
 

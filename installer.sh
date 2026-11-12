@@ -1422,15 +1422,8 @@ step_acepro() {
     else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
 }
 
-versions_line() {   # "Klipper v0.13.0-827-g29d4ec2d6, Moonraker v0.11.0-4-gb559b9a, Fluidd v1.37.7" (the installed ones; Fluidd cannot read them: Klipper and Moonraker are not git clones)
-    local k m f
-    k="$(tr -d '[:space:]' < "$HOME_DIR/klipper/klippy/.version" 2>/dev/null)"
-    m="$(grep '^moonraker|' "$SCRIPT_DIR/config/pins/versions.txt" 2>/dev/null | cut -d'|' -f2)"
-    f="$(tr -d '[:space:]' < "$HOME_DIR/fluidd/.version" 2>/dev/null)"
-    echo "Klipper ${k:-unknown}, Moonraker ${m:-unknown}, Fluidd ${f:-unknown}"
-}
 installer_update_block() {   # the [update_manager] section of this installer: the Update button downloads it, wm-pi-update.path applies it
-    printf '[update_manager WM_Ultra_Vanilla_Klipper]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=Pi installer. Installed: %s. The Update button downloads the new installer and applies it (like ./installer.sh --update, log: ~/wm-pi-update.log)\n' "$REPO_DIR" "$(versions_line)"
+    printf '[update_manager WM_Ultra_Vanilla_Klipper]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=WonderMaker Ultra vanilla Klipper Pi installer. The Update button downloads the new installer and applies it (like ./installer.sh --update, log: ~/wm-pi-update.log)\n' "$REPO_DIR"
 }
 moonraker_add_update_entries() {   # [update_manager ...] for this installer's repo and the ACE Pro panel repo, so Fluidd shows when GitHub has a newer version
     local conf="$HOME_DIR/printer_data/config/moonraker.conf" added=""
@@ -1449,7 +1442,7 @@ print("\n".join(out))
 PY
 )"
         if [ "$have" != "$(echo "$want" | sed '/^$/d')" ]; then
-            if [ -n "$have" ]; then moonraker_drop_update_section WM_Ultra_Vanilla_Klipper >/dev/null; added="WM_Ultra_Vanilla_Klipper (versions refreshed)"
+            if [ -n "$have" ]; then moonraker_drop_update_section WM_Ultra_Vanilla_Klipper >/dev/null; added="WM_Ultra_Vanilla_Klipper (description refreshed)"
             else cp "$conf" "$conf.wm-before-updatemgr-$STAMP"; added="WM_Ultra_Vanilla_Klipper"; fi
             printf '\n%s' "$want" >> "$conf"
             MOONRAKER_CHANGED=1
