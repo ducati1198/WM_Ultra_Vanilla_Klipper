@@ -822,7 +822,9 @@ check "rescue: KlipperScreen unit stops retrying after 3 starts in 2 minutes and
 check "rescue: the rescue unit replaces KlipperScreen (Conflicts)" "grep -q 'Conflicts=KlipperScreen.service' $SB"
 RB="$T/rb"; mkdir -p "$RB/home/wm-screen-backup" "$RB/home/printer_data/config" "$RB/usb"
 touch "$RB/wm-factory-restore"; chmod +x "$RB/wm-factory-restore"
-rs() { WM_FACTORY_BIN="${FB:-$RB/wm-factory-restore}" WM_HOME="$RB/home" WM_RESCUE_LOG="$RB/log" WM_RESCUE_DRY=1 WM_RESCUE_TEST=1 WM_RESCUE_REASON_FILE="$RB/reason" WM_RESCUE_MEDIA_DIR="$RB/usb" bash "$RS" "$@" 2>&1; }
+# The whole output is collected first and only then printed. Otherwise "rs ... | grep -q" lets grep exit at its first match, the rescue script
+# gets SIGPIPE on its next echo and dies before it writes its log line: the test then failed now and then (a race, not a fault in the script).
+rs() { local o rc; o="$(WM_FACTORY_BIN="${FB:-$RB/wm-factory-restore}" WM_HOME="$RB/home" WM_RESCUE_LOG="$RB/log" WM_RESCUE_DRY=1 WM_RESCUE_TEST=1 WM_RESCUE_REASON_FILE="$RB/reason" WM_RESCUE_MEDIA_DIR="$RB/usb" bash "$RS" "$@" 2>&1)"; rc=$?; printf '%s\n' "$o"; return $rc; }
 printf '[printer wmpi]\nmoonraker_host: 192.0.2.50\n' > "$RB/home/printer_data/config/KlipperScreen.conf"
 touch "$RB/usb/WM-FACTORY"; rs usb-check >/dev/null
 check "rescue usb: in factory mode (KlipperScreen not installed) the stick is ignored" "[ -f $RB/usb/WM-FACTORY ] && ! grep -q 'USB: WM' $RB/log"
