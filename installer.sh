@@ -1597,6 +1597,24 @@ restore_modules_from_repo() {  # copies the bundled factory modules, each checke
     print_success "$n compiled modules restored from the repository (checksums match)"
 }
 
+step_wm_modules() {   # --update: the Pi-side WonderMaker modules (wm_*.py) of this repository replace changed copies in ~/klipper
+    print_header "Pi-side WonderMaker modules"
+    why "A fix in one of the wm_*.py modules (wm_mcu_tweaks, wm_adaptive_mesh, ...) only reaches a Pi that is already installed if the update copies it. Each file is checked against the checksum list of the repository first; unchanged files are left alone. Klipper is restarted at the end of the update, which loads them."
+    local src="$SCRIPT_DIR/factory/$(model_now)" sum path f n=0 bad=0
+    [ -f "$src/SHA256SUMS" ] || { print_info "no checksum list for the $(model_now) in this repository: nothing to compare"; return 0; }
+    [ -d "$HOME_DIR/klipper/klippy/extras" ] || { print_info "~/klipper/klippy/extras is missing: nothing to refresh"; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would copy the wm_*.py modules that differ from this repository into ~/klipper/klippy/extras${NC}"; return 0; fi
+    while read -r sum path; do
+        case "$path" in klipper/klippy/extras/wm_*.py) ;; *) continue ;; esac
+        f="$src/$path"
+        if [ ! -f "$f" ] || [ "$(sha256sum "$f" | cut -d' ' -f1)" != "$sum" ]; then print_warning "$(basename "$path"): the repository copy is missing or damaged, skipped"; bad=1; continue; fi
+        [ -f "$HOME_DIR/$path" ] && [ "$(sha256sum "$HOME_DIR/$path" | cut -d' ' -f1)" = "$sum" ] && continue
+        run cp "$f" "$HOME_DIR/$path" && { n=$((n+1)); print_info "updated $(basename "$path")"; }
+    done < "$src/SHA256SUMS"
+    [ "$bad" = 0 ] || warn_later "Some Pi-side modules in this repository are damaged. Restore them: cd $REPO_DIR && git checkout -- factory"
+    if [ "$n" -gt 0 ]; then print_success "$n Pi-side module(s) updated"; else print_success "Pi-side modules are already the latest"; fi
+}
+
 validate_config() {  # prints problems; returns the number of errors. Warnings do not count.
     local cfg="$(cfg_dir)/printer.cfg" errs=0 f inc
     [ -f "$cfg" ] || { print_error "printer.cfg not found in $(cfg_dir)"; return 1; }
@@ -2004,7 +2022,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_wm_modules; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
