@@ -560,11 +560,10 @@ Never run `apt upgrade` or `apt full-upgrade` on this board: it can replace Wond
 
 Then on the **screen board** (SSH in as `t13dp`, it needs internet). Pick one way to get the files:
 
-**Option A: no git needed** (works even if apt is broken)
+**Option A: small download, no git needed** (works even if apt is broken). It is about 90 KB and has only what the board needs (KlipperScreen setup, ZR Tools, the rescue window and the USB flags). The board does not need the whole 500 MB repository.
 
 ```bash
-cd ~
-curl -fsSL https://codeload.github.com/ducati1198/WM_Ultra_Vanilla_Klipper/tar.gz/refs/heads/main | tar xz && cd WM_Ultra_Vanilla_Klipper-main
+mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main
 ```
 
 **Option B: with git** (after the clock and apt fix above, so `apt-get install -y git` works)

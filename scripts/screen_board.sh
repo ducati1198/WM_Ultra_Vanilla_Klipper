@@ -3,7 +3,8 @@
 # KlipperScreen on the WonderMaker screen board (WM-ZR-M, RK3308B)
 # =============================================================================
 # Run ON the screen board (Debian 11, user t13dp), from a clone of this repository:
-#   curl -fsSL https://codeload.github.com/ducati1198/WM_Ultra_Vanilla_Klipper/tar.gz/refs/heads/main | tar xz && cd WM_Ultra_Vanilla_Klipper-main
+#   mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main
+#   (this small download, about 90 KB, has only what the board needs. The whole repository, 500 MB, is NOT needed on the board.)
 #   bash scripts/screen_board.sh                            install (asks for the Pi IP address)
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
@@ -319,7 +320,10 @@ FREE_NEED_MB=1500
 FS_LOGS_DIR="$CFG_DIR/../logs"
 # shared with installer.sh
 # shellcheck source=scripts/lib_free_space.sh
-. "$SCRIPT_DIR/lib_free_space.sh" || { echo "scripts/lib_free_space.sh is missing; run: bash scripts/screen_board.sh --update"; exit 1; }
+# Only the "free up disk space" feature needs this helper. A copy of this script that has no helper next to it (the Factory mode button copy in
+# /usr/local/sbin, the copy in ~/wm-screen-backup) must still be able to restore, so a missing helper is not an error here.
+if [ -f "$SCRIPT_DIR/lib_free_space.sh" ]; then . "$SCRIPT_DIR/lib_free_space.sh" || { echo "$SCRIPT_DIR/lib_free_space.sh could not be read; run: bash scripts/screen_board.sh --update"; exit 1; }
+else do_free_space() { echo "  The free-space helper (lib_free_space.sh) is not next to this copy of the script. Run it from the installer folder: bash scripts/screen_board.sh --free-space"; return 0; }; fi
 
 preflight() {
     print_header "Checking this board"
@@ -353,7 +357,7 @@ save_state() {
         [ "$TESTING" = 1 ] || systemctl get-default > "$BK/default.target" 2>/dev/null
         [ ! -f /etc/X11/Xwrapper.config ] || [ -f "$BK/Xwrapper.config.orig" ] || cp /etc/X11/Xwrapper.config "$BK/Xwrapper.config.orig" 2>/dev/null
     fi
-    cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"
+    cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"; [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && cp "$SCRIPT_DIR/lib_free_space.sh" "$BK/lib_free_space.sh"
 }
 
 step_disable_factory() {
@@ -577,6 +581,7 @@ step_restore_button() {   # root-owned copy + sudoers line for the one command t
     mkdir -p "$BK"; echo "KlipperScreen on screen board, installed $STAMP, Pi $PI_HOST" > "$BK/board_mode"
     if [ "$TESTING" = 1 ]; then echo "[test] sudoers + wm-factory-restore" >> "$HOME_DIR/.sudo.log"; return 0; fi
     sudo install -o root -g root -m 755 "$SCRIPT_DIR/screen_board.sh" /usr/local/sbin/wm-factory-restore
+    [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && sudo install -o root -g root -m 644 "$SCRIPT_DIR/lib_free_space.sh" /usr/local/sbin/lib_free_space.sh
     printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/wm-factory-restore --factory-restore --yes --detach\n' "$WM_USER" | sudo tee /etc/sudoers.d/wm-factory-restore >/dev/null
     sudo chmod 440 /etc/sudoers.d/wm-factory-restore; sudo visudo -cf /etc/sudoers.d/wm-factory-restore >/dev/null || { sudo rm -f /etc/sudoers.d/wm-factory-restore; warn_later "The Factory mode button was not enabled (sudoers check failed). Use the command line."; }
     print_success "Open ZR Tools > More > System > Factory mode to go back to the factory software."
@@ -715,7 +720,7 @@ remove_klipperscreen() {
             sudo rm -f "$TOUCH_RULE" "$KS_START" "$KS_CLIENT" "$XINPUT"; sudo udevadm control --reload; sudo udevadm trigger; sudo udevadm settle
             [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
             [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
-            sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore
+            sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore /usr/local/sbin/lib_free_space.sh
             sudo systemctl disable --now wm-chamber-light-http.service >/dev/null 2>&1; sudo systemctl disable wm-chamber-light.service >/dev/null 2>&1; sudo rm -f /etc/sudoers.d/wm-chamber-light "$CL_BIN" "$CL_UNIT" "$CL_HTTP" "$CL_HTTP_UNIT"
         else echo "[test] remove seat rules, X conf, sudoers" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev" "$BK/udev_rules.created"; fi
         rm -rf "$KS_DIR" "$KS_ENV"; rm -f "$BK/board_mode"
@@ -853,7 +858,11 @@ do_restore_board() {
 fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from GitHub (no git needed)
     if [ "$TESTING" = 1 ]; then LATEST_DIR="${WM_TEST_UPDATE_DIR:-}"; [ -d "$LATEST_DIR" ]; return; fi
     LATEST_DIR="$(mktemp -d)"; LATEST_TMP="$LATEST_DIR"; trap 'rm -rf "${LATEST_TMP:-}"; exit 130' INT TERM; print_info "Downloading the newest version from GitHub ..."
-    curl -fsSL -m 120 https://codeload.github.com/ducati1198/WM_Ultra_Vanilla_Klipper/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
+    # the small screen bundle (about 90 KB) has everything the board reads. Only if it cannot be fetched, the whole repository is downloaded instead.
+    if curl -fsSL -m 60 "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz" | tar -xz -C "$LATEST_DIR" 2>/dev/null && [ -f "$LATEST_DIR/scripts/screen_board.sh" ] && [ -f "$LATEST_DIR/VERSION" ]; then return 0; fi
+    print_warning "The small download was not available: downloading the whole repository instead (it is large)."
+    rm -rf "${LATEST_DIR:?}"/* "$LATEST_DIR"/.[!.]* 2>/dev/null
+    curl -fsSL -m 600 https://codeload.github.com/ducati1198/WM_Ultra_Vanilla_Klipper/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
 }
 do_whatsnew_board() {   # reads only two small text files (VERSION and CHANGELOG.md); nothing is downloaded or saved
     print_header "What is new (read-only, changes nothing)"
@@ -880,7 +889,7 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
     return 0
 }
-do_update_board() { do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; trap - INT TERM; return $rc; }   # the downloaded copy (about 50 MB) never stays in /tmp
+do_update_board() { do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; trap - INT TERM; return $rc; }   # the downloaded copy never stays in /tmp
 do_update_board_core() {
     print_header "Update the ZR Tools screen files"
     local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
@@ -913,7 +922,7 @@ do_update_board_core() {
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
-        mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"
+        mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"; cp "$w/scripts/lib_free_space.sh" "$BK/lib_free_space.sh" 2>/dev/null
         # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)
         if [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; then
             if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 && [ "$TESTING" != 1 ]; then git -C "$REPO_DIR" pull -q --ff-only 2>/dev/null || cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR; run: cd $REPO_DIR && git pull"
@@ -930,7 +939,7 @@ i = s.find("[menu __main more pi_address]")
 open(p, "w").write(s[:i] + add + s[i:] if i >= 0 else s.rstrip("\n") + "\n\n" + add)
 PYE
         fi
-        [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore; }
+        [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore && sudo install -o root -g root -m 644 "$w/scripts/lib_free_space.sh" /usr/local/sbin/lib_free_space.sh; }
     fi
     refresh_installer_folder "$w"
     progress_bar 55 100 "Update step 4 of 6: restarting KlipperScreen"
@@ -1065,7 +1074,7 @@ do_remove_files() {   # installer-file removal; never touches KlipperScreen itse
             remove_rescue
             progress_bar 2 3 "Removing the Factory mode button"
             if [ "$DRY" != 1 ]; then
-                if [ "$TESTING" = 1 ]; then echo "[test] remove factory button" >> "$HOME_DIR/.sudo.log"; else sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore; fi
+                if [ "$TESTING" = 1 ]; then echo "[test] remove factory button" >> "$HOME_DIR/.sudo.log"; else sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore /usr/local/sbin/lib_free_space.sh; fi
             fi
             progress_bar 100 100 "Done"; print_success "Rescue tool and Factory mode button removed." ;;
         restoredata)

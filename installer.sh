@@ -996,6 +996,7 @@ copy_zr_panel() {  # (re)copy the panel files into KlipperScreen
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would copy zr_tools/*.py into ~/KlipperScreen/panels${NC}"; return 0; }
     mkdir -p "$KS_DIR/panels"
     cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
+    python3 "$REPO_DIR/zr_tools/make_unlock_icon.py" "$KS_DIR" >/dev/null 2>&1 || true   # the "Unlock gripper" button asks for an icon that KlipperScreen does not ship
     if [ -d "$KS_DIR/.git" ]; then   # KlipperScreen updates must not delete our files
         mkdir -p "$KS_DIR/.git/info"
         grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"

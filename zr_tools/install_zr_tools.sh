@@ -31,6 +31,7 @@ if [ "${ZR_MACROS_ONLY:-0}" = 1 ]; then
   echo "   skipped (macros only: the screen runs on another machine)"
 elif [ -d "$KS/panels" ]; then
   cp "$HERE/zr_tools.py" "$HERE/zr_views.py" "$HERE/zr_logic.py" "$KS/panels/"
+  [ -f "$HERE/make_unlock_icon.py" ] && python3 "$HERE/make_unlock_icon.py" "$KS" >/dev/null 2>&1   # icon for the Unlock gripper button (KlipperScreen only ships "lock")
   [ -d "$KS/.git" ] && { mkdir -p "$KS/.git/info"; grep -qs '^panels/zr_' "$KS/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS/.git/info/exclude"; }
   KSC="$CFG/KlipperScreen.conf"
   touch "$KSC"

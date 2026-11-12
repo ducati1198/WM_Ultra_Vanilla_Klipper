@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.7
+
+- **Screen board: small download.** The board needs only about 90 KB (`screen_board_bundle/wm-screen-board.tar.gz`), not the whole 500 MB repository. The README has a one-line command for it, and `--update` on the board uses it too (it falls back to the full download if the small file is not available). `scripts/make_screen_bundle.sh` rebuilds it and the test suite checks that it is current.
+- **Screen board: Factory mode button fixed.** The copy of `screen_board.sh` in `/usr/local/sbin/wm-factory-restore` (used by the on-screen button, the rescue window and the USB flag) stopped at once with "lib_free_space.sh is missing". The helper is now installed next to every copy, and a missing helper no longer blocks a restore. A board installed before this keeps the old copy until `--update` or a reinstall.
+- **KlipperScreen: Unlock gripper has its own icon**, drawn like the Lock gripper icon in the colour of each theme (`zr_tools/make_unlock_icon.py`). KlipperScreen ships no unlock icon in any theme.
+
 ## 2.0.6
 
 - **Full Calibration starts with the Extruder Setup** (stage 1 of 6). It picks up T0 to T3 and checks that each tool head has the CAN id of its dock. If every tool came out of its own dock it goes straight on with the other five stages; if the ids must change it asks, restarts the firmware, and you start the Full Calibration again. The window explains this and the hang-the-extruders instruction.
