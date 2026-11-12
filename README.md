@@ -12,7 +12,7 @@
 
 > **The ACE Pro is not an MMU.** The WonderMaker has four toolheads that do the switching, so the ACE Pro here is used **only to load and unload the filament and to dry it**.
 
-> **Status:** the settings and modules in this repository come from a WonderMaker ZR Ultra-S that runs this setup. **This installer itself has not yet been run on a fresh SD card**; the status below describes the wm-ultra-rpi project it is based on. Tested on a WonderMaker ZR Ultra-S printer with a Raspberry Pi (install, Fluidd, Moonraker, Klipper, the ACE Pro, printing, the calibration macros), with KlipperScreen on the WonderMaker screen board, and with the OrcaSlicer plugin. It still needs a little tweaking, and other setups may differ. Use at your own risk, see the [full disclaimer](#disclaimer-use-at-your-own-risk).
+> **Status:** the settings and modules in this repository come from a WonderMaker ZR Ultra-S that runs this setup. **The installer has been run on a fresh Debian 12 (Bookworm) SD card on a ZR Ultra-S**: the install finishes, Klipper reaches *ready* with all boards connected and no warnings, and the ACE Pro driver connects. Printing, the calibration macros, KlipperScreen on the WonderMaker screen board and the OrcaSlicer plugin were tested on the setup this repository is built from (the wm-ultra-rpi project); they have not yet been repeated on a fresh install of this one. The **ZR Ultra (not S)** is untested. It still needs a little tweaking, and other setups may differ. Use at your own risk, see the [full disclaimer](#disclaimer-use-at-your-own-risk).
 
 ## Contents
 
@@ -23,7 +23,7 @@ Details:
 1. [Disclaimer](#disclaimer-use-at-your-own-risk) · [What you get](#what-you-get)
 2. [Hardware](#2-hardware)
 3. [Install](#3-install) (including [the installer menu](#the-installer-menu) and the [command table](#34-command-table))
-4. [When the main board is connected](#4-when-the-main-board-is-connected)
+4. [When the main board is connected](#4-when-the-main-board-is-connected) (including the [CAN ids of the other boards](#41-can-ids-of-the-other-boards) and the [slicer setup: OrcaSlicer and the Machine G-code](#42-slicer-use-orcaslicer-and-set-the-machine-g-code))
 5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools) (including the [OrcaSlicer plugin](#install-the-orcaslicer-plugin-optional-works-without-an-ace-pro))
 6. [KlipperScreen on the Raspberry Pi (touchscreen)](#6-klipperscreen-on-the-raspberry-pi-touchscreen)
 7. [KlipperScreen on the WonderMaker screen board (optional)](#7-klipperscreen-on-the-wondermaker-screen-board-optional)
@@ -64,6 +64,8 @@ The idea: a Raspberry Pi takes over the job of the WonderMaker screen/host board
 
    ![Fluidd Toolheads card](docs/img/fluidd-toolheads-card.png)
 4. **Connect the printer:** connect the USB cable between the Pi and the main board ([wiring](docs/WIRING.md)), power the printer and run `./installer.sh --first-start`. It checks the connection first and only then starts Klipper.
+
+5. **Set up the slicer:** use **OrcaSlicer** and write the Machine G-code lines of your printer profile **without a `;` in front** (`START_PRINT ...`, `PRINT_END`, `TIMELAPSE_TAKE_FRAME`, `PAUSE`). A line that starts with `;` is a comment, so Klipper would skip it and the print would start without heating, homing and the bed mesh. The exact lines, with pictures, are in [4.2](#42-slicer-use-orcaslicer-and-set-the-machine-g-code).
 
 Optional later: [use the original screen board as the touchscreen](#7-klipperscreen-on-the-wondermaker-screen-board-optional) or [add the ACE Pro panel and the OrcaSlicer plugin](#5-fluidd-web-panel-and-zr-tools).
 
@@ -328,6 +330,44 @@ After the install, open `http://<pi address>/`. Without the main board, Klipper 
 3. A **new main board may have a new `canbus_uuid`**. If the bus shows one device the config does not know, the installer offers to put it into `wm_zru_mcu.cfg` (a copy of the old file is kept in `~/wm-rpi-backup/uuid-*`). Toolhead and hub uuids are only reported, never changed.
 4. If every check passes it enables and starts Klipper, Moonraker, nginx and crowsnest. If not, the failing checks are listed and nothing is started.
 5. Do not run heaters or moves unattended on the first start.
+
+### 4.1 CAN ids of the other boards
+
+Every board on the CAN bus has its own id (`canbus_uuid`, 12 hex digits, set by the chip and the same for the life of the board). The installer asks the bus for the **main board** and puts its id in `wm_zru_mcu.cfg` for you. The **hub, extruder board, T0 to T3 and the load cell** start with placeholder ids (`000000000001`, `000000000002`, `b00000000000` and so on) that are not real. Until they are replaced, Klipper cannot connect to those boards and stays in "startup" with "No communication with MCU". `./installer.sh --first-start` says so: *"N board(s) still have a placeholder CAN id"*.
+
+1. **Power-cycle the printer** (24 V off and on, the Pi stays on). A board only answers the bus query while nothing has assigned it a node id, and a board keeps the id from the last Klipper session until it loses power.
+2. Run `./installer.sh --can-ids`. It lists the ids on the bus and offers to put them into the config (a copy of each file is saved first).
+3. If you know an id (from an old config, for example), set it by hand: `./installer.sh --can-ids set T0 ac8b57e80210` (names: `main`, `hub`, `ext`, `cell`, `T0` to `T3`).
+4. Restart Klipper (`sudo systemctl restart klipper`). If Fluidd then shows *"Can not update MCU 'mcu' config as it is shutdown"*, run **FIRMWARE_RESTART** once: the main board kept the shutdown state of the earlier failed start.
+
+### 4.2 Slicer: use OrcaSlicer and set the Machine G-code
+
+**Use OrcaSlicer** (2.5 or newer if you want the [toolhead plugin](#install-the-orcaslicer-plugin-optional-works-without-an-ace-pro)). It is the slicer this setup was tested with. Copy the WonderMaker ZR Ultra-S profile, give the copy its own name (here: *WonderMaker ZR Ultra S RPI*) and set the printer host to your Pi (Printer settings, Connection).
+
+Then open **Printer settings → Machine G-code** and write each field as a **plain command, with no `;` in front**. In G-code a line that starts with `;` is a comment. Klipper ignores it, so a start G-code of `;START_PRINT ...` would start the print without heating, homing, tool change or bed mesh, and `;PRINT_END` would be ignored too. (A comment line such as `;PRINT_END` was how WonderMaker's own profile marked the end; plain Klipper only runs real commands.)
+
+| Field | Put exactly this |
+|---|---|
+| Machine start G-code | `START_PRINT EXTRUDER=[nozzle_temperature_initial_layer] BED=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature] INITIAL_TOOL=[initial_tool] MESH_MIN_X={adaptive_bed_mesh_min[0]} MESH_MIN_Y={adaptive_bed_mesh_min[1]} MESH_MAX_X={adaptive_bed_mesh_max[0]} MESH_MAX_Y={adaptive_bed_mesh_max[1]} PROBE_COUNT_X={bed_mesh_probe_count[0]} PROBE_COUNT_Y={bed_mesh_probe_count[1]}` (one line, or wrapped as in the picture) |
+| Machine end G-code | `PRINT_END` |
+| Timelapse G-code | `TIMELAPSE_TAKE_FRAME` |
+| Pause G-code | `PAUSE` |
+| Change filament G-code | empty |
+| Template Custom G-code | empty |
+
+Machine start and end G-code:
+
+![OrcaSlicer: Machine start G-code and Machine end G-code without a semicolon](docs/img/orca-machine-gcode-start-end.png)
+
+Timelapse and change filament G-code:
+
+![OrcaSlicer: Timelapse G-code and Change filament G-code](docs/img/orca-machine-gcode-timelapse.png)
+
+Pause and template custom G-code:
+
+![OrcaSlicer: Pause G-code and Template Custom G-code](docs/img/orca-machine-gcode-pause.png)
+
+The Pi also has a safety net: if a G-code file finishes without calling `PRINT_END`, [`wm_print_end.cfg`](rpi-cfg/wm_print_end.cfg) runs it once. It does not replace `START_PRINT`, so the start line above is needed.
 
 ## 5. Fluidd (web panel and ZR Tools)
 

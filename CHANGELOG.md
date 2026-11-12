@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.5
+
+- **README: using OrcaSlicer.** A new section 4.2 says to use OrcaSlicer and to write the Machine G-code fields without a `;` in front (`START_PRINT ...`, `PRINT_END`, `TIMELAPSE_TAKE_FRAME`, `PAUSE`), with the exact lines and three screenshots, and a step in the quick start. A line that starts with `;` is a comment, so Klipper would skip it.
+- **README: CAN ids of the other boards** (section 4.1): the hub, extruder board, T0 to T3 and the load cell start with placeholder ids; power-cycle the printer, then `./installer.sh --can-ids` (or `--can-ids set T0 <id>`), and FIRMWARE_RESTART if the main board kept the shutdown state.
+- **First start no longer says "All checks passed" while boards still have placeholder CAN ids.** It fails that check with the commands to fix it, and the "not on the bus" hint now also mentions boards that still hold an id from an earlier Klipper session.
+- **The Fluidd macro categories are only reported as set up when Moonraker's database holds them.** Fluidd creates its settings the first time it is opened, so a fresh install can have nothing to store them in yet; the installer then tells you to open Fluidd once and run `--fluidd-categories`.
+- **The host MCU is built from the bundled Klipper (v0.13.0-827), not the older v0.12.0 download.** `mcu rpi` now reports the same version as the host, so Klipper no longer sees a version mismatch, and Moonraker shows the Klipper version instead of `?` (the bundle now carries `klippy/.version`). `--update` rebuilds a host MCU that was made from another version, and copies the version file to a Pi that lacks it.
+
 ## 2.0.4
 
 - **The services are started last.** Before, Klipper was enabled and started and only then the board temperature sensors and the host MCU were added (two more Klipper restarts, and both were taken out again when Klipper was not ready yet). Now an install adds them first and starts the services at the very end, once. `./installer.sh --pi-sensors` on its own still needs a running Klipper.

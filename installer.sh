@@ -693,26 +693,41 @@ step_hostmcu() {
     print_header "Step 7b: Klipper host MCU"
     why "Adds the Klipper-Mcu service (Fluidd's Services list) so sensors wired to the Pi's own pins can be used. Nothing in printer.cfg changes."
     local dir="$HOME_DIR/klipper-host-mcu" bin=/usr/local/bin/klipper_mcu unit=/etc/systemd/system/klipper-mcu.service pin url sha
-    if [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ -x "$bin" ] && [ -f "$unit" ]; then
+    # a Pi installed before 2.0.6 has no klippy/.version (Klipper's own .gitignore kept it out); copy it so the host MCU reports the host's version
+    if [ ! -f "$HOME_DIR/klipper/klippy/.version" ] && [ -f "$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/.version" ] && [ -d "$HOME_DIR/klipper/klippy" ] && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ]; then
+        cp "$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/.version" "$HOME_DIR/klipper/klippy/.version"
+    fi
+    local want; want="$(cat "$HOME_DIR/klipper/klippy/.version" 2>/dev/null)"
+    if [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ -x "$bin" ] && [ -f "$unit" ] && { [ -z "$want" ] || [ "$(cat "$dir/.built-from" 2>/dev/null)" = "$want" ]; }; then
         SUDO systemctl enable klipper-mcu >/dev/null 2>&1; SUDO systemctl start klipper-mcu >/dev/null 2>&1
         print_success "Klipper host MCU is already installed"; return 0
     fi
-    pin="$(addon_pin klipper-upstream)"; url="${pin%|*}"; sha="${pin#*|}"
-    fetch_addon "$url" "$sha" "$dir" || { warn_later "Could not download Klipper's source for the host MCU (network?). The Klipper-Mcu service was not installed; run ./installer.sh --update to retry."; return 0; }
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: make (CONFIG_MACH_LINUX), install $bin and $unit, enable and start klipper-mcu${NC}"; return 0; fi
+    # Build it from the Klipper that is installed (the same version as the host, so Klipper does not warn about a version mismatch).
+    # Only when that source is missing is the older pinned download used.
+    local src="$HOME_DIR/klipper"
+    if [ -f "$src/src/linux/main.c" ] && [ -f "$src/scripts/klipper-mcu.service" ]; then
+        mkdir -p "$dir"
+    else
+        src="$dir"
+        pin="$(addon_pin klipper-upstream)"; url="${pin%|*}"; sha="${pin#*|}"
+        fetch_addon "$url" "$sha" "$dir" || { warn_later "Could not download Klipper's source for the host MCU (network?). The Klipper-Mcu service was not installed; run ./installer.sh --update to retry."; return 0; }
+    fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: make (CONFIG_MACH_LINUX) from $src, install $bin and $unit, enable and start klipper-mcu${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then
-        mkdir -p "$dir/out" "$dir/scripts"; echo "[test] host mcu build + install klipper-mcu" >> "$HOME_DIR/.sudo.log"; return 0
+        mkdir -p "$dir/out" "$dir/scripts"; echo "[test] host mcu build + install klipper-mcu from $src" >> "$HOME_DIR/.sudo.log"; return 0
     fi
     printf 'CONFIG_LOW_LEVEL_OPTIONS=y\nCONFIG_MACH_LINUX=y\n' > "$dir/.config"
     heartbeat_start "building the host MCU"
-    ( cd "$dir" && make olddefconfig >/dev/null 2>&1 && make clean >/dev/null 2>&1; make -j"$(nproc)" >/dev/null 2>&1 ) && [ -x "$dir/out/klipper.elf" ] \
-        || { heartbeat_stop; warn_later "The Klipper host MCU did not build. Klipper is not affected. Details: cd ~/klipper-host-mcu && make"; return 0; }
+    ( cd "$src" && export PYTHONDONTWRITEBYTECODE=1 && set -- OUT="$dir/out/" KCONFIG_CONFIG="$dir/.config" \
+        && make "$@" olddefconfig >/dev/null 2>&1 && make "$@" clean >/dev/null 2>&1; make "$@" -j"$(nproc)" >/dev/null 2>&1 ) && [ -x "$dir/out/klipper.elf" ] \
+        || { heartbeat_stop; warn_later "The Klipper host MCU did not build. Klipper is not affected. Details: cd ~/klipper && make OUT=$dir/out/ KCONFIG_CONFIG=$dir/.config"; return 0; }
     heartbeat_stop
     SUDO install -m 755 "$dir/out/klipper.elf" "$bin"
-    SUDO install -m 644 "$dir/scripts/klipper-mcu.service" "$unit"
+    SUDO install -m 644 "$src/scripts/klipper-mcu.service" "$unit"
+    [ -z "$want" ] || echo "$want" > "$dir/.built-from"
     record "FILE $bin"; record "FILE $unit"; record "HOMEDIR klipper-host-mcu"
     SUDO systemctl daemon-reload
-    SUDO systemctl enable klipper-mcu >/dev/null 2>&1; SUDO systemctl start klipper-mcu
+    SUDO systemctl enable klipper-mcu >/dev/null 2>&1; SUDO systemctl restart klipper-mcu
     SUDO systemctl restart moonraker 2>/dev/null   # Moonraker looks for the services it may control only when it starts
     print_success "Klipper host MCU installed (service klipper-mcu). The installer adds it to Klipper (as [mcu rpi]) once Klipper is running: docs/HOST_MCU.md"
 }
@@ -1470,8 +1485,8 @@ step_fluidd_categories() {   # the ACE Pro project sets the Fluidd macro categor
     [ "$WANT_ACEPRO" = 1 ] && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ -f "$(ace_dir)/installer.sh" ] || return 0
     print_header "Fluidd macro categories"
     why "Moonraker is running now, so the macro categories can be set up (they could not be at the ACE Pro step). A macro you moved, recoloured, renamed or hid yourself is never changed."
-    if ace_run_installer --fluidd-categories >/dev/null 2>&1; then print_success "Fluidd macro categories set up"
-    else warn_later "The Fluidd macro categories were not set up. Run: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh --fluidd-categories"; fi
+    if ace_run_installer --fluidd-categories >/dev/null 2>&1 && api_get "/server/database/item?namespace=fluidd&key=macros" | grep -q '"stored"'; then print_success "Fluidd macro categories set up"
+    else warn_later "The Fluidd macro categories were not stored (Fluidd creates its settings when it is opened for the first time). Open Fluidd once, then run: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh --fluidd-categories"; fi
 }
 
 questions() {
@@ -1904,10 +1919,12 @@ hw_checks() {  # $1 = quiet header flag
                 case "$f" in */wm_zru_mcu.cfg) continue ;; esac
                 if echo "$found" | grep -qx "$u"; then chk_ok "$(basename "$f"): $u is on the bus"
                 else
-                    chk_warn "$(basename "$f"): $u ($(can_dev_name "$f")) is not on the bus" "Not powered, or its id in the config differs from the board's own."
+                    chk_warn "$(basename "$f"): $u ($(can_dev_name "$f")) is not on the bus" "Not powered, its id in the config differs from the board's own, or the board is still assigned by an earlier Klipper session (power-cycle the printer's 24 V)."
                     if fix_dev_uuid "$f" "$u" "$found" "$(can_missing_devs "$found" | grep -c .)"; then chk_ok "$(basename "$f") fixed"; fi
                 fi
             done < <(cfg_uuids)
+            local nph; nph="$(cfg_uuids | awk '$2 ~ /^(0{11}[0-9a-f]|b[0-9a-f]0{10})$/ {n++} END {print n+0}')"
+            [ "$nph" = 0 ] || chk_fail "$nph board(s) still have a placeholder CAN id, so Klipper cannot connect to them" "Power-cycle the printer (24 V off and on, Pi stays on) so every board answers, then run ./installer.sh --can-ids. A known id: ./installer.sh --can-ids set T0 ac8b57e80210"
         fi
     fi
     local p; p="$(power_flags)"; [ -z "$p" ] || [ "$p" = 0x0 ] && chk_ok "Pi power: no under-voltage" || chk_warn "Pi power/heat flags: $p" "Use the official power supply."

@@ -8,7 +8,7 @@ A small Klipper program that runs on the Pi itself and acts like one more microc
 
 ## What the installer does
 
-1. **Builds and installs it** (step 7b). WonderMaker's `~/klipper` has no MCU source folder, so the installer clones the official Klipper source (pinned in `config/pins/addons.txt`, line `klipper-upstream`) into `~/klipper-host-mcu`, builds it for the Linux process target, installs `/usr/local/bin/klipper_mcu` and `/etc/systemd/system/klipper-mcu.service`, and enables and starts the service.
+1. **Builds and installs it** (step 7b). WonderMaker's `~/klipper` has no MCU source folder, so the installer builds it from the Klipper source in `~/klipper` (the same version as the host; only if that is missing is the official source, pinned in `config/pins/addons.txt` line `klipper-upstream`, cloned into `~/klipper-host-mcu`). The build files go to `~/klipper-host-mcu`. It builds it for the Linux process target, installs `/usr/local/bin/klipper_mcu` and `/etc/systemd/system/klipper-mcu.service`, and enables and starts the service.
 2. **Adds the user to the `tty` group** (step 2). The host MCU runs as root and its socket `/tmp/klipper_host_mcu` belongs to group `tty`; without that group Klipper gets "Permission denied" and `[mcu rpi]` fails. Klipper must be restarted once after the group is added (the next step does that).
 3. **Connects Klipper to it, after Klipper is running.** At the end of an install or update, and with `./installer.sh --pi-sensors`, the installer writes `~/printer_data/config/wm_rpi_mcu.cfg`:
 
