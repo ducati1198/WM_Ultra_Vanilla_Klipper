@@ -591,7 +591,8 @@ step_sudo_nopasswd() {   # the board user gets sudo without a password, so the s
     if [ "$(id -u)" != 0 ] && sudo -n true 2>/dev/null; then print_info "$WM_USER can already use sudo without a password."; return 0; fi
     echo "  This lets $WM_USER use sudo without typing a password (so the install, the Update button and later updates never stop at a password)."
     echo "  Anyone who can log in as $WM_USER then has full control of this board. It is removed again by Factory mode / --factory-restore."
-    ask_yn "Let $WM_USER use sudo without a password?" y || { echo "  Skipped. Later updates from the screen then need the password in a terminal."; return 0; }
+    ask_yn "Let $WM_USER use sudo without a password?" y || { mkdir -p "$BK"; touch "$BK/no_sudo_rule"; echo "  Skipped. Later updates from the screen then need the password in a terminal. (--post-update asks again.)"; return 0; }
+    rm -f "$BK/no_sudo_rule"
     printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$WM_USER" | sudo tee "$SUDO_NOPASSWD_FILE" >/dev/null
     sudo chmod 440 "$SUDO_NOPASSWD_FILE"
     sudo visudo -cf "$SUDO_NOPASSWD_FILE" >/dev/null && print_success "$WM_USER can use sudo without a password." || { sudo rm -f "$SUDO_NOPASSWD_FILE"; warn_later "The sudo rule was not installed (sudoers check failed)."; }
@@ -944,7 +945,16 @@ do_update_board_core() {
     new="$(cat "$w/VERSION" 2>/dev/null)"
     [ -n "$new" ] || die_with_fix "the download has no VERSION file." "try again later."
     echo "  Installed: ${old:-unknown}    Newest: $new"
-    if [ "$new" = "$old" ]; then print_success "Already up to date."; return 0; fi
+    if [ "$new" = "$old" ]; then
+        print_success "Already up to date."
+        # a board that is current can still lack the button permissions or the version marks (an update started by an older script never added them): repair them now
+        if { [ "$TESTING" != 1 ] || [ "${WM_TEST_POST_UPDATE:-0}" = 1 ]; } && [ "$DRY" != 1 ] && { [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ]; } \
+           && { [ ! -f "$KS_DIR/panels/zr_version.txt" ] || { [ "$NO_SUDO_RULE" != 1 ] && [ ! -f "$BK/no_sudo_rule" ] && [ "$TESTING" != 1 ] && ! sudo -n true 2>/dev/null; }; }; then
+            print_info "The version marks or the button permissions are missing: fixing that now."
+            do_post_update
+        fi
+        return 0
+    fi
     if { [ "$TESTING" != 1 ] && [ ! -d "$KS_DIR" ]; } || [ "${WM_TEST_NO_KS:-0}" = 1 ]; then   # nothing to update on the screen yet: only the installer folder is made current
         print_info "KlipperScreen is not installed on this board yet, so there are no screen files to update."
         if [ "$DRY" != 1 ] && ask_yn "Update the installer files in $REPO_DIR to $new?" y; then

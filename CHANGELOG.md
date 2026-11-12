@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.10
+
+- **`--update` on an up-to-date board now repairs what is missing.** A board that already had the newest files could still lack the Update and Factory mode permissions, the passwordless sudo rule or the version marks (an update started by an older script never added them), and `--update` only said "Already up to date" and asked for the password again later. Now it runs `--post-update` in that case. If you decline the sudo rule once, an up-to-date `--update` does not ask again (`--post-update` does).
+
 ## 2.0.9
 
 - **Update button: it showed "new version" when the screen already had the latest.** The screen read its version from a file that only a 2.0.8 install wrote, so an update run by an older script left it "unknown" and every check offered an update. Now every install and update writes the version next to the panels (`zr_version.txt`) and to `~/wm-screen-backup/version`, and the screen reads its own panel version first. The dialog shows **Installed** and **Latest** in every case (up to date, new version, GitHub unreachable).
