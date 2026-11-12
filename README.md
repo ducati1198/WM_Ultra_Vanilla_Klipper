@@ -571,8 +571,10 @@ mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL https://raw.githubusercon
 ```bash
 cd ~
 git clone --depth 1 --filter=blob:none --sparse https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper && cd WM_Ultra_Vanilla_Klipper
-git sparse-checkout set scripts zr_tools screen_rescue usb_flags config/pins
+git sparse-checkout init --cone && git sparse-checkout set scripts zr_tools screen_rescue usb_flags config/pins
 ```
+
+(`init --cone` is needed on the board's older git 2.30. Without it git uses the old pattern mode, which leaves out `VERSION` and also pulls in the `scripts` folders inside `factory/`.)
 
 If you cloned it before, a `git clone` copy does **not** update by itself: run `cd WM_Ultra_Vanilla_Klipper && git pull` first (or delete the folder and clone again). With Option A, delete the old `WM_Ultra_Vanilla_Klipper-main` folder before downloading again.
 
