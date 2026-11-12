@@ -412,7 +412,11 @@ def latest_version(url=None, timeout=10):
     """The newest version on GitHub (one small text file). '' when it cannot be read."""
     import urllib.request
     try:
-        with urllib.request.urlopen(url or UPDATE_VERSION_URL, timeout=timeout) as r:
+        import time
+        u = url or UPDATE_VERSION_URL
+        if url is None:             # GitHub's raw files are cached for a few minutes: a changing query makes it fetch the current one
+            u += "?nocache=%d" % int(time.time())
+        with urllib.request.urlopen(u, timeout=timeout) as r:
             return r.read(64).decode("ascii", "ignore").splitlines()[0].strip()
     except Exception:
         return ""

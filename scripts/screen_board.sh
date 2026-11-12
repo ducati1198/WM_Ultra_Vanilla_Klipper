@@ -886,7 +886,7 @@ fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from Gi
     if [ "$TESTING" = 1 ]; then LATEST_DIR="${WM_TEST_UPDATE_DIR:-}"; [ -d "$LATEST_DIR" ]; return; fi
     LATEST_DIR="$(mktemp -d)"; LATEST_TMP="$LATEST_DIR"; trap 'rm -rf "${LATEST_TMP:-}"; exit 130' INT TERM; print_info "Downloading the newest version from GitHub ..."
     # the small screen bundle (about 90 KB) has everything the board reads. Only if it cannot be fetched, the whole repository is downloaded instead.
-    if curl -fsSL -m 60 "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz" | tar -xz -C "$LATEST_DIR" 2>/dev/null && [ -f "$LATEST_DIR/scripts/screen_board.sh" ] && [ -f "$LATEST_DIR/VERSION" ]; then return 0; fi
+    if curl -fsSL -m 60 "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz?nocache=$(date +%s)" | tar -xz -C "$LATEST_DIR" 2>/dev/null && [ -f "$LATEST_DIR/scripts/screen_board.sh" ] && [ -f "$LATEST_DIR/VERSION" ]; then return 0; fi
     print_warning "The small download was not available: downloading the whole repository instead (it is large)."
     rm -rf "${LATEST_DIR:?}"/* "$LATEST_DIR"/.[!.]* 2>/dev/null
     curl -fsSL -m 600 https://codeload.github.com/ducati1198/WM_Ultra_Vanilla_Klipper/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
@@ -896,7 +896,7 @@ do_whatsnew_board() {   # reads only two small text files (VERSION and CHANGELOG
     local old new base="https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main" log
     old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
     if [ "$TESTING" = 1 ]; then new="$(cat "${WM_TEST_UPDATE_DIR:-/nonexistent}/VERSION" 2>/dev/null)"; log="$(cat "${WM_TEST_UPDATE_DIR:-/nonexistent}/CHANGELOG.md" 2>/dev/null)"
-    else new="$(curl -fsSL -m 20 "$base/VERSION" 2>/dev/null | head -1)"; log="$(curl -fsSL -m 20 "$base/CHANGELOG.md" 2>/dev/null)"; fi
+    else new="$(curl -fsSL -m 20 "$base/VERSION?nocache=$(date +%s)" 2>/dev/null | head -1)"; log="$(curl -fsSL -m 20 "$base/CHANGELOG.md?nocache=$(date +%s)" 2>/dev/null)"; fi
     [ -n "$new" ] || die_with_fix "could not read the newest version from GitHub." "check the internet connection."
     echo "  Installed: ${old:-unknown}    Newest: $new"
     if [ "$new" = "$old" ]; then print_success "You have the latest version."; return 0; fi
@@ -945,6 +945,10 @@ do_update_board_core() {
     new="$(cat "$w/VERSION" 2>/dev/null)"
     [ -n "$new" ] || die_with_fix "the download has no VERSION file." "try again later."
     echo "  Installed: ${old:-unknown}    Newest: $new"
+    if [ -n "$old" ] && [ "$new" != "$old" ] && [ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | head -1)" = "$new" ]; then   # never go back to an older version
+        print_warning "The download is version $new, which is OLDER than the one installed ($old). GitHub can serve an old copy for a few minutes after a new version is published."
+        echo "  Nothing was changed. Try again in about 5 minutes."; return 0
+    fi
     if [ "$new" = "$old" ]; then
         print_success "Already up to date."
         # a board that is current can still lack the button permissions or the version marks (an update started by an older script never added them): repair them now

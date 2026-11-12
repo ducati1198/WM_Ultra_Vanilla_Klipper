@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.11
+
+- **Update never goes back to an older version.** Right after a new version is published, GitHub's raw file cache can still serve the previous small screen bundle for about 5 minutes, while the version file already says the new number. The menu then offered "Update now" with "Newest: 2.0.9" while 2.0.10 was installed, which would have been a downgrade. `--update` now stops with "the download is OLDER than the one installed" and changes nothing, and every GitHub read of the updater and of the screen's Update button carries a cache buster so it fetches the current copy.
+
 ## 2.0.10
 
 - **`--update` on an up-to-date board now repairs what is missing.** A board that already had the newest files could still lack the Update and Factory mode permissions, the passwordless sudo rule or the version marks (an update started by an older script never added them), and `--update` only said "Already up to date" and asked for the password again later. Now it runs `--post-update` in that case. If you decline the sudo rule once, an up-to-date `--update` does not ask again (`--post-update` does).
