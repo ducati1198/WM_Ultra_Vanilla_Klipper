@@ -1422,23 +1422,66 @@ step_acepro() {
     else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
 }
 
+versions_line() {   # "Klipper v0.13.0-827-g29d4ec2d6, Moonraker v0.11.0-4-gb559b9a, Fluidd v1.37.7" (the installed ones; Fluidd cannot read them: Klipper and Moonraker are not git clones)
+    local k m f
+    k="$(tr -d '[:space:]' < "$HOME_DIR/klipper/klippy/.version" 2>/dev/null)"
+    m="$(grep '^moonraker|' "$SCRIPT_DIR/config/pins/versions.txt" 2>/dev/null | cut -d'|' -f2)"
+    f="$(tr -d '[:space:]' < "$HOME_DIR/fluidd/.version" 2>/dev/null)"
+    echo "Klipper ${k:-unknown}, Moonraker ${m:-unknown}, Fluidd ${f:-unknown}"
+}
+installer_update_block() {   # the [update_manager] section of this installer: the Update button downloads it, wm-pi-update.path applies it
+    printf '[update_manager WM_Ultra_Vanilla_Klipper]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=Pi installer. Installed: %s. The Update button downloads the new installer and applies it (like ./installer.sh --update, log: ~/wm-pi-update.log)\n' "$REPO_DIR" "$(versions_line)"
+}
 moonraker_add_update_entries() {   # [update_manager ...] for this installer's repo and the ACE Pro panel repo, so Fluidd shows when GitHub has a newer version
     local conf="$HOME_DIR/printer_data/config/moonraker.conf" added=""
     [ -f "$conf" ] || return 0
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [update_manager WM_Ultra_Vanilla_Klipper] (and the ACE Pro panel) to moonraker.conf so Fluidd shows new versions${NC}"; return 0; fi
-    if [ -d "$REPO_DIR/.git" ] && ! grep -qiE '^\[update_manager +WM_Ultra_Vanilla_Klipper\]' "$conf"; then
-        cp "$conf" "$conf.wm-before-updatemgr-$STAMP"
-        printf '\n[update_manager WM_Ultra_Vanilla_Klipper]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=WonderMaker Ultra vanilla Klipper Pi installer (after updating, run ./installer.sh --update)\n' "$REPO_DIR" >> "$conf"
-        added="WM_Ultra_Vanilla_Klipper"
+    if [ -d "$REPO_DIR/.git" ]; then
+        local want have; want="$(installer_update_block)"
+        have="$(python3 - "$conf" <<'PY'
+import sys, re
+out = []; take = False
+for l in open(sys.argv[1]).read().split("\n"):
+    m = re.match(r"\s*\[(.+?)\]", l)
+    if m: take = m.group(1).strip().lower() == "update_manager wm_ultra_vanilla_klipper"
+    if take and l.strip(): out.append(l)
+print("\n".join(out))
+PY
+)"
+        if [ "$have" != "$(echo "$want" | sed '/^$/d')" ]; then
+            if [ -n "$have" ]; then moonraker_drop_update_section WM_Ultra_Vanilla_Klipper >/dev/null; added="WM_Ultra_Vanilla_Klipper (versions refreshed)"
+            else cp "$conf" "$conf.wm-before-updatemgr-$STAMP"; added="WM_Ultra_Vanilla_Klipper"; fi
+            printf '\n%s' "$want" >> "$conf"
+            MOONRAKER_CHANGED=1
+        fi
     fi
     if [ "$WANT_ACEPRO" = 1 ] && [ -d "$(ace_dir)/.git" ] && ! grep -qiE '^\[update_manager +wm-ultra-fluidd-acepro-panel\]' "$conf"; then
         [ -e "$conf.wm-before-updatemgr-$STAMP" ] || cp "$conf" "$conf.wm-before-updatemgr-$STAMP"
         printf '\n[update_manager wm-ultra-fluidd-acepro-panel]\ntype: git_repo\npath: %s\norigin: %s.git\nprimary_branch: main\nis_system_service: False\nmanaged_services: klipper\ninfo_tags:\n  desc=Anycubic ACE Pro driver and Fluidd panel (after updating, run ./installer.sh --update)\n' "$(ace_dir)" "$ACE_REPO_URL" >> "$conf"
         added="${added:+$added, }wm-ultra-fluidd-acepro-panel"
     fi
-    [ -z "$added" ] || print_info "Added to moonraker.conf: [update_manager $added]. Fluidd now shows when GitHub has a newer version. Updating there only downloads the files; run ./installer.sh --update afterwards to apply them (config files, services)."
+    [ -z "$added" ] || print_info "Added to moonraker.conf: [update_manager $added]. Fluidd now shows when GitHub has a newer version. Its Update button downloads the files; for this installer they are applied by the wm-pi-update service (like ./installer.sh --update), for the ACE Pro panel run ./installer.sh --update afterwards."
 }
 
+step_pi_updater() {   # Fluidd's Update button for this installer: Moonraker only does "git pull"; wm-pi-update.path sees the new commit and wm-pi-update.service runs scripts/pi_update.sh (installer --update --yes)
+    [ -d "$REPO_DIR/.git" ] && [ -f "$REPO_DIR/scripts/pi_update.sh" ] || return 0
+    local user; user="$(id -un)"
+    local pth svc; pth="$(mktemp)"; svc="$(mktemp)"
+    printf '[Unit]\nDescription=Apply the WM Ultra installer update after Fluidd downloaded it\n\n[Path]\nPathModified=%s/.git/logs/HEAD\nUnit=wm-pi-update.service\n\n[Install]\nWantedBy=multi-user.target\n' "$REPO_DIR" > "$pth"
+    printf '[Unit]\nDescription=WM Ultra installer: apply an update that Fluidd downloaded (log: ~/wm-pi-update.log)\n\n[Service]\nType=oneshot\nUser=%s\nEnvironment=HOME=%s\nWorkingDirectory=%s\nExecStart=/bin/bash %s/scripts/pi_update.sh\n' "$user" "$HOME_DIR" "$REPO_DIR" "$REPO_DIR" > "$svc"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm-pi-update.path and wm-pi-update.service (the Fluidd Update button applies the new installer)${NC}"; rm -f "$pth" "$svc"; return 0; fi
+    if [ "$TESTING" = 1 ]; then mkdir -p "$HOME_DIR/.wm-units"; cp "$pth" "$HOME_DIR/.wm-units/wm-pi-update.path"; cp "$svc" "$HOME_DIR/.wm-units/wm-pi-update.service"; fi
+    chmod +x "$REPO_DIR/scripts/pi_update.sh" 2>/dev/null
+    if ! cmp -s "$pth" /etc/systemd/system/wm-pi-update.path 2>/dev/null || ! cmp -s "$svc" /etc/systemd/system/wm-pi-update.service 2>/dev/null || [ "$TESTING" = 1 ]; then
+        SUDO install -m 644 "$pth" /etc/systemd/system/wm-pi-update.path
+        SUDO install -m 644 "$svc" /etc/systemd/system/wm-pi-update.service
+        record "FILE /etc/systemd/system/wm-pi-update.path"; record "FILE /etc/systemd/system/wm-pi-update.service"
+        SUDO systemctl daemon-reload
+    fi
+    SUDO systemctl enable --now wm-pi-update.path
+    rm -f "$pth" "$svc"
+    print_success "Fluidd's Update button for this installer now also applies the update (wm-pi-update service; log: ~/wm-pi-update.log)"
+}
 step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
 upd_wants() { [ -z "$ONLY_ADDON" ] || [ "$ONLY_ADDON" = "$1" ]; }   # --update --only-addon NAME runs just that add-on
 step_remote_update() {   # --update: never run the makers' installers again for something already there (Fluidd's update manager updates them)
@@ -2172,6 +2215,7 @@ do_update() {
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     moonraker_add_update_entries
+    step_pi_updater
     save_answers
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
@@ -2594,6 +2638,7 @@ uninstall_system_files() {
     SUDO systemctl stop klipper; SUDO systemctl stop moonraker
     SUDO systemctl disable klipper; SUDO systemctl disable moonraker
     [ -f /etc/systemd/system/klipper-mcu.service ] && { SUDO systemctl stop klipper-mcu; SUDO systemctl disable klipper-mcu; }   # the host MCU this installer built
+    [ -f /etc/systemd/system/wm-pi-update.path ] && { SUDO systemctl stop wm-pi-update.path; SUDO systemctl disable wm-pi-update.path; }   # Fluidd's Update button helper
     local k v
     while read -r k v; do
         case "$k" in
@@ -3320,7 +3365,7 @@ guard_not_printing
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_remote; step_crowsnest; step_start
+step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_fluidd_categories
 restart_klipper_after

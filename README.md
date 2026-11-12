@@ -781,6 +781,10 @@ The install asks three things (or take them from the command line, then nothing 
 - **An existing `crowsnest.conf` is never overwritten.** The explained copy is saved next to it as `crowsnest.conf.new`, and the questions are skipped.
 - **Ask again later:** `./installer.sh --webcam-setup`, or menu 3 (Add-ons), Webcam (crowsnest), "Set up the cameras again", repeats the questions, keeps a copy of the old file (`crowsnest.conf.wm-before-webcam-setup-...`), writes the new one and restarts the service.
 
+## Update from Fluidd
+
+In Fluidd's software update page the entry `WM_Ultra_Vanilla_Klipper` shows the installed Klipper, Moonraker and Fluidd versions in its description (Klipper and Moonraker are the tested files from this repository, not git clones, so Fluidd cannot read them itself). Its **Update** button downloads the new installer; a small service (`wm-pi-update`) then runs `./installer.sh --update --yes` for you, the same as in SSH: backup first, then packages, configs, the Fluidd panel and add-ons, and a restart of Klipper and Moonraker at the end (Fluidd disconnects for about a minute). Nothing is applied while a print is running or paused (Moonraker refuses the update then too), when the installed version already is the new one, or when your user has no passwordless sudo: run `./installer.sh --update` in SSH then. Log: `~/wm-pi-update.log`.
+
 ## Backup before every update
 
 `./installer.sh --update` (and every add-on install from the menu) first saves your config, calibration and database to `~/wm-backups/wm-backup-<model>-before-update-<date>.tgz` and prints its path. The newest 5 of these are kept. Put one back with `./installer.sh --restore <file>` (Backup and restore in the menu). Skip it with `--no-backup`. It is private (mode 600); do not publish it.

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0
+
+- **Fluidd's Update button applies the installer update.** Moonraker only runs `git pull` on the installer folder. A small systemd watcher (`wm-pi-update.path`, started by the install and by `--update`) notices the new commit and runs `./installer.sh --update --yes` for you (`scripts/pi_update.sh`), outside Moonraker so its restart does not stop it. It does nothing when the installed version already is the new one, when a print is running or paused (Moonraker also refuses to update during a print), or when your user has no passwordless sudo (then run `./installer.sh --update` in SSH). Log: `~/wm-pi-update.log`. The units are removed by the uninstall.
+- **Klipper, Moonraker and Fluidd versions in Fluidd's software update.** Klipper and Moonraker here are the tested files from this repository, not git clones, so Fluidd cannot read their versions. The installer's entry in Fluidd now carries them as a note (`Installed: Klipper v0.13.0-827-g29d4ec2d6, Moonraker v0.11.0-4-gb559b9a, Fluidd v1.37.7`), refreshed at every install and update.
+
+## 2.1.1
+
+- **Step messages in the single-stage calibration macros.** `WM_BED_LEVELING`, `WM_VIBRATION_COMP` and `WM_BED_PID` now say which step they are on ("step 1 of 3: homing", "step 2 of 3: probing 49 points ...", "step 3 of 3: saving"), so a long wait is no longer silent.
+
 ## 2.1.0
 
 - **Webcams (crowsnest) are set up for you.** The install asks how many cameras (1 to 4), the picture size (480p, 720p, 1080p or `WIDTHxHEIGHT`) and `max_fps`; or give `--cameras N --cam-resolution ... --cam-fps N`. The camera ports are found automatically (USB by-id names, ribbon cameras through libcamera). Pi 4 / CM4 use camera-streamer, the other models ustreamer (a ribbon camera: camera-streamer, or spyglass on a Pi 5), editable per camera in `crowsnest.conf`.
