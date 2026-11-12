@@ -357,7 +357,7 @@ class ViewsMixin:
         items += [(i, l, s, q) for (i, l, s, q, _r) in L.calibration_items(self._sections(), a)]
         items += [("extruder", "Park tool", "PARK_CURRENT_TOOL", "Return the active toolhead to its dock?"),
                   ("motor-off", "Motors off", "M84", "Disable all motors?"),
-                  ("unlock", "Unlock gripper", "UNLOCK", "Open the toolhead gripper?"),
+                  ("unlock", "Unlock gripper", "UNLOCK", "HOLD THE TOOL HEAD with your hand first. Opening the gripper lets go of it, and it falls onto the bed if nobody holds it. Open the toolhead gripper?"),
                   ("lock", "Lock gripper", "LOCK", "Close the toolhead gripper?")]
         tiles = []
         for icon, text, script, question in items:

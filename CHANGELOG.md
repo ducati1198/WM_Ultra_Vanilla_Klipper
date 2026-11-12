@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.6
+
+- **Full Calibration starts with the Extruder Setup** (stage 1 of 6). It picks up T0 to T3 and checks that each tool head has the CAN id of its dock. If every tool came out of its own dock it goes straight on with the other five stages; if the ids must change it asks, restarts the firmware, and you start the Full Calibration again. The window explains this and the hang-the-extruders instruction.
+- **Hidden helper macros.** `_WM_CAL_STOP`, `_WM_NOZZLE_TYPE` and `_WM_NOZZLE_CHANGE_END` start with `_` now, so Fluidd's macro list no longer shows them; the windows still have their buttons (Stop heaters, Nozzle Type, Done). `WM_NOZZLE_CHANGE` no longer offers the Extruder Setup, and its windows now say that Done leads to the Nozzle Type window.
+- **`WM_ZOFFSET_UP` and `WM_ZOFFSET_DOWN` are removed.** Nothing used them (no macro, no ZR Tools button).
+- **`WM_CAL_HELP` lists the current macros**, including the Full Calibration stages, the Extruder Setup and the hidden helpers.
+
 ## 2.0.5
 
 - **README: using OrcaSlicer.** A new section 4.2 says to use OrcaSlicer and to write the Machine G-code fields without a `;` in front (`START_PRINT ...`, `PRINT_END`, `TIMELAPSE_TAKE_FRAME`, `PAUSE`), with the exact lines and three screenshots, and a step in the quick start. A line that starts with `;` is a comment, so Klipper would skip it.

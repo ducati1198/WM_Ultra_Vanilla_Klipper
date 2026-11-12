@@ -1193,7 +1193,7 @@ class Panel(ViewsMixin, ScreenPanel):
             ("speed+", "Vibration compensation", "WM_VIBRATION_COMP", None),
             ("heat-up", "Bed PID", "WM_BED_PID", None),
             ("heat-up", f"Nozzle temperature T{at}", f"WM_NOZZLE_TEMP_CAL T={at}", None),
-            ("extruder", "Nozzle type", "WM_NOZZLE_TYPE", None),
+            ("extruder", "Nozzle type", "_WM_NOZZLE_TYPE", None),
             ("extruder", "Nozzle change", "WM_NOZZLE_CHANGE", None),
             ("toolchanger", "Extruder setup", "WM_EXTRUDER_SETUP", None),
         ) if wm(x[2].split()[0])]
@@ -1201,7 +1201,7 @@ class Panel(ViewsMixin, ScreenPanel):
             ("fine-tune", "Wipe nozzle", "WIPE_NOZZLE", "Wipe the active nozzle?"),
             ("extruder", "Park tool", "PARK_CURRENT_TOOL", "Return the active toolhead to its dock?"),
             ("motor-off", "Motors off", "M84", "Disable all motors?"),
-            ("unlock", "Unlock gripper", "UNLOCK", "Open the toolhead gripper?"),
+            ("unlock", "Unlock gripper", "UNLOCK", "HOLD THE TOOL HEAD with your hand first. Opening the gripper lets go of it, and it falls onto the bed if nobody holds it. Open the toolhead gripper?"),
             ("lock", "Lock gripper", "LOCK", "Close the toolhead gripper?"),
         ]
         grid = Gtk.Grid()

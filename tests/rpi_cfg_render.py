@@ -12,7 +12,7 @@ macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
 env = jinja2.Environment(variable_start_string='{', variable_end_string='}')
-def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True, fil=None, ace=False):
+def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True, fil=None, ace=False, full=0):
     svars = {'thr_number': 4, 'current_extruder': 0, 'fail_flag': 0, 'fail_tool': 99, 'is_nozzle_setting': 0}; svars.update(sv or {})
     printer = {'save_variables': {'variables': svars},
                'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': 'xyz'},
@@ -23,7 +23,7 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     if shell: cs['gcode_shell_command wm_nozzle'] = {}
     if canids: cs['gcode_shell_command wm_canids'] = {}
     for i in range(4): cs['mcu t%d' % i] = {'canbus_uuid': (ids or ['ac8b57e80210', 'ac80ddd6ebe5', 'ac4068351d2c', 'ac6290884b96'])[i]}
-    printer['gcode_macro _WM_MATCH_STATE'] = {'actual': [0, 1, 2, 3] if actual is None else actual}
+    printer['gcode_macro _WM_MATCH_STATE'] = {'actual': [0, 1, 2, 3] if actual is None else actual, 'full': full}
     for i in range(4):
         cs['filament_switch_sensor docked%d' % i] = {}
         printer['filament_switch_sensor docked%d' % i] = {'filament_detected': (docks or {}).get(i, True)}
@@ -43,7 +43,7 @@ def want(label, lines, *must, none=()):
     for m in none:
         if m in j: bad.append("%s: unexpected %r in\n%s" % (label, m, j))
 for n in macros: env.from_string(macros[n])
-want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "WM_CAL_STOP", "WM_CAL_HELP", "WM_ZOFFSET_UP", "WM_ZOFFSET_DOWN", "WM_BED_PID", "WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION_DONE", "WM_NOZZLE_TYPE", "WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
+want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "_WM_CAL_STOP", "WM_CAL_HELP", "WM_BED_PID", "WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION_DONE", "_WM_NOZZLE_TYPE", "_WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
 want("level asks first", run("WM_BED_LEVELING"), "_WM_CAL_ASK STAGE=level", none=("G29",))
 want("level runs", run("WM_BED_LEVELING", {"CONFIRM": "1"}), "G28", "G29", "TURN_OFF_HEATERS", "SAVE_CONFIG")
 want("level SAVE=0", run("WM_BED_LEVELING", {"CONFIRM": "1", "SAVE": "0"}), "G29", none=("SAVE_CONFIG",))
@@ -94,17 +94,26 @@ want("bed pid refuses odd target", run("WM_BED_PID", {"TARGET": "200"}), "RAISE"
 want("full calibration: window, nothing runs", run("WM_FULL_CALIBRATION"), "prompt_begin Full Calibration", "_WM_FULL_CALIBRATION", "Hotend PID: tunes", none=("G29", "SAVE_CONFIG\n", "PID_CALIBRATE"))
 want("full calibration: watermark says skipped", run("WM_FULL_CALIBRATION", control="watermark"), "Hotend PID: skipped")
 want("full calibration: checks first", run("WM_FULL_CALIBRATION")[:1], "_WM_CAL_PRECHECK")
-want("full calibration runs 5 stages in order", run("_WM_FULL_CALIBRATION"), "WM_BED_LEVELING CONFIRM=1 SAVE=0", "WM_OFFSETS_RAPID CONFIRM=1", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0", "WM_BED_PID CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL TARGET=220 T=all CONFIRM=1 SAVE=0", "_WM_FULL_CALIBRATION_DONE", none=("SAVE_CONFIG\n",))
-want("full calibration skips PID on watermark", run("_WM_FULL_CALIBRATION", control="watermark"), "skipped")
+want("full calibration starts with the extruder setup (flag on, then the matching)", run("_WM_FULL_CALIBRATION"), "_WM_MATCH_CHECK", "Full calibration - 1 of 6", "VARIABLE=full VALUE=1", "_WM_MATCH_RUN", none=("G29", "WM_BED_LEVELING"))
+want("full calibration: a start that cannot happen never sets the flag", run("_WM_FULL_CALIBRATION")[:4], "_WM_CAL_PRECHECK", "_WM_MATCH_CHECK")
+want("full calibration stages 2 to 6 in order", run("_WM_FULL_CALIBRATION_REST"), "WM_BED_LEVELING CONFIRM=1 SAVE=0", "WM_OFFSETS_RAPID CONFIRM=1", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0", "WM_BED_PID CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL TARGET=220 T=all CONFIRM=1 SAVE=0", "_WM_FULL_CALIBRATION_DONE", "2 of 6", "6 of 6", none=("SAVE_CONFIG\n", "_WM_MATCH_RUN"))
+want("full calibration skips PID on watermark", run("_WM_FULL_CALIBRATION_REST", control="watermark"), "skipped")
+want("full calibration window lists the extruder setup first", run("WM_FULL_CALIBRATION"), "1) Extruder setup", "6) Hotend PID", "hang the extruders on the rear support")
+want("matching in a full calibration: all docks right goes straight on", run("_WM_MATCH_FINISH", full=1), "_WM_FULL_CALIBRATION_REST", "VARIABLE=full VALUE=0", none=("prompt_show", "_WM_MATCH_APPLY"))
+want("matching alone: all docks right shows the result and does not go on", run("_WM_MATCH_FINISH", full=0), "nothing was changed", "prompt_show", none=("_WM_FULL_CALIBRATION_REST",))
+want("matching in a full calibration: other ids stop and say to start again", run("_WM_MATCH_FINISH", full=1, actual=[1, 0, 2, 3]), "_WM_MATCH_APPLY", "start WM_FULL_CALIBRATION again", "VARIABLE=full VALUE=0", none=("_WM_FULL_CALIBRATION_REST",))
+want("matching in a full calibration: duplicate ids stop", run("_WM_MATCH_FINISH", full=1, actual=[0, 0, 2, 3]), "same CAN id", "did not go on", none=("_WM_FULL_CALIBRATION_REST", "_WM_MATCH_APPLY"))
+want("matching stop clears the full calibration flag", run("_WM_MATCH_STOP", {"REASON": "x"}), "VARIABLE=full VALUE=0", "did not go on")
+want("Extruder Setup on its own clears the flag", run("WM_EXTRUDER_SETUP"), "VARIABLE=full VALUE=0", "Set Up|_WM_MATCH_RUN")
 want("full calibration end window saves only on click", run("_WM_FULL_CALIBRATION_DONE"), "Save and Restart|_WM_SAVE", "WM_PROBE_CALIBRATE")
 want("window buttons close the screen window first", run("_WM_SAVE"), "action:prompt_end", "SAVE_CONFIG")
 want("cancel closes the window and says so", run("_WM_PROMPT_CLOSE", params={"MSG": "Cancelled"}), "action:prompt_end", "M118 Cancelled")
-want("the start path closes the window first", run("WM_CAL_STOP"), "action:prompt_end", "TURN_OFF_HEATERS")
-want("both files' macros present", sorted(macros), "WM_NOZZLE_TYPE", "_WM_NOZZLE_MATERIAL", "_WM_NOZZLE_DIAMETER", "_WM_NOZZLE_SURE", "_WM_NOZZLE_APPLY", "WM_NOZZLE_CHANGE", "_WM_NCHANGE_CHECK", "_WM_NCHANGE_RUN", "_WM_NCHANGE_AFTER", "_WM_NCHANGE_FAILED", "WM_NOZZLE_CHANGE_END")
-want("nozzle type: refuses while printing", run("WM_NOZZLE_TYPE", printing="printing"), "RAISE")
-want("nozzle type: one button per tool, shows the current values", run("WM_NOZZLE_TYPE"), "prompt_begin Nozzle Type", "Nozzle 1: hardened steel, 0.4 mm", "_WM_NOZZLE_MATERIAL T=0", "_WM_NOZZLE_MATERIAL T=3")
-want("nozzle type: only as many buttons as tools", run("WM_NOZZLE_TYPE", sv={"thr_number": 2}), "_WM_NOZZLE_MATERIAL T=1", none=("_WM_NOZZLE_MATERIAL T=2",))
-want("nozzle type: shows a saved stainless nozzle", run("WM_NOZZLE_TYPE", sv={"nozzle_type2": 1}), "Nozzle 3: stainless steel")
+want("the start path closes the window first", run("_WM_CAL_STOP"), "action:prompt_end", "TURN_OFF_HEATERS")
+want("both files' macros present", sorted(macros), "_WM_NOZZLE_TYPE", "_WM_NOZZLE_MATERIAL", "_WM_NOZZLE_DIAMETER", "_WM_NOZZLE_SURE", "_WM_NOZZLE_APPLY", "WM_NOZZLE_CHANGE", "_WM_NCHANGE_CHECK", "_WM_NCHANGE_RUN", "_WM_NCHANGE_AFTER", "_WM_NCHANGE_FAILED", "_WM_NOZZLE_CHANGE_END")
+want("nozzle type: refuses while printing", run("_WM_NOZZLE_TYPE", printing="printing"), "RAISE")
+want("nozzle type: one button per tool, shows the current values", run("_WM_NOZZLE_TYPE"), "prompt_begin Nozzle Type", "Nozzle 1: hardened steel, 0.4 mm", "_WM_NOZZLE_MATERIAL T=0", "_WM_NOZZLE_MATERIAL T=3")
+want("nozzle type: only as many buttons as tools", run("_WM_NOZZLE_TYPE", sv={"thr_number": 2}), "_WM_NOZZLE_MATERIAL T=1", none=("_WM_NOZZLE_MATERIAL T=2",))
+want("nozzle type: shows a saved stainless nozzle", run("_WM_NOZZLE_TYPE", sv={"nozzle_type2": 1}), "Nozzle 3: stainless steel")
 want("nozzle type: material step carries the tool", run("_WM_NOZZLE_MATERIAL", {"T": "2"}), "Nozzle 3: material", "_WM_NOZZLE_DIAMETER T=2 TYPE=0", "_WM_NOZZLE_DIAMETER T=2 TYPE=1")
 want("nozzle type: diameter step", run("_WM_NOZZLE_DIAMETER", {"T": "1", "TYPE": "1"}), "_WM_NOZZLE_SURE T=1 TYPE=1 D=0.2", "D=0.4", "D=0.6", "D=0.8")
 want("nozzle type: confirm writes nothing", run("_WM_NOZZLE_SURE", {"T": "0", "TYPE": "0", "D": "0.6"}), "_WM_NOZZLE_APPLY T=0 TYPE=0 D=0.6", "hardened steel, 0.6 mm", none=("RUN_SHELL_COMMAND", "SAVE_VARIABLE"))
@@ -121,11 +130,11 @@ want("nozzle change: cold printer passes", run("_WM_NCHANGE_CHECK"), none=("RAIS
 want("nozzle change: switch on, then park the tool on the carriage", run("_WM_NCHANGE_RUN", sv={"current_extruder": 2}), "SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=1", "_UNLOCK_TOOL T=2", "_WM_NCHANGE_AFTER")
 want("nozzle change: no tool on the carriage, nothing to unlock", run("_WM_NCHANGE_RUN", sv={"current_extruder": 99}), "is_nozzle_setting VALUE=1", "_WM_NCHANGE_AFTER", none=("_UNLOCK_TOOL",))
 want("nozzle change: a stale fail_flag stops it and puts the switch back", run("_WM_NCHANGE_RUN", sv={"fail_flag": -3}), "_WM_NCHANGE_FAILED", none=("_UNLOCK_TOOL",))
-want("nozzle change: unlock success asks for Done", run("_WM_NCHANGE_AFTER"), "tools released", "WM_NOZZLE_CHANGE_END")
-want("nozzle change: unlock failure", run("_WM_NCHANGE_AFTER", sv={"fail_flag": -3, "fail_tool": 1}), "_WM_NCHANGE_FAILED", none=("WM_NOZZLE_CHANGE_END|primary",))
+want("nozzle change: unlock success asks for Done", run("_WM_NCHANGE_AFTER"), "tools released", "_WM_NOZZLE_CHANGE_END")
+want("nozzle change: unlock failure", run("_WM_NCHANGE_AFTER", sv={"fail_flag": -3, "fail_tool": 1}), "_WM_NCHANGE_FAILED", none=("_WM_NOZZLE_CHANGE_END|primary",))
 want("nozzle change: failed puts the switch back", run("_WM_NCHANGE_FAILED", {"REASON": "x"}), "is_nozzle_setting VALUE=0")
-want("nozzle change end: switch off, docks fine", run("WM_NOZZLE_CHANGE_END"), "is_nozzle_setting VALUE=0", "Every tool head is seen in its dock")
-want("nozzle change end: names an empty dock", run("WM_NOZZLE_CHANGE_END", docks={1: False, 3: False}), "is_nozzle_setting VALUE=0", "tool head 2, 4 shows an empty dock")
+want("nozzle change end: switch off, docks fine", run("_WM_NOZZLE_CHANGE_END"), "is_nozzle_setting VALUE=0", "Every tool head is seen in its dock")
+want("nozzle change end: names an empty dock", run("_WM_NOZZLE_CHANGE_END", docks={1: False, 3: False}), "is_nozzle_setting VALUE=0", "tool head 2, 4 shows an empty dock")
 want("match: all macros present", sorted(macros), "WM_EXTRUDER_SETUP", "_WM_MATCH_STATE", "_WM_MATCH_CHECK", "_WM_MATCH_RUN", "_WM_MATCH_STEP", "_WM_MATCH_AFTER", "_WM_MATCH_FINISH", "_WM_MATCH_APPLY", "_WM_MATCH_STOP")
 want("match: window shows the ids, nothing moves", run("WM_EXTRUDER_SETUP"), "prompt_begin Extruder Setup", "hang the extruders on the rear support", "T0 ac8b57e80210", "T3 ac6290884b96", "Set Up|_WM_MATCH_RUN", none=("T0\n", "SAVE_VARIABLE", "G28", "PARK_CURRENT_TOOL"))
 want("match: check runs the Extruder Setup safety check first", run("WM_EXTRUDER_SETUP")[:1], "_WM_MATCH_CHECK")
@@ -151,7 +160,9 @@ want("match: apply writes the four ids, then restarts the firmware", run("_WM_MA
 want("match: apply refuses without the shell command", run("_WM_MATCH_APPLY", {"ID0": "a"}, canids=False), "RAISE: The wm_canids shell command is not loaded")
 want("match: apply refuses while printing", run("_WM_MATCH_APPLY", {"ID0": "a"}, printing="printing"), "RAISE")
 want("match: stop switches off and writes nothing", run("_WM_MATCH_STOP", {"REASON": "x"}), "is_nozzle_setting VALUE=0", "Nothing was written", none=("RUN_SHELL_COMMAND", "SAVE_CONFIG"))
-want("nozzle change end: offers Extruder Setup (matching)", run("WM_NOZZLE_CHANGE_END"), "Extruder Setup|WM_EXTRUDER_SETUP|secondary")
+want("nozzle change end: offers only Nozzle Type, no Extruder Setup", run("_WM_NOZZLE_CHANGE_END"), "Nozzle Type|_WM_NOZZLE_TYPE|primary", none=("WM_EXTRUDER_SETUP",))
+want("nozzle change windows do not mention the Extruder Setup", run("WM_NOZZLE_CHANGE") + run("_WM_NCHANGE_AFTER"), "record the new nozzle", none=("EXTRUDER_SETUP", "Extruder Setup"))
+want("WM_CAL_HELP lists the full calibration, extruder setup and the hidden helpers", run("WM_CAL_HELP"), "WM_EXTRUDER_SETUP", "first stage of WM_FULL_CALIBRATION", "_WM_CAL_STOP", "_WM_NOZZLE_CHANGE_END", "_WM_NOZZLE_TYPE")
 want("calibration refuses while Extruder Setup or a nozzle change is on", run("_WM_CAL_PRECHECK", sv={"is_nozzle_setting": 1}), '_WM_FAIL MSG="Extruder Setup or a nozzle change is still on')
 
 def closes_first(label, lines):   # the window must close BEFORE the error line runs (Klipper reads the whole macro first, so the error cannot be raised inside the macro text)
@@ -161,7 +172,6 @@ closes_first("precheck closes the window before it fails", run("_WM_CAL_PRECHECK
 closes_first("accurate: bad temp closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "400"}))
 closes_first("accurate: clean while printing closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "0"}, printing="printing"))
 want("_WM_FAIL raises the message", run("_WM_FAIL", {"MSG": "No filament in T1."}), "RAISE: No filament in T1.")
-want("z offset", run("WM_ZOFFSET_DOWN", {"STEP": "0.01"}), "SET_GCODE_OFFSET Z_ADJUST=-0.01 MOVE=1")
 want("accurate popup tells to load filament in every tool", run("_WM_CAL_ASK", {"STAGE": "offsets", "MODE": "accurate"}), "Filament must be loaded in every tool head")
 want("rapid popup has no filament sentence", run("_WM_CAL_ASK", {"STAGE": "offsets", "MODE": "rapid"}), "Calibrates every tool head", none=("Filament must be loaded",))
 def fails_before(label, lines, *later):   # the render prints every line, but Klipper stops at _WM_FAIL, so the error line must come before anything that moves or heats

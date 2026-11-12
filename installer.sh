@@ -2325,8 +2325,8 @@ do_doctor() {
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
         else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
         if [ "$rf" = wm_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
-            if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind WM_NOZZLE_TYPE) is in place"
-            else doc_bad "wm_nozzle.py is missing or different in ~/printer_data/wm-tools" "WM_NOZZLE_TYPE could not write the nozzle diameter."; offer_fix "copy wm_nozzle.py again" step_rpicfg; fi
+            if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind _WM_NOZZLE_TYPE) is in place"
+            else doc_bad "wm_nozzle.py is missing or different in ~/printer_data/wm-tools" "_WM_NOZZLE_TYPE could not write the nozzle diameter."; offer_fix "copy wm_nozzle.py again" step_rpicfg; fi
             if cmp -s "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" 2>/dev/null; then doc_ok "wm_canids.py (the helper behind WM_EXTRUDER_SETUP) is in place"
             else doc_bad "wm_canids.py is missing or different in ~/printer_data/wm-tools" "WM_EXTRUDER_SETUP could not write the CAN ids."; offer_fix "copy wm_canids.py again" step_rpicfg; fi
         fi
@@ -2597,9 +2597,9 @@ do_remove_addon_core() {
             users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v '/wm_nozzle\.cfg$' | tr '\n' ' ')"   # wm_nozzle.cfg is ours: it is taken out below
             if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
             ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
-            if [ -f "$cfgd/wm_nozzle.cfg" ]; then   # WM_NOZZLE_TYPE needs the extension: take its include out (printer.cfg is copied first) and keep the file aside
+            if [ -f "$cfgd/wm_nozzle.cfg" ]; then   # _WM_NOZZLE_TYPE needs the extension: take its include out (printer.cfg is copied first) and keep the file aside
                 [ -f "$cfgd/printer.cfg" ] && cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" && sed -i '/^[[:space:]]*\[include[[:space:]]\+wm_nozzle\.cfg[[:space:]]*\]/d' "$cfgd/printer.cfg"
-                mv "$cfgd/wm_nozzle.cfg" "$cfgd/wm_nozzle.cfg.wm-removed-$STAMP"; print_info "wm_nozzle.cfg (WM_NOZZLE_TYPE) was taken out of printer.cfg too, because it needs the extension. It is kept as wm_nozzle.cfg.wm-removed-$STAMP."
+                mv "$cfgd/wm_nozzle.cfg" "$cfgd/wm_nozzle.cfg.wm-removed-$STAMP"; print_info "wm_nozzle.cfg (_WM_NOZZLE_TYPE) was taken out of printer.cfg too, because it needs the extension. It is kept as wm_nozzle.cfg.wm-removed-$STAMP."
             fi
             rm -f "$ef"; WANT_SHELLCMD=0; save_answers
             print_success "Removed. Restart Klipper from Fluidd when you are ready." ;;
