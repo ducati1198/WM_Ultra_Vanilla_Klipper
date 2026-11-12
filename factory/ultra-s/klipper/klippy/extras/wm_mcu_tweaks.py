@@ -5,11 +5,14 @@
 # It also switches off upstream's "probe triggered prior to movement" check for WonderMaker's
 # nozzle-sensor probes (the factory Klipper had that check commented out; its X/Y probing moves
 # never move every stepper, so the check always fails there).
+# It also hides the two "MCU has deprecated code" warnings that WonderMaker's older MCU firmware
+# causes (option hide_mcu_deprecated, default on).
 # All are set at runtime, so no upstream file is edited.
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
 import mcu
+import configfile
 from . import temperature_mcu, homing
 
 TRSYNC_TIMEOUT = 0.05
@@ -44,6 +47,28 @@ def _patch_probing_move():
     homing.PrinterHoming.probing_move = probing_move
 
 
+# The factory MCU firmware is older than this Klipper and lacks two optional features. Klipper
+# files one "deprecated code" warning per board for them, which Fluidd shows. They only cost
+# CAN diagnostics and the double-edge step mode, so these two are skipped (other warnings stay).
+HIDDEN_MCU_FEATURES = ('get_canbus_status', 'STEPPER_STEP_BOTH_EDGE')
+
+
+def _patch_mcu_deprecation():
+    cls = configfile.PrinterConfig
+    orig = cls.deprecate_mcu_code
+    if getattr(orig, '_wm_patched', False):
+        return
+
+    def deprecate_mcu_code(self, mcu, feature, msg=None):
+        if feature in HIDDEN_MCU_FEATURES:
+            logging.info("wm_mcu_tweaks: MCU '%s' lacks '%s', warning hidden",
+                         mcu.get_name(), feature)
+            return
+        return orig(self, mcu, feature, msg)
+    deprecate_mcu_code._wm_patched = True
+    cls.deprecate_mcu_code = deprecate_mcu_code
+
+
 class WMMcuTweaks:
     def __init__(self, config):
         self.trsync_timeout = config.getfloat('trsync_timeout', TRSYNC_TIMEOUT,
@@ -54,6 +79,8 @@ class WMMcuTweaks:
                 _config_stm32f4_fixed
         if config.getboolean('fix_probe_nomove_check', True):
             _patch_probing_move()
+        if config.getboolean('hide_mcu_deprecated', True):
+            _patch_mcu_deprecation()
         logging.info("wm_mcu_tweaks: TRSYNC_TIMEOUT set to %.3f",
                      self.trsync_timeout)
 
