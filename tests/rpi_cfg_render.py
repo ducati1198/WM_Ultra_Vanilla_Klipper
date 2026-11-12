@@ -84,8 +84,8 @@ led = re.search(r'^\[delayed_gcode WM_TOOL_LEDS\]\n(?:.*\n)*?gcode:\n((?:(?:    
 def leds(detected, undefined=()):
     pr = {"filament_switch_sensor filament%d" % i: {"filament_detected": detected[i]} for i in range(4) if i not in undefined}
     return [l.strip() for l in env.from_string(led).render(printer=pr).splitlines() if l.strip()]
-want("leds: filament = blue, none = red", leds([True, False, True, False]), "SET_LED LED=T0_RGB RED=0.0 GREEN=0.0 BLUE=1.0 TRANSMIT=1", "SET_LED LED=T1_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T2_RGB RED=0.0 GREEN=0.0 BLUE=1.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "UPDATE_DELAYED_GCODE ID=WM_TOOL_LEDS DURATION=2")
-want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "SET_LED LED=T2_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=0.0 GREEN=0.0 BLUE=1.0 TRANSMIT=1")
+want("leds: filament = green, none = red", leds([True, False, True, False]), "SET_LED LED=T0_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T1_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T2_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "UPDATE_DELAYED_GCODE ID=WM_TOOL_LEDS DURATION=2")
+want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "SET_LED LED=T2_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1")
 # print end watcher (rpi-cfg/wm_print_end.cfg)
 pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "wm_print_end.cfg")).read(), re.M).group(1)
 def pend(state, ready):
