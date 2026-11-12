@@ -1,0 +1,17 @@
+[Unit]
+Description=Klipper 3D printer firmware host (upstream, pinned by the installer)
+After=network.target
+# The installer enables and starts it at the end of the install (not with --no-start).
+
+[Service]
+Type=simple
+User=t13dp
+RemainAfterExit=no
+WorkingDirectory=/home/t13dp/klipper
+EnvironmentFile=/home/t13dp/printer_data/systemd/klipper.env
+ExecStart=/home/t13dp/klippy-env/bin/python $KLIPPER_ARGS
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
