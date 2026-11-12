@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.4
+
+- **The services are started last.** Before, Klipper was enabled and started and only then the board temperature sensors and the host MCU were added (two more Klipper restarts, and both were taken out again when Klipper was not ready yet). Now an install adds them first and starts the services at the very end, once. `./installer.sh --pi-sensors` on its own still needs a running Klipper.
+- **The Fluidd macro categories are set up after Moonraker starts.** They could not be set at the ACE Pro step ("Moonraker did not answer"); the installer repeats them once Moonraker runs.
+- **First start asks the CAN bus up to 3 times.** The first query right after `can0` came up could be empty and the check said "nothing answers on the CAN bus" although the main board was there.
+
 ## 2.0.3
 
 - **Fix: the 5 compiled WonderMaker modules were missing from GitHub.** The bundled Klipper has its own `.gitignore` with `*.so`, so git left `cs1237`, `hx711`, `heater_air_core`, `heater_feng` and `xy_offset_calibrator_core` out of the commits. A fresh install stopped with "Checksum of the factory files does not match". They are now in the repository (checked against `modules.sha256`), and a test fails if a file listed in the checksum files is not tracked by git.

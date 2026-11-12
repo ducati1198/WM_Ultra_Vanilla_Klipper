@@ -789,6 +789,9 @@ pisens_add() {   # file label : the file is already in the config folder; includ
     local f="$1" label="$2" cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" ok=0
     cp "$cfg" "$cfg.wm-before-${f%.cfg}-$STAMP"
     cfg_include_last "$f"
+    if [ "$(service_state klipper)" != active ] && [ "$TESTING" != 1 ]; then   # install: Klipper is started last, once, with everything in place
+        print_success "$label: added to printer.cfg. Klipper loads it when it starts (copy of the old printer.cfg: printer.cfg.wm-before-${f%.cfg}-$STAMP)"; return 0
+    fi
     SUDO systemctl restart klipper
     if [ "$TESTING" = 1 ]; then [ "${WM_TEST_KLIPPER_AFTER:-ready}" = ready ] && ok=1
     else wait_klipper_ready && ok=1; fi
@@ -800,15 +803,15 @@ pisens_add() {   # file label : the file is already in the config folder; includ
     warn_later "$label was not added: Klipper did not start with it. The file is kept as $f.wm-failed-$STAMP in the config folder; the reason is in ~/printer_data/logs/klippy.log."
     return 1
 }
-pi_sensors_in_flow() { [ "$TESTING" != 1 ] || [ "${WM_TEST_PI_SENSORS_FLOW:-0}" = 1 ] && step_pi_sensors; return 0; }   # (the install tests count Klipper restarts, so under test it only runs when a test asks for it)
+pi_sensors_in_flow() { [ "$TESTING" != 1 ] || [ "${WM_TEST_PI_SENSORS_FLOW:-0}" = 1 ] && PISENS_INSTALL=1 step_pi_sensors; return 0; }   # (the install tests count Klipper restarts, so under test it only runs when a test asks for it)
 step_pi_sensors() {   # ./installer.sh --pi-sensors, and at the end of an install or update
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" content
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would add the board temperature sensors and [mcu rpi] once Klipper is running${NC}"; return 0; }
     [ -f "$cfg" ] || return 0
-    if [ "$(service_state klipper)" != active ]; then print_info "Klipper is not running, so the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after Klipper has started."; return 0; fi
+    if [ "$(service_state klipper)" != active ] && [ "${PISENS_INSTALL:-0}" != 1 ]; then print_info "Klipper is not running, so the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after Klipper has started."; return 0; fi   # (the install and update flows set PISENS_INSTALL: they add the files and Klipper loads them when it starts)
     case "$(print_state)" in printing|paused) print_info "A print is running: the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after the print."; return 0 ;; esac
     print_header "Board temperatures and the host MCU"
-    why "Shows the chip temperature of every board in Fluidd, and connects Klipper to the host MCU service (sensors wired to the Pi's own pins). Klipper restarts after each; it is undone again if Klipper does not come back."
+    why "Shows the chip temperature of every board in Fluidd, and connects Klipper to the host MCU service (sensors wired to the Pi's own pins). During the install Klipper is not running yet: the files are only added and Klipper loads them at its first start. On a Pi where Klipper runs, Klipper restarts after each and it is undone again if Klipper does not come back."
     if rpicfg_included wm_mcu_temps.cfg; then print_success "board temperature sensors are already in use"
     elif content="$(pisens_mcutemps_content)"; then
         printf '%s\n' "$content" > "$cd/wm_mcu_temps.cfg"; pisens_add wm_mcu_temps.cfg "Board temperature sensors" || true
@@ -1463,6 +1466,14 @@ step_start() {
     fi
 }
 
+step_fluidd_categories() {   # the ACE Pro project sets the Fluidd macro categories through Moonraker; at its install step Moonraker is not running yet, so it is repeated here (it never changes categories you set yourself)
+    [ "$WANT_ACEPRO" = 1 ] && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ -f "$(ace_dir)/installer.sh" ] || return 0
+    print_header "Fluidd macro categories"
+    why "Moonraker is running now, so the macro categories can be set up (they could not be at the ACE Pro step). A macro you moved, recoloured, renamed or hid yourself is never changed."
+    if ace_run_installer --fluidd-categories >/dev/null 2>&1; then print_success "Fluidd macro categories set up"
+    else warn_later "The Fluidd macro categories were not set up. Run: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh --fluidd-categories"; fi
+}
+
 questions() {
     print_header "A few questions"
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
@@ -1575,6 +1586,14 @@ fill_blank_uuids() {  # the factory files ship empty "canbus_uuid:" for T0-T3 an
     [ "$changed" = 0 ] || print_info "$changed device(s) had an empty canbus_uuid, which makes Klipper stop with 'Duplicate canbus_uuid'. Each now has a placeholder (b00000000000, b10000000000, ... b40000000000 for the load cell). Set the real one once the toolhead is connected: scripts/read_write_can_id.sh <0-3> 1 <uuid>, or Fluidd (a copy of the old files: $BACKUP_ROOT/uuid-$STAMP)."
 }
 found_uuids() { can_query_raw | grep -oiE 'canbus_uuid=[0-9a-f]{12}' | cut -d= -f2 | tr 'A-F' 'a-f' | sort -u; }
+found_uuids_retry() {   # right after can0 comes up the first query can come back empty: ask up to 3 times, 2 s apart (no waiting in tests)
+    local f i
+    for i in 1 2 3; do
+        f="$(found_uuids)"; [ -n "$f" ] && { echo "$f"; return 0; }
+        [ "$TESTING" = 1 ] || [ "$i" = 3 ] || sleep 2
+    done
+    return 0
+}
 model_now() { cat "$HOME_DIR/printer_data/wm-model" 2>/dev/null || echo "$MODEL"; }
 
 modules_present() {  # prints missing module names
@@ -1872,7 +1891,7 @@ hw_checks() {  # $1 = quiet header flag
     fill_blank_uuids
     if [ "$(service_state klipper)" = active ]; then chk_warn "Klipper is already running: the CAN query is skipped (Klipper uses the bus)"
     elif can_exists && can_is_up; then
-        local found; found="$(found_uuids)"
+        local found; found="$(found_uuids_retry)"
         if [ -z "$found" ]; then chk_fail "nothing answers on the CAN bus" "Main board powered? Toolhead hub powered? CAN cable?"
         else
             chk_ok "CAN devices answering: $(echo $found | tr ' ' ',')"
@@ -3188,10 +3207,11 @@ PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
 step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_remote; step_crowsnest; step_start
 save_answers
+step_fluidd_categories
 restart_klipper_after
 self_test
-if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
 pi_sensors_in_flow
+if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi   # last: enabling and starting the services
 
 print_header "Done"
 [ "$PROG_STEPS" -gt 0 ] && progress_bar 100 100 "All $PROG_STEPS steps finished"
