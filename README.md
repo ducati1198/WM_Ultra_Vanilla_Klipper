@@ -779,7 +779,7 @@ The install asks three things (or take them from the command line, then nothing 
 - **`crowsnest.conf`** starts with a long comment that explains every option of `[crowsnest]` and `[cam ...]` and links to the full manual: https://github.com/mainsail-crew/crowsnest/blob/master/README.md . Cameras are `[cam 1]` to `[cam 4]` on ports 8080 to 8083 (`/webcam/`, `/webcam2/`, `/webcam3/`, `/webcam4/`).
 - **Fluidd** lists the cameras as `Camera`, `Camera 2`, `Camera 3` (and `Camera 4`): the installer adds the `[webcam ...]` sections to `moonraker.conf`. Webcam sections you made yourself are left alone.
 - **An existing `crowsnest.conf` is never overwritten.** The explained copy is saved next to it as `crowsnest.conf.new`, and the questions are skipped.
-- **Ask again later:** `./installer.sh --webcam-setup` repeats the questions, keeps a copy of the old file (`crowsnest.conf.wm-before-webcam-setup-...`), writes the new one and restarts the service.
+- **Ask again later:** `./installer.sh --webcam-setup`, or menu 3 (Add-ons), Webcam (crowsnest), "Set up the cameras again", repeats the questions, keeps a copy of the old file (`crowsnest.conf.wm-before-webcam-setup-...`), writes the new one and restarts the service.
 
 ## Backup before every update
 

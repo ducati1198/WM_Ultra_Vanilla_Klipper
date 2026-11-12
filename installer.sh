@@ -2996,7 +2996,7 @@ menu_addons() {
         echo; echo "  Add-ons"
         local n=0; for k in "${items[@]}"; do n=$((n+1)); menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]}"; done
         menu_item 0 "Back" ""
-        menu_read "Choose one to install or remove:" || return 0
+        menu_read "Choose one to install, set up or remove:" || return 0
         [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
         if ! [[ "$REPLY_MENU" =~ ^[0-9]+$ ]] || [ "$REPLY_MENU" -lt 1 ] || [ "$REPLY_MENU" -gt "${#items[@]}" ]; then echo "  Choose a number from the list."; continue; fi
         k="${items[$((REPLY_MENU-1))]}"; local st; st="$(addon_status "$k")"
@@ -3012,6 +3012,10 @@ menu_addons() {
             esac
         else
             case "$k" in
+                webcam)
+                    echo "  The webcam is installed.   1) Set up the cameras again (how many, picture size, speed)   2) Remove the webcam service   0) Back"
+                    menu_read "Choose:" || continue
+                    case "$REPLY_MENU" in 1) menu_run --webcam-setup ;; 2) menu_run --remove webcam ;; *) ;; esac ;;
                 *) menu_run --remove "$k" ;;
             esac
         fi
