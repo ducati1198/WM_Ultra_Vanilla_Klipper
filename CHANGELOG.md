@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1
+
+- **Fluidd install is safer.** The new web page is unpacked next to the old one and checked; it replaces the old one only when complete. A damaged download leaves the old Fluidd untouched and says so. Only one copy of the old Fluidd is kept.
+- **A failed Fluidd install is no longer recorded as done**, so the next `--update` tries again.
+- **`--update` now shows the warnings** it collected (they were hidden before).
+
 ## 2.3.0
 
 - **New macro `WM_SCREWS_CAL`: bed screws.** It homes, heats the bed to 55 C and a nozzle to 140 C (like the bed leveling; T0 is picked up if another tool is on the carriage), wipes the nozzle and runs Klipper's `SCREWS_TILT_CALCULATE` on the four screws of `[screws_tilt_adjust]`, then turns the heaters off. The console shows how far to turn each screw (00:15 = a quarter turn); run it again until every screw says 00:00. It asks first in a Start / Cancel window, refuses during a print or with heaters on, prints "step 1 of 4" to "step 4 of 4", saves nothing and is listed in `WM_CAL_HELP`. Fluidd puts it in the Raspberry Pi category (blue) with the other `WM_*` macros.

@@ -707,6 +707,14 @@ inst "$P2" --update > "$T/p2u.out"
 check "update: panel already latest, nothing replaced" "grep -q 'already the latest' $T/p2u.out"
 WM_TEST_PANEL_DIR="$T/pnl" inst "$P2" --update > "$T/p2v.out"
 check "update: a changed panel in the panel repository is installed" "grep -q NEWEST-PANEL $P2/fluidd/index.html"
+check "update: only one copy of the old Fluidd is kept" "[ \$(ls -d $P2/wm-rpi-backup/fluidd-* | wc -l) = 1 ] && [ ! -e $P2/fluidd.new ]"
+mkdir -p "$T/pnlbad"; python3 - "$T/pnlbad/fluidd-bad.zip" <<'PY'
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_STORED); z.writestr("index.html", "<html>BROKEN-PANEL-CONTENT</html>"); z.close()
+d = bytearray(open(sys.argv[1], "rb").read()); i = d.index(b"BROKEN"); d[i] = ord("X"); open(sys.argv[1], "wb").write(d)
+PY
+WM_TEST_PANEL_DIR="$T/pnlbad" inst "$P2" --update > "$T/p2w.out" 2>&1
+check "update: a damaged panel zip leaves the old Fluidd untouched and says so" "grep -q NEWEST-PANEL $P2/fluidd/index.html && [ ! -e $P2/fluidd.new ] && grep -q 'NOT updated' $T/p2w.out"
 
 echo "== screen removal on the Pi"
 printf 'y\n' | WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --screen-remove > "$T/rm.out" 2>&1

@@ -90,7 +90,7 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
 STATE="$BACKUP_ROOT/installed.manifest"
 CONF="$BACKUP_ROOT/install.conf"
-PANEL_REPO="ducati1198/wm-ultra-fluidd-acepro-panel"; PANEL_ZIP=""; PANEL_FROM=""
+PANEL_REPO="ducati1198/wm-ultra-fluidd-acepro-panel"; PANEL_ZIP=""; PANEL_FROM=""; PANEL_FAILED=0
 FORCE=0; AUTOSTART=1; ARG1=""; OLD_VERSION=""
 STAGE=""
 declare -a WARNINGS=()
@@ -900,22 +900,31 @@ except Exception: pass' 2>/dev/null)"
 step_panel() {
     [ -f "$HOME_DIR/fluidd/index.html" ] || [ "$DRY" = 1 ] || WANT_PANEL=1   # factory files carry no web interface: the panel build is the web interface
     [ "$WANT_PANEL" = 1 ] || return 0
+    PANEL_FAILED=1   # stays 1 on every early return, so a failed install is not recorded as done (the next --update tries again)
     print_header "Step 10: Fluidd with the WonderMaker Toolheads panel"
     why "The Fluidd that came with the printer has no toolhead panel for the Ultra-S. This build adds it (toolheads, chamber, air filter, colours, filament mapping)."
     panel_get || { warn_later "The Fluidd web page was NOT installed (panel download failed). Connect to the internet, then run ./installer.sh --update."; return; }
     local zip="$PANEL_ZIP"
     if [ "$DRY" != 1 ]; then
         python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1])" "$zip" 2>/dev/null || { print_warning "Zip unreadable: panel skipped."; return; }
-        local keep="$BACKUP_ROOT/fluidd-$STAMP"; mkdir -p "$keep"
-        [ -d "$HOME_DIR/fluidd" ] && cp -a "$HOME_DIR/fluidd/." "$keep/"
-        local cfg="$HOME_DIR/fluidd/config.json"; [ -f "$cfg" ] && cp "$cfg" "$keep/config.json.keep"
-        rm -rf "$HOME_DIR/fluidd"; mkdir -p "$HOME_DIR/fluidd"
-        python3 - "$zip" "$HOME_DIR/fluidd" <<'PY'
+        # The new page is unpacked next to the old one and only a complete unpack replaces it. One copy of the old page is kept (older copies are removed).
+        local keep="$BACKUP_ROOT/fluidd-$STAMP" fresh="$HOME_DIR/fluidd.new" o
+        rm -rf "$fresh"; mkdir -p "$fresh" "$BACKUP_ROOT"
+        python3 - "$zip" "$fresh" <<'PY' || { rm -rf "$fresh"; warn_later "The Fluidd web page was NOT updated (the download is damaged). The old one is untouched. Run ./installer.sh --update to try again."; return; }
 import sys, zipfile
-zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])
+z = zipfile.ZipFile(sys.argv[1])
+bad = z.testzip()
+if bad:
+    sys.exit("damaged file in the zip: " + bad)
+z.extractall(sys.argv[2])
 PY
-        [ -f "$keep/config.json.keep" ] && cp "$keep/config.json.keep" "$HOME_DIR/fluidd/config.json"
+        [ -f "$fresh/index.html" ] || { rm -rf "$fresh"; warn_later "The Fluidd web page was NOT updated (the download has no index.html). The old one is untouched."; return; }
+        [ -f "$HOME_DIR/fluidd/config.json" ] && cp "$HOME_DIR/fluidd/config.json" "$fresh/config.json"
+        if [ -d "$HOME_DIR/fluidd" ]; then rm -rf "$keep"; mv "$HOME_DIR/fluidd" "$keep"; fi
+        mv "$fresh" "$HOME_DIR/fluidd"
+        for o in "$BACKUP_ROOT"/fluidd-*; do [ -d "$o" ] && [ "$o" != "$keep" ] && rm -rf "$o"; done
     else echo -e "  ${DIM}would replace ~/fluidd with the panel build (old one saved)${NC}"; fi
+    PANEL_FAILED=0
     print_success "Fluidd panel installed (from $PANEL_FROM). Hard-refresh the browser (Ctrl/Cmd+Shift+R)."
 }
 
@@ -1832,7 +1841,7 @@ WANT_SPOOLMAN=$WANT_SPOOLMAN
 WANT_ACEPRO=$WANT_ACEPRO
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
-PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
+PANEL_SHA=$(if [ "$PANEL_FAILED" = 1 ]; then echo "${OLD_PANEL_SHA:-}"; else [ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1; fi)
 E
 }
 load_answers() {
@@ -2215,6 +2224,7 @@ do_update() {
     restart_klipper_after
     pi_sensors_in_flow
     self_test
+    if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi   # the update used to hide these
     progress_bar 100 100 "Update finished"
     print_success "Update finished (installer $VERSION)."
 }
