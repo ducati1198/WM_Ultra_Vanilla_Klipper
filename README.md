@@ -474,20 +474,20 @@ Auto uses Compact when the short side is 520 px or less, or the long side is 900
 
 **Settings page:** layout (tabs/grid), size (auto/compact/comfortable, default comfortable) and light/dark theme. They are stored in `~/printer_data/config/zr_screen.conf` (not in KlipperScreen's own settings). You can also change the layout with `./installer.sh --screen-layout grid`.
 
-**What it looks like** (real captures from the WonderMaker screen board, 800x480, layout `tabs`, size Comfortable, with demo data: temperatures, colours and ACE slots are made up):
+**What it looks like** (real captures from the WonderMaker screen board, 800x480, layout `tabs`, size Comfortable, from the dev Pi in idle: all four heads docked, ACE Pro connected):
 
 | | |
 |---|---|
 | ![Toolheads](docs/img/screen-toolheads.png) | ![Filament](docs/img/screen-filament.png) |
-| Toolheads: tall cards with status, spool colour, material and temperature | One toolhead: select, heat, cool, load, unload, purge, edit filament |
+| Toolheads: tall cards with status, spool colour, material and temperature | One toolhead: select, park, heat, cool, load, unload, purge, edit filament, and **Feed assist** with an ON/OFF badge (ACE Pro only) |
 | ![Edit filament](docs/img/screen-edit.png) | ![Colour picker](docs/img/screen-colour.png) |
 | Edit filament: colour first, then material and temperature | The colour dots and a custom colour |
 | ![Climate](docs/img/screen-climate.png) | ![Calibrate](docs/img/screen-utilities.png) |
 | Climate: chamber, air filter, doors | Calibrate: home, offsets, wipe, park, motors off |
 | ![ACE Pro](docs/img/screen-ace.png) | ![More](docs/img/screen-more.png) |
-| ACE Pro page (only shown when an ACE Pro is present) | More: ACE Pro, toolhead choice, fans, pressure advance, camera, system, screen settings |
+| ACE Pro page (only shown when an ACE Pro is present) | More: ACE Pro, toolhead choice, fans, pressure advance, collision, camera, timelapse, **Update screen** (the board's own files), **Update Pi** (installer and Fluidd panel; "Not now" or "Update now"), system, screen settings |
 | ![Tool mapping](docs/img/screen-mapping.png) | ![System](docs/img/screen-system.png) |
-| Tool mapping: which head prints each slicer tool | System: Pi temperature, Fluidd address from "Pi address", factory mode, reboot |
+| Tool mapping: which head prints each slicer tool | System: Pi temperature, Fluidd address from "Pi address", factory mode, rescue, reboot, shut down |
 | ![Screen settings](docs/img/screen-settings.png) | |
 | Screen settings: layout, size, colours | |
 
