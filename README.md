@@ -476,20 +476,32 @@ Auto uses Compact when the short side is 520 px or less, or the long side is 900
 
 **What it looks like** (real captures from the WonderMaker screen board, 800x480, layout `tabs`, size Comfortable, from the dev Pi in idle: all four heads docked, ACE Pro connected):
 
-| | |
-|---|---|
-| ![Toolheads](docs/img/screen-toolheads.png) | ![Filament](docs/img/screen-filament.png) |
-| Toolheads: tall cards with status, spool colour, material and temperature | One toolhead: select, park, heat, cool, load, unload, purge, edit filament, and **Feed assist** with an ON/OFF badge (ACE Pro only) |
-| ![Edit filament](docs/img/screen-edit.png) | ![Colour picker](docs/img/screen-colour.png) |
-| Edit filament: colour first, then material and temperature | The colour dots and a custom colour |
-| ![Climate](docs/img/screen-climate.png) | ![Calibrate](docs/img/screen-utilities.png) |
-| Climate: chamber, air filter, doors | Calibrate: home, offsets, wipe, park, motors off |
-| ![ACE Pro](docs/img/screen-ace.png) | ![More](docs/img/screen-more.png) |
-| ACE Pro page (only shown when an ACE Pro is present) | More: ACE Pro, toolhead choice, fans, pressure advance, collision, camera, timelapse, **Update screen** (the board's own files), **Update Pi** (installer and Fluidd panel; "Not now" or "Update now"), system, screen settings |
-| ![Tool mapping](docs/img/screen-mapping.png) | ![System](docs/img/screen-system.png) |
-| Tool mapping: which head prints each slicer tool | System: Pi temperature, Fluidd address from "Pi address", factory mode, rescue, reboot, shut down |
-| ![Screen settings](docs/img/screen-settings.png) | |
-| Screen settings: layout, size, colours | |
+<table>
+<tr>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-toolheads.png" alt="Toolheads" width="400"><br><sub>Toolheads: tall cards with status, spool colour, material and temperature</sub></td>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-filament.png" alt="Filament" width="400"><br><sub>One toolhead: select, park, heat, cool, load, unload, purge, edit filament, and <b>Feed assist</b> with an ON/OFF badge (ACE Pro only)</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-edit.png" alt="Edit filament" width="400"><br><sub>Edit filament: colour first, then material and temperature</sub></td>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-colour.png" alt="Colour picker" width="400"><br><sub>The colour dots and a custom colour</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-climate.png" alt="Climate" width="400"><br><sub>Climate: chamber, air filter, doors</sub></td>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-utilities.png" alt="Calibrate" width="400"><br><sub>Calibrate: home, offsets, wipe, park, motors off</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-ace.png" alt="ACE Pro" width="400"><br><sub>ACE Pro page (only shown when an ACE Pro is present)</sub></td>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-more.png" alt="More" width="400"><br><sub>More: ACE Pro, toolhead choice, fans, pressure advance, collision, camera, timelapse, <b>Update screen</b> (the board's own files), <b>Update Pi</b> (installer and Fluidd panel; "Not now" or "Update now"), system, screen settings</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-mapping.png" alt="Tool mapping" width="400"><br><sub>Tool mapping: which head prints each slicer tool</sub></td>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-system.png" alt="System" width="400"><br><sub>System: Pi temperature, Fluidd address from "Pi address", factory mode, rescue, reboot, shut down</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center" valign="top"><img src="docs/img/screen-settings.png" alt="Screen settings" width="400"><br><sub>Screen settings: layout, size, colours</sub></td>
+<td width="50%"></td>
+</tr>
+</table>
 
 The `grid` layout shows the same pages as cards instead of tabs;.
 
