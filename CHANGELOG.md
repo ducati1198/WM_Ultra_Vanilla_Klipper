@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.0
+
+- **Timelapse really works.** The installer now adds the `[timelapse]` section to `moonraker.conf` (before, Moonraker never loaded the timelapse part, so every layer printed "Timelapse: disabled, take frame ignored" and no video was made). The question now reads "Install and activate timelapse".
+- **The console shows why the printer paused or stopped.** The four filament path sensors now print "Filament runout on path N (tool N). The print is paused." (before, Klipper paused without a word). PAUSE, CANCEL_PRINT and PRINT_END print one line each.
+- **The Fluidd console keeps 5000 lines** (`[data_store] gcode_store_size`, was 1000, about an hour of a print) so messages are not pushed out by temperature lines. A value you set yourself is kept.
+- **Extruder `max_error` is 120** (Klipper's default) in the factory extruder files. The tool head LEDs follow the number of tool heads, and the dock sensor check stays on while a nozzle is unlocked in the Change nozzles macro.
+- **KlipperScreen: Feed assist on/off button** on each tool's Filament page when an ACE is connected. It works during a print and a pause.
+
 ## 2.3.1
 
 - **Fluidd install is safer.** The new web page is unpacked next to the old one and checked; it replaces the old one only when complete. A damaged download leaves the old Fluidd untouched and says so. Only one copy of the old Fluidd is kept.

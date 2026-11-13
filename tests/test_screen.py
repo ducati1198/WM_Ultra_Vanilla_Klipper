@@ -521,6 +521,23 @@ class Smoke(unittest.TestCase):
         self.assertTrue(p.on_back()); self.assertEqual(p.view, "hub")
         self.assertFalse(p.on_back())
 
+    def test_feed_assist_button_works_during_a_print(self):
+        p, screen = self.make("tabs", ace=True)
+        p.st["print_stats"] = {"state": "paused"}
+        sent = []
+        p._gcode = lambda script, message=None: sent.append(script) or True
+        p._ace_connected = lambda: True
+        slots = [{"assist": False}] * 4
+        PL = sys.modules[type(p).__module__].L
+        with mock.patch.object(PL, "ace_state", return_value={"slots": slots, "connected": True}):
+            p._act_assist(2)
+        self.assertEqual(sent, ["ACE_WM_ASSIST T=2 STATE=on"])
+        sent.clear()
+        slots2 = [{"assist": False}, {"assist": False}, {"assist": True}, {"assist": False}]
+        with mock.patch.object(PL, "ace_state", return_value={"slots": slots2, "connected": True}):
+            p._act_assist(2)
+        self.assertEqual(sent, ["ACE_WM_ASSIST T=2 STATE=off"])
+
     def test_calibration_gcode_uses_active_tool(self):
         p, screen = self.make("tabs")
         p.st["save_variables"] = {"variables": {"current_extruder": 1}}

@@ -847,6 +847,10 @@ class Panel(ViewsMixin, ScreenPanel):
         edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
         edit_btn.set_vexpand(True)
         actions.attach(edit_btn, 2, 0, 1, 1)
+        if L.has_ace(self.st):          # ACE feed assist of this toolhead, on or off by hand (also during a print and a pause)
+            assist_btn = self._button("extruder", "Feed assist on/off", "color3", self._act_assist, i)
+            assist_btn.set_vexpand(True)
+            actions.attach(assist_btn, 0, 3, 3, 1)
         page.pack_start(actions, True, True, 0)
 
         self.root.pack_start(page, True, True, 0)
@@ -1062,6 +1066,16 @@ class Panel(ViewsMixin, ScreenPanel):
         if self._require_idle():
             self._confirm("Park tool", "Return the active toolhead to its dock?",
                           "PARK_CURRENT_TOOL", "Parking the toolhead...")
+
+    def _act_assist(self, i):
+        """Feed assist of toolhead i, switched by hand. It works during a print and a pause too and stays until the next print starts or ends."""
+        if not self._ace_connected():
+            self._screen.show_popup_message("ACE is not connected.")
+            return
+        slots = L.ace_state(self.st)["slots"]
+        on_now = bool(slots[i]["assist"]) if 0 <= i < len(slots) else False
+        self._gcode(f"ACE_WM_ASSIST T={i} STATE={'off' if on_now else 'on'}",
+                    f"Feed assist {'off' if on_now else 'on'}, toolhead {i + 1}")
 
     def _act_heat(self, i):
         temp = int(self.edit["temp"] if self.edit and self.view_tool == i

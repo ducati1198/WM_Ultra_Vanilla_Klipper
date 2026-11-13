@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Two small, safe fixes for WonderMaker's Moonraker on the Pi.  Idempotent; nothing is written without --write.
 
-  wm_moonraker_conf.py conf     FILE [--write]   moonraker.conf: add the sections [database] [file_manager] [machine] [secrets]
+  wm_moonraker_conf.py conf     FILE [--write]   moonraker.conf: add the sections [database] [file_manager] [machine] [secrets] [data_store]
                                                  (only the options that are missing; your own values are never changed)
                                                  and the K1 [timelapse] options (frames in ~/printer_data/frames/ instead of /tmp, park back_right, ...)
   wm_moonraker_conf.py metadata FILE [--write]   moonraker/components/file_manager/metadata.py: filament_type of an OrcaSlicer
@@ -21,6 +21,7 @@ WANT = [  # (section, [(option, value)]) in the order they are added
     ("file_manager", [("queue_gcode_uploads", "False"), ("enable_object_processing", "True")]),
     ("machine", [("provider", "systemd_dbus"), ("validate_service", "False"), ("validate_config", "False")]),
     ("secrets", []),
+    ("data_store", [("gcode_store_size", "5000")]),   # the Fluidd console keeps 5000 lines (default 1000 is about an hour of a print)
 ]
 TIMELAPSE = [  # [timelapse] options of the K1 setup, added only when missing
     ("output_path", "~/printer_data/timelapse/"), ("frame_path", "~/printer_data/frames/"), ("camera", "default"),

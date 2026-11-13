@@ -1182,6 +1182,11 @@ step_timelapse() {
         printf '\n[update_manager timelapse]\ntype: git_repo\nprimary_branch: main\npath: ~/moonraker-timelapse\norigin: https://github.com/mainsail-crew/moonraker-timelapse.git\nmanaged_services: klipper moonraker\n' >> "$mc"
         print_info "Added [update_manager timelapse] to moonraker.conf"
     fi
+    if [ "$DRY" != 1 ] && [ -f "$mc" ] && ! grep -qiE '^\[timelapse\]' "$mc"; then   # without this section Moonraker does not load the timelapse part and every TIMELAPSE_TAKE_FRAME says "disabled"
+        cp "$mc" "$mc.wm-before-timelapse-section-$STAMP"
+        printf '\n[timelapse]\noutput_path: ~/printer_data/timelapse/\nframe_path: ~/printer_data/frames/\n' >> "$mc"
+        print_info "Added the [timelapse] section to moonraker.conf (timelapse is active)"
+    fi
     [ -f "$HOME_DIR/moonraker/moonraker/components/timelapse.py" ] || run ln -sf "$HOME_DIR/moonraker-timelapse/component/timelapse.py" "$HOME_DIR/moonraker/moonraker/components/timelapse.py"
     [ -f "$HOME_DIR/printer_data/config/timelapse.cfg" ] || run cp "$HOME_DIR/moonraker-timelapse/klipper_macro/timelapse.cfg" "$HOME_DIR/printer_data/config/timelapse.cfg"
     record "HOMEDIR moonraker-timelapse"
@@ -1627,7 +1632,7 @@ questions() {
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
     ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
     [ "$WANT_CROWSNEST" = 1 ] && camera_questions
-    ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
+    ask_yn "Install and activate timelapse (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
     if [ "$WANT_ACEPRO" = ask ]; then   # the ACE Pro driver and config come from the wm-ultra-fluidd-acepro-panel project (downloaded)
         ask_yn "Do you have an Anycubic ACE Pro to connect (adds its Klipper driver and config)?" n && WANT_ACEPRO=1 || WANT_ACEPRO=0
     fi

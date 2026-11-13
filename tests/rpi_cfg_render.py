@@ -81,10 +81,12 @@ want("bed pid SAVE=0", run("WM_BED_PID", {"CONFIRM": "1", "SAVE": "0"}), "PID_CA
 want("bed pid refuses watermark", run("WM_BED_PID", {"CONFIRM": "1"}, control="watermark"), "RAISE: heater_bed uses control: watermark")
 # tool head LEDs (rpi-cfg/wm_tool_leds.cfg): a delayed_gcode, not a macro
 led = re.search(r'^\[delayed_gcode WM_TOOL_LEDS\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "wm_tool_leds.cfg")).read(), re.M).group(1)
-def leds(detected, undefined=()):
+def leds(detected, undefined=(), thr=4):
     pr = {"filament_switch_sensor filament%d" % i: {"filament_detected": detected[i]} for i in range(4) if i not in undefined}
+    pr["save_variables"] = {"variables": {"thr_number": thr}}
     return [l.strip() for l in env.from_string(led).render(printer=pr).splitlines() if l.strip()]
 want("leds: filament = green, none = red", leds([True, False, True, False]), "SET_LED LED=T0_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T1_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T2_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "UPDATE_DELAYED_GCODE ID=WM_TOOL_LEDS DURATION=2")
+want("leds: only the tool heads this printer has", leds([True] * 4, thr=2), "SET_LED LED=T1_RGB", none=("T2_RGB", "T3_RGB"))
 want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "SET_LED LED=T2_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1")
 # print end watcher (rpi-cfg/wm_print_end.cfg)
 pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "wm_print_end.cfg")).read(), re.M).group(1)
@@ -132,8 +134,9 @@ want("matching: a tool head out of its dock opens a Fluidd window naming it", ru
 want("nozzle change: refuses with a heater on", run("_WM_NCHANGE_CHECK", target={"heater_bed": 60.0}), "RAISE: heater_bed")
 want("nozzle change: refuses with a hot nozzle", run("_WM_NCHANGE_CHECK", temps={"extruder2": 120.0}), "RAISE: extruder2 is still at 120")
 want("nozzle change: cold printer passes", run("_WM_NCHANGE_CHECK"), none=("RAISE",))
-want("nozzle change: switch on, then park the tool on the carriage", run("_WM_NCHANGE_RUN", sv={"current_extruder": 2}), "SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=1", "_UNLOCK_TOOL T=2", "_WM_NCHANGE_AFTER")
-want("nozzle change: no tool on the carriage, nothing to unlock", run("_WM_NCHANGE_RUN", sv={"current_extruder": 99}), "is_nozzle_setting VALUE=1", "_WM_NCHANGE_AFTER", none=("_UNLOCK_TOOL",))
+want("nozzle change: park the tool on the carriage first (the dock sensor check stays on while unlocking)", run("_WM_NCHANGE_RUN", sv={"current_extruder": 2}), "_UNLOCK_TOOL T=2", "_WM_NCHANGE_AFTER", none=("is_nozzle_setting VALUE=1",))
+want("nozzle change: the switch goes on after the unlock worked", run("_WM_NCHANGE_AFTER"), "SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=1")
+want("nozzle change: no tool on the carriage, nothing to unlock", run("_WM_NCHANGE_RUN", sv={"current_extruder": 99}), "_WM_NCHANGE_AFTER", none=("_UNLOCK_TOOL",))
 want("nozzle change: a stale fail_flag stops it and puts the switch back", run("_WM_NCHANGE_RUN", sv={"fail_flag": -3}), "_WM_NCHANGE_FAILED", none=("_UNLOCK_TOOL",))
 want("nozzle change: unlock success asks for Done", run("_WM_NCHANGE_AFTER"), "tools released", "_WM_NOZZLE_CHANGE_END")
 want("nozzle change: unlock failure", run("_WM_NCHANGE_AFTER", sv={"fail_flag": -3, "fail_tool": 1}), "_WM_NCHANGE_FAILED", none=("_WM_NOZZLE_CHANGE_END|primary",))
