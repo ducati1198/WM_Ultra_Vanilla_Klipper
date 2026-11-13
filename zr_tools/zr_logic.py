@@ -622,6 +622,9 @@ def build_css(theme, style, density="compact", scale=1.0):
     .zr_btn_purple { background-color: #7b4fd0; border-color: #7b4fd0; color: #ffffff; }
     .zr_arrow { background-color: #27323c; border-color: #3b4955; color: #ffffff; font-weight: bold; padding: 0; }
     .zr_arrow label { font-size: 125%%; font-weight: bold; }
+    .zr_btn_off { background-color: #262a3a; border-color: #3b4955; color: #aab0c0; }
+    .zr_pill_on { background-color: #33d06b; color: #06280f; }
+    .zr_pill_off { background-color: #e04545; color: #ffffff; }
     .zr_btn_cyan { background-color: #17a2b8; border-color: #17a2b8; color: #ffffff; }
     .zr_btn_red { background-color: #c0392b; border-color: #c0392b; color: #ffffff; }
     .zr_selected { background-image: none; background-color: %(acc)s; border-color: %(acc)s; color: #ffffff; }

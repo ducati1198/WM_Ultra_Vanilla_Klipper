@@ -554,6 +554,21 @@ class Smoke(unittest.TestCase):
             p._act_assist(2)
         self.assertEqual(sent, ["ACE_WM_ASSIST T=2 STATE=off"])
 
+    def test_feed_assist_button_is_next_to_purge_and_shows_on_off(self):
+        p, screen = self.make("tabs", ace=True)
+        for on in (True, False):
+            p.st["ace_instance_0"] = {"connection_state": "connected", "temp": 30, "feed_assist_slot": 2 if on else -1,
+                                      "dryer_status": {"status": "stop"}, "slots": [{"index": n, "status": "ready"} for n in range(4)]}
+            p.show_tool(2)
+            p.w["a_btn"].get_style_context().add_class.reset_mock()
+            p._refresh_tool()
+            added = [c.args[0] for c in p.w["a_btn"].get_style_context().add_class.call_args_list]
+            self.assertEqual("zr_btn_off" in added, not on)         # Gtk is a mock: all widgets share one style context
+            self.assertEqual(p.w["a_badge"].set_text.call_args.args[0], "ON" if on else "OFF")
+        p2, _ = self.make("tabs", ace=False)
+        p2.show_tool(2)
+        self.assertNotIn("a_btn", p2.w)
+
     def test_calibration_gcode_uses_active_tool(self):
         p, screen = self.make("tabs")
         p.st["save_variables"] = {"variables": {"current_extruder": 1}}

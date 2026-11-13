@@ -560,7 +560,7 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _set_pill(self, lbl, text, kind):
         ctx = lbl.get_style_context()
-        for k in ("ready", "active", "empty", "info"):
+        for k in ("ready", "active", "empty", "info", "on", "off"):
             ctx.remove_class("zr_pill_" + k)
         if kind:
             ctx.add_class("zr_pill_" + kind)
@@ -825,7 +825,7 @@ class Panel(ViewsMixin, ScreenPanel):
             ("extruder", "Select", "color1", self._act_select, "", 0, 0, 1),
             ("arrow-down", "Load", "color2", self._act_load, "", 0, 1, 1),
             ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1),
-            ("fine-tune", "Purge", "color3", self._act_purge, "", 0, 2, 2),
+            ("fine-tune", "Purge", "color3", self._act_purge, "", 0, 2, 1 if L.has_ace(self.st) else 2),
             ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 1, 1),
             ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 2, 1),
         ]
@@ -847,10 +847,21 @@ class Panel(ViewsMixin, ScreenPanel):
         edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
         edit_btn.set_vexpand(True)
         actions.attach(edit_btn, 2, 0, 1, 1)
-        if L.has_ace(self.st):          # ACE feed assist of this toolhead, on or off by hand (also during a print and a pause)
-            assist_btn = self._button("extruder", "Feed assist on/off", "color3", self._act_assist, i)
+        if L.has_ace(self.st):          # ACE feed assist of this toolhead, between Purge and Cool: purple + green ON, dark grey + red OFF
+            assist_btn = Gtk.Button()
+            assist_btn.get_style_context().add_class("zr_btn")
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_halign(Gtk.Align.CENTER)
+            box.set_valign(Gtk.Align.CENTER)
+            box.pack_start(Gtk.Label(label="Feed assist"), False, False, 0)
+            self.w["a_badge"] = self._pill("OFF", "off")
+            box.pack_start(self.w["a_badge"], False, False, 0)
+            assist_btn.add(box)
+            self.w["a_btn"] = assist_btn
+            assist_btn.set_hexpand(True)
             assist_btn.set_vexpand(True)
-            actions.attach(assist_btn, 0, 3, 3, 1)
+            assist_btn.connect("clicked", lambda _w, n=i: self._act_assist(n))
+            actions.attach(assist_btn, 1, 2, 1, 1)
         page.pack_start(actions, True, True, 0)
 
         self.root.pack_start(page, True, True, 0)
@@ -1055,6 +1066,14 @@ class Panel(ViewsMixin, ScreenPanel):
         for n, key in enumerate(("h_ace1", "h_ace2")):
             self.w[key].set_text(ace[n] if n < len(ace) else "")
             self.w[key].set_visible(n < len(ace))
+        if self.w.get("a_btn") is not None:             # Feed assist button: purple + ON when on, dark grey + OFF when off
+            slots = L.ace_state(self.st)["slots"]
+            on = bool(slots[i]["assist"]) if 0 <= i < len(slots) else False
+            ctx = self.w["a_btn"].get_style_context()
+            ctx.remove_class("zr_btn_purple")
+            ctx.remove_class("zr_btn_off")
+            ctx.add_class("zr_btn_purple" if on else "zr_btn_off")
+            self._set_pill(self.w["a_badge"], "ON" if on else "OFF", "on" if on else "off")
 
     # tool actions --------------------------------------------------------
     def _act_select(self, i):

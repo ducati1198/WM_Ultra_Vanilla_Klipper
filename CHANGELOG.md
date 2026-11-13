@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.2
+
+- **Feed assist button moved next to Purge** on the toolhead Filament page (ACE Pro only). The bottom row is now Purge, Feed assist, Cool, all the same size. The button is purple with a green "ON" badge when feed assist is on, and dark grey with a red "OFF" badge when it is off, so you can see the state at a glance.
+
 ## 2.5.1
 
 - **New "Update Pi" button on the screen** (More page, also on the Pi's own KlipperScreen). It does what Fluidd's Update button does: asks Moonraker whether GitHub has a newer installer, shows the installed and latest version, asks to confirm, then downloads it; `wm-pi-update.service` applies it (backup, configs, add-ons, restart of Klipper and Moonraker, log `~/wm-pi-update.log`). It is refused during a print, and it explains when the installer folder on the Pi has local changes. The screen board's old "Update" button is now named "Update screen".
