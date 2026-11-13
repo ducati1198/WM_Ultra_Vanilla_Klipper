@@ -2356,7 +2356,7 @@ do_board() {   # --board add|remove|list [user@host]
     case "$BOARD_ACT" in
         list) if [ -n "$(boards_list)" ]; then echo "  Screen boards this Pi updates:"; boards_list | sed 's/^/    /'; else echo "  No screen board added. Add one with: ./installer.sh --board add t13dp@<board-ip>"; fi ;;
         add)
-            case "$BOARD_TARGET" in *@*) ;; *) die_with_fix "give the board as user@address." "./installer.sh --board add t13dp@192.168.1.50" ;; esac
+            case "$BOARD_TARGET" in *@*) ;; *) die_with_fix "give the board as user@address." "./installer.sh --board add t13dp@<board-ip>" ;; esac
             if [ "$TESTING" != 1 ] && ! wm_ssh "$BOARD_TARGET" true 2>/dev/null; then
                 [ -f "$HOME_DIR/.ssh/id_ed25519" ] || { mkdir -p "$HOME_DIR/.ssh"; chmod 700 "$HOME_DIR/.ssh"; ssh-keygen -q -t ed25519 -N '' -f "$HOME_DIR/.ssh/id_ed25519" -C "wm-pi-updater"; }
                 echo "  The board asks for its ssh password once, to accept this Pi's key (nothing else is changed on the board)."
@@ -2366,7 +2366,7 @@ do_board() {   # --board add|remove|list [user@host]
             grep -qxF "$BOARD_TARGET" "$BOARDS_FILE" 2>/dev/null || echo "$BOARD_TARGET" >> "$BOARDS_FILE"
             print_success "Board $BOARD_TARGET added. Doctor and Update now include it; update it with ./installer.sh --update-boards" ;;
         remove)
-            [ -n "$BOARD_TARGET" ] || die_with_fix "give the board to remove." "./installer.sh --board remove t13dp@192.168.1.50"
+            [ -n "$BOARD_TARGET" ] || die_with_fix "give the board to remove." "./installer.sh --board remove t13dp@<board-ip>"
             if [ -f "$BOARDS_FILE" ]; then grep -vxF "$BOARD_TARGET" "$BOARDS_FILE" > "$BOARDS_FILE.new"; mv "$BOARDS_FILE.new" "$BOARDS_FILE"; fi
             print_success "Board $BOARD_TARGET removed from the list (its key stays on the board)." ;;
         *) die_with_fix "--board needs add, remove or list." "./installer.sh --board list" ;;

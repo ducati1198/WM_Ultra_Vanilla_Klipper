@@ -483,7 +483,7 @@ piu() { HOME="$PU" WM_PI_UPDATE_DELAY=0 WM_PI_UPDATE_SKIP_SUDO=1 WM_PI_UPDATE_CM
 check "update button: same version as installed does nothing" "rm -f $PU/ran; WM_TEST_PRINT_STATE=standby piu env; [ ! -e $PU/ran ]"
 printf 'VERSION=0.0.1\n' > "$PU/wm-rpi-backup/install.conf"
 check "update button: a print running means the update is not applied, and the log says so" "rm -f $PU/ran; WM_TEST_PRINT_STATE=printing piu env; [ ! -e $PU/ran ] && grep -q 'a print is active (printing)' $PU/wm-pi-update.log"
-check "update button: a newer folder version is applied (installer --update --yes command runs)" "rm -f $PU/ran; WM_TEST_PRINT_STATE=standby piu env; [ -e $PU/ran ] && grep -q 'applying the update 0.0.1' $PU/wm-pi-update.log"
+check "update button: a newer folder version is applied (installer --update --yes command runs)" "rm -f $PU/ran; WM_TEST_PRINT_STATE=standby piu env; [ -e $PU/ran ] && grep -q 'applying the installer update 0.0.1' $PU/wm-pi-update.log"
 check "update button: nothing installed yet means nothing happens" "rm -f $PU/ran; rm -f $PU/wm-rpi-backup/install.conf; WM_TEST_PRINT_STATE=standby piu env; [ ! -e $PU/ran ]"
 echo "== update everything: Fluidd panel, screen boards, doctor"
 mkdir -p "$PU/wm-ultra-fluidd-acepro-panel"; echo 9.9.9 > "$PU/wm-ultra-fluidd-acepro-panel/VERSION"
