@@ -78,7 +78,8 @@ Run these in `~/WM_Ultra_Vanilla_Klipper` on the Pi.
 | **Check** that everything is fine | `./installer.sh --doctor` | Nothing changes unless you accept a fix |
 | **Fix everything** at once | `./installer.sh --doctor --fix-all` | Asks once, then applies every safe fix |
 | Do any of this from a **menu** | `./installer.sh` (opens the menu, also on an empty Pi) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
-| See what is new first | `./installer.sh --check-updates` | Nothing is changed |
+| See what is new first (installer, Fluidd panel, screen boards) | `./installer.sh --check-updates` | Nothing is changed |
+| **Update everything** (installer, Fluidd panel, the screen boards you added) | `./installer.sh --update-all` | Backup first; refused during a print; see [Updating everything](#updating-everything) |
 | **Update** to the latest version | `./installer.sh --get-latest && ./installer.sh --update` (works with or without git) | Kept: `printer_data`, calibration, settings |
 | Take a **new WonderMaker System release** (from their website, no screen board) | `python3 tools/wm-release/wm_release.py` then **1** → `web` | Plan first; your changes kept; backup before you type `APPLY`. See [Tools](#tools-new-wondermaker-releases-toolswm-release) |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
@@ -305,7 +306,10 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --pi-sensors` | once Klipper is running: adds the chip temperature of every printer board and connects Klipper to the host MCU (`[mcu rpi]`, the Klipper-Mcu service). Klipper restarts; if it does not come back the change is undone. Details: [docs/HOST_MCU.md](docs/HOST_MCU.md). Also done at the end of an install and an update. |
 | `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_FULL_CALIBRATION`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
-| `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, and says how to update |
+| `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, the Fluidd panel and the screen boards added with `--board`, and says how to update |
+| `./installer.sh --update-all` | pulls the installer and the Fluidd panel, runs `--update --yes`, then updates the screen boards (not during a print) |
+| `./installer.sh --update-boards` | updates only the screen boards you added |
+| `./installer.sh --board add\|remove\|list [user@address]` | the screen boards this Pi may update over ssh: `add` asks for the board's password once and sets up a key |
 | `./installer.sh --update` | after `git pull`: refreshes services, packages, panel, add-ons; shows what changed; keeps `printer_data` (an edited `zr_tools.cfg` is saved as `zr_tools.cfg.zrbak_<date>` before it is replaced) |
 | `./installer.sh --undo [DIR]` | puts back the folders the installer moved aside (latest by default) |
 | `./installer.sh --backup [DIR]` | saves config, calibration and database to a private `.tgz` (only when you run it) |
@@ -784,6 +788,16 @@ The install asks three things (or take them from the command line, then nothing 
 ## Update from Fluidd
 
 In Fluidd's software update page the entry `WM_Ultra_Vanilla_Klipper` has an **Update** button. It downloads the new installer; a small service (`wm-pi-update`) then runs `./installer.sh --update --yes` for you, the same as in SSH: backup first, then packages, configs, the Fluidd panel and add-ons, and a restart of Klipper and Moonraker at the end (Fluidd disconnects for about a minute). Nothing is applied while a print is running or paused (Moonraker refuses the update then too), when the installed version already is the new one, or when your user has no passwordless sudo: run `./installer.sh --update` in SSH then. Log: `~/wm-pi-update.log`.
+
+### Updating everything
+
+Three things get new versions on GitHub: this installer, the Fluidd panel (the ACE Pro project `wm-ultra-fluidd-acepro-panel`) and the screen boards.
+
+- **Fluidd panel:** its **Update** button in Fluidd's software update page downloads the new files and a second service (`wm-panel-update`) applies them: backup, install, restart of Klipper. Same rules as above (not during a print, log `~/wm-pi-update.log`).
+- **Screen boards:** run `./installer.sh --board add t13dp@<board-ip>` once on the Pi. It asks for the board's password once and puts the Pi's ssh key on the board. After that `./installer.sh --update-boards` runs the board's own Update (the same script the Update button on its screen runs). Only boards you add are ever touched. The Pi's Update (Fluidd or the screen) updates them after the installer update.
+- **Everything at once:** `./installer.sh --update-all`, or the **Update Pi** button on the screen (More page): it lists what is new (installer, Fluidd panel) and offers **Not now** or **Update now**.
+- **Doctor** (`./installer.sh --doctor`) checks all three against GitHub and offers to update what is behind. It skips quietly when the Pi has no internet.
+
 
 ## Backup before every update
 
