@@ -100,7 +100,8 @@ class ViewsMixin:
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),
                   ("clock", "Timelapse / restart", self.show_extras)]
         if L.board_mode():          # KlipperScreen runs on the WonderMaker screen board: it can update itself from GitHub
-            items.append(("refresh", "Update", self._sys_update))
+            items.append(("refresh", "Update screen", self._sys_update))
+        items.append(("refresh", "Update Pi", self._pi_update))     # the same update as Fluidd's Update button
         items += [("info", "System", self.show_system),
                   ("settings", "Screen settings", self.show_settings)]
         return items
@@ -586,6 +587,62 @@ class ViewsMixin:
                 self._screen.show_popup_message("Could not start the update: %s%s" % (msg, hint))
         except Exception:
             logging.exception("ZR Tools: update start")
+        return False
+
+    def _pi_update(self):
+        """Update Pi button (More): asks Moonraker whether the installer on the Pi has a newer version, asks, then Moonraker downloads it
+        and wm-pi-update.service applies it (backup, configs, add-ons, restart of Klipper and Moonraker) exactly as Fluidd's Update does."""
+        if not self._require_idle():
+            return
+        base = self._http_base()
+        if base is None:
+            self._screen.show_popup_message("Not connected to the Pi.")
+            return
+        self._screen.show_popup_message("Checking the Pi for a new version ...", 1)
+
+        def _check():
+            GLib.idle_add(self._pi_update_answer, base, L.pi_update_check(base))
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _pi_update_answer(self, base, info):
+        try:
+            if info is None:
+                self._screen.show_popup_message("Could not check for a new version. Is the Pi online?")
+            elif not info["known"]:
+                self._screen.show_popup_message("This installer is not in the Pi's update list yet.\nIn SSH run once: cd ~/WM_Ultra_Vanilla_Klipper && ./installer.sh --update")
+            elif info["problem"]:
+                self._screen.show_popup_message(info["problem"])
+            elif not info["behind"]:
+                self._screen.show_popup_message("The Pi is up to date.\nInstalled: %s" % (info["version"] or "unknown"), 1)
+            else:
+                self._confirm_call("Update Pi",
+                                   "A new version is available.\nInstalled: %s    Latest: %s\n"
+                                   "It makes a backup, updates the configs and add-ons, then restarts Klipper and Moonraker.\n"
+                                   "The screen shows 'Disconnected' for about a minute. Do not power off. Update now?"
+                                   % (info["version"] or "unknown", info["remote"] or "unknown"),
+                                   lambda: self._pi_update_run(base))
+        except Exception:
+            logging.exception("ZR Tools: Pi update check")
+        return False
+
+    def _pi_update_run(self, base):
+        if not self._require_idle():
+            return
+
+        def _go():
+            GLib.idle_add(self._pi_update_started, *L.pi_update_start(base))
+        self._screen.show_popup_message("Starting the Pi update ...", 1)
+        threading.Thread(target=_go, daemon=True).start()
+
+    def _pi_update_started(self, ok, msg):
+        try:
+            if ok:
+                self._screen.show_popup_message("Downloaded. The Pi applies it now and restarts Klipper in about a minute. Log: ~/wm-pi-update.log", 1)
+            else:
+                logging.error("ZR Tools: Pi update did not start: %s", msg)
+                self._screen.show_popup_message("Could not start the Pi update: %s" % msg)
+        except Exception:
+            logging.exception("ZR Tools: Pi update start")
         return False
 
     def _run_factory_restore(self):

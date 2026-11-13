@@ -212,7 +212,7 @@ def macros_of(path):
     t = open(os.path.join(ROOT, path)).read()
     return {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', t, re.M)}
 def run_other(ms, name, params, ace):
-    printer = {'save_variables': {'variables': {'current_extruder': 0, 'zr_t1_temp': 220}}, 'print_stats': {'state': 'standby'},
+    printer = {'save_variables': {'variables': {'current_extruder': 0, 'zr_t1_temp': 220, 'box_modify_t0': 0, 'box_modify_t1': 1, 'box_modify_t2': 2, 'box_modify_t3': 3}}, 'print_stats': {'state': 'standby'},
                'toolhead': {'homed_axes': 'xyz', 'extruder': 'extruder2'}, 'extruder2': {'target': 0.0}}
     if ace: printer['ace'] = {}
     def raise_(m): raise Raise(m)

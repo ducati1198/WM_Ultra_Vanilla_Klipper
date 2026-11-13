@@ -221,6 +221,22 @@ class Logic(unittest.TestCase):
         self.assertEqual(L.start_update(["/bin/sleep", "3"], timeout=1), (True, ""))
         shutil.rmtree(d)
 
+    def test_update_pi_button_logic(self):
+        st = lambda **k: {"result": {"version_info": {"WM_Ultra_Vanilla_Klipper": k}}}
+        i = L.pi_update_parse(st(version="v2.3.0-0-gabc", remote_version="v2.5.0", current_hash="a", remote_hash="b", commits_behind=[{"x": 1}]))
+        self.assertTrue(i["known"]); self.assertTrue(i["behind"]); self.assertEqual(i["problem"], "")
+        i = L.pi_update_parse(st(version="v2.5.0", current_hash="a", remote_hash="a", commits_behind=[]))
+        self.assertFalse(i["behind"])
+        self.assertIn("changed files", L.pi_update_parse(st(is_dirty=True, current_hash="a", remote_hash="b"))["problem"])
+        self.assertIn("main branch", L.pi_update_parse(st(detached=True))["problem"])
+        self.assertFalse(L.pi_update_parse({"result": {"version_info": {}}})["known"])
+        self.assertFalse(L.pi_update_parse(None)["known"])
+        self.assertIsNone(L.pi_update_check("http://127.0.0.1:9", timeout=1))
+        ok, msg = L.pi_update_start("http://127.0.0.1:9", timeout=1)
+        self.assertFalse(ok); self.assertTrue(msg)
+        src = open(os.path.join(SRC, "zr_views.py")).read()
+        self.assertIn('"Update Pi", self._pi_update', src)         # the button is on the More page, also on the Pi's own screen
+
     def test_job_status_light_patch_always_shows_the_button(self):
         d = tempfile.mkdtemp(); f = os.path.join(d, "job_status.py")
         b = '            self.buttons["button_grid"].attach(self.buttons["control"], 3, 0, 1, 1)\n'

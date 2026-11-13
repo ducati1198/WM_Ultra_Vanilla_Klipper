@@ -423,6 +423,64 @@ def latest_version(url=None, timeout=10):
 
 
 # ---------------------------------------------------------------------------
+# Update Pi button: the same update Fluidd's Update button does (Moonraker's update manager downloads the new installer
+# files, wm-pi-update.path then runs scripts/pi_update.sh = installer.sh --update --yes on the Pi)
+# ---------------------------------------------------------------------------
+PI_UPDATE_NAME = "WM_Ultra_Vanilla_Klipper"
+
+
+def _moonraker(base, method, path, timeout):
+    import urllib.request, json
+    req = urllib.request.Request(base + path, data=b"" if method == "POST" else None, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8", "replace") or "{}")
+
+
+def pi_update_parse(status, name=PI_UPDATE_NAME):
+    """Moonraker's /machine/update/status answer -> {known, behind, version, remote, dirty, detached, problem}.
+    known=False: this installer is not in the update manager (run ./installer.sh --update once in SSH)."""
+    info = ((status or {}).get("result") or {}).get("version_info", {}).get(name)
+    if not isinstance(info, dict):
+        return {"known": False, "behind": False, "version": "", "remote": "", "dirty": False, "detached": False, "problem": ""}
+    behind = bool(info.get("commits_behind")) or (bool(info.get("remote_hash")) and info.get("remote_hash") != info.get("current_hash"))
+    problem = ""
+    if info.get("is_dirty"):
+        problem = "The installer folder on the Pi has changed files. Update it in SSH: cd ~/WM_Ultra_Vanilla_Klipper && git status"
+    elif info.get("detached"):
+        problem = "The installer folder on the Pi is not on the main branch. Update it in SSH."
+    elif info.get("anomalies"):
+        problem = "The update manager reports: %s" % "; ".join(str(a) for a in info["anomalies"][:2])
+    return {"known": True, "behind": behind, "version": str(info.get("version", "")), "remote": str(info.get("remote_version", "")),
+            "dirty": bool(info.get("is_dirty")), "detached": bool(info.get("detached")), "problem": problem}
+
+
+def pi_update_check(base, timeout=40):
+    """Asks Moonraker to look at GitHub, then reads the result. Returns the pi_update_parse dict, or None when Moonraker cannot be reached."""
+    try:
+        try:
+            _moonraker(base, "POST", "/machine/update/refresh?name=%s" % PI_UPDATE_NAME, timeout)
+        except Exception:
+            pass                    # an older Moonraker may refuse a single-name refresh: the status still shows the last check
+        return pi_update_parse(_moonraker(base, "GET", "/machine/update/status", timeout))
+    except Exception:
+        return None
+
+
+def pi_update_start(base, timeout=60):
+    """Starts the download. Returns (ok, message)."""
+    try:
+        _moonraker(base, "POST", "/machine/update/client?name=%s" % PI_UPDATE_NAME, timeout)
+        return True, ""
+    except Exception as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:200]        # urllib's HTTPError carries Moonraker's reason
+        except Exception:
+            pass
+        return False, body or str(e)
+
+
+# ---------------------------------------------------------------------------
 # Wi-Fi on the screen board (wpa_supplicant + wpa_cli; no NetworkManager)
 # ---------------------------------------------------------------------------
 def wifi_parse_scan(text):

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.1
+
+- **New "Update Pi" button on the screen** (More page, also on the Pi's own KlipperScreen). It does what Fluidd's Update button does: asks Moonraker whether GitHub has a newer installer, shows the installed and latest version, asks to confirm, then downloads it; `wm-pi-update.service` applies it (backup, configs, add-ons, restart of Klipper and Moonraker, log `~/wm-pi-update.log`). It is refused during a print, and it explains when the installer folder on the Pi has local changes. The screen board's old "Update" button is now named "Update screen".
+
 ## 2.5.0
 
 - **Console messages for the important steps.** Wipe nozzle (which tool goes to the wipe area, and when it is done), resume ("Resuming the print", "Print resumed"), tool change ("Changing tool: T? to T?"), parking a tool in its dock, and load, unload, extrude and retract filament now print a line in the console.
