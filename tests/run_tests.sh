@@ -485,6 +485,55 @@ printf 'VERSION=0.0.1\n' > "$PU/wm-rpi-backup/install.conf"
 check "update button: a print running means the update is not applied, and the log says so" "rm -f $PU/ran; WM_TEST_PRINT_STATE=printing piu env; [ ! -e $PU/ran ] && grep -q 'a print is active (printing)' $PU/wm-pi-update.log"
 check "update button: a newer folder version is applied (installer --update --yes command runs)" "rm -f $PU/ran; WM_TEST_PRINT_STATE=standby piu env; [ -e $PU/ran ] && grep -q 'applying the update 0.0.1' $PU/wm-pi-update.log"
 check "update button: nothing installed yet means nothing happens" "rm -f $PU/ran; rm -f $PU/wm-rpi-backup/install.conf; WM_TEST_PRINT_STATE=standby piu env; [ ! -e $PU/ran ]"
+echo "== update everything: Fluidd panel, screen boards, doctor"
+mkdir -p "$PU/wm-ultra-fluidd-acepro-panel"; echo 9.9.9 > "$PU/wm-ultra-fluidd-acepro-panel/VERSION"
+printf 'VERSION=%s\n' "$(cat $ROOT/VERSION)" > "$PU/wm-rpi-backup/install.conf"; rm -f "$PU/ran" "$PU/wm-pi-update.log"
+pipanel() { HOME="$PU" WM_PI_UPDATE_DELAY=0 WM_PI_UPDATE_SKIP_SUDO=1 WM_PI_UPDATE_CMD="echo panel-ran >> $PU/ran" WM_TEST_PRINT_STATE="${1:-standby}" bash $ROOT/scripts/pi_update.sh --panel; }
+check "panel update: not installed by this installer yet means nothing happens" "rm -f $PU/ran $PU/wm-rpi-backup/panel.version; pipanel; [ ! -e $PU/ran ] && grep -q 'was not installed by this installer yet' $PU/wm-pi-update.log"
+echo 0.0.1 > "$PU/wm-rpi-backup/panel.version"
+check "panel update: a print running means it is not applied" "rm -f $PU/ran; pipanel printing; [ ! -e $PU/ran ] && grep -q 'Fluidd panel update to 9.9.9 was NOT applied' $PU/wm-pi-update.log"
+check "panel update: a newer panel folder is applied" "rm -f $PU/ran; pipanel; [ -e $PU/ran ] && grep -q 'applying the Fluidd panel update 0.0.1 -> 9.9.9' $PU/wm-pi-update.log"
+echo 9.9.9 > "$PU/wm-rpi-backup/panel.version"
+check "panel update: same version does nothing" "rm -f $PU/ran; pipanel; [ ! -e $PU/ran ]"
+check "panel update: the command is the installer's acepro-only update" "grep -q -- '--only-addon acepro' $ROOT/scripts/pi_update.sh"
+printf 'VERSION=0.0.1\n' > "$PU/wm-rpi-backup/install.conf"; printf 't13dp@10.0.0.9\n' > "$PU/wm-rpi-backup/boards.conf"
+check "installer update: the boards you added are updated afterwards" "rm -f $PU/ran $PU/boards-ran; HOME=$PU WM_PI_UPDATE_DELAY=0 WM_PI_UPDATE_SKIP_SUDO=1 WM_TEST_PRINT_STATE=standby WM_PI_UPDATE_CMD='true' WM_PI_UPDATE_BOARDS_CMD='echo b >> $PU/boards-ran' bash $ROOT/scripts/pi_update.sh; [ -e $PU/boards-ran ]"
+check "installer update: no boards added means no boards step" "rm -f $PU/boards-ran; : > $PU/wm-rpi-backup/boards.conf; printf 'VERSION=0.0.1\n' > $PU/wm-rpi-backup/install.conf; HOME=$PU WM_PI_UPDATE_DELAY=0 WM_PI_UPDATE_SKIP_SUDO=1 WM_TEST_PRINT_STATE=standby WM_PI_UPDATE_CMD='true' WM_PI_UPDATE_BOARDS_CMD='echo b >> $PU/boards-ran' bash $ROOT/scripts/pi_update.sh; [ ! -e $PU/boards-ran ]"
+mkdir -p "$HG/wm-ultra-fluidd-acepro-panel"; git -C "$HG/wm-ultra-fluidd-acepro-panel" init -q 2>/dev/null
+inst "$HG" --update --only-addon webcam --webcam on >/dev/null
+check "panel update: the watcher units are installed and enabled" "grep -q 'install -m 644 .*/etc/systemd/system/wm-panel-update.path' $HG/.sudo.log && grep -q 'systemctl enable --now wm-panel-update.path' $HG/.sudo.log"
+check "panel update: the path unit watches the panel folder's git log, the service runs pi_update.sh --panel" "grep -q '^PathModified=.*/wm-ultra-fluidd-acepro-panel/.git/logs/HEAD' $HG/.wm-units/wm-panel-update.path && grep -q '^ExecStart=/bin/bash .*/scripts/pi_update.sh --panel' $HG/.wm-units/wm-panel-update.service"
+check "panel update: both units are recorded for the uninstall" "grep -q 'wm-panel-update.path' $HG/wm-rpi-backup/installed.manifest && grep -q 'wm-panel-update.service' $HG/wm-rpi-backup/installed.manifest"
+# screen boards over ssh (a fake ssh records what would run)
+FS="$T/fakessh"; cat > "$FS" <<'FEOF'
+#!/bin/bash
+# fake ssh: -o options ... target command
+while [ "${1:-}" = -o ]; do shift 2; done
+t="$1"; shift; echo "$t $*" >> "${FAKE_SSH_LOG:-/dev/null}"
+case "$*" in
+    true) exit 0 ;;
+    *wm-factory-restore*) echo "update handed over"; exit 0 ;;
+    *wm-screen-backup/version*) [ "$t" = t13dp@10.0.0.9 ] && echo "${FAKE_BOARD_VERSION:-1.0.0}"; exit 0 ;;
+esac
+exit 0
+FEOF
+chmod +x "$FS"; BH="$T/bh"; mkdir -p "$BH"; BL="$T/bh.sshlog"; : > "$BL"
+binst() { FAKE_SSH_LOG="$BL" WM_SSH="$FS" WM_TEST_NO_FETCH=1 inst "$BH" "$@"; }
+inst "$BH" --from-github --model ultra-s --screen off >/dev/null
+check "boards: --board list says none at first" "binst --board list | grep -q 'No screen board added'"
+check "boards: --board add needs user@address" "binst --board add 10.0.0.9 | grep -q 'user@address'"
+check "boards: --board add saves it" "binst --board add t13dp@10.0.0.9 | grep -q 'added' && grep -qx 't13dp@10.0.0.9' $BH/wm-rpi-backup/boards.conf && binst --board list | grep -q 't13dp@10.0.0.9'"
+check "boards: adding it twice keeps one line" "binst --board add t13dp@10.0.0.9 >/dev/null; [ \$(grep -c 't13dp@10.0.0.9' $BH/wm-rpi-backup/boards.conf) = 1 ]"
+check "boards: --update-boards updates a board that is behind (runs the root copy with sudo -n)" "FAKE_BOARD_VERSION=0.0.1 binst --update-boards | grep -q 'update started'; grep -q 'sudo -n /usr/local/sbin/wm-factory-restore --update --yes --detach' $BL"
+check "boards: --update-boards leaves a board that is current alone" "BEFORE=\$(grep -c wm-factory-restore $BL); FAKE_BOARD_VERSION=99.0.0 binst --update-boards | grep -q 'up to date'; [ \$(grep -c wm-factory-restore $BL) = \$BEFORE ]"
+check "boards: --update-boards is refused during a print" "WM_TEST_PRINT_STATE=printing FAKE_BOARD_VERSION=0.0.1 binst --update-boards | grep -q 'print is running'"
+check "boards: a board that cannot be reached is reported, not forgotten" "binst --board add t13dp@10.9.9.9 >/dev/null; FAKE_BOARD_VERSION=0.0.1 binst --update-boards | grep -q 'cannot be reached over ssh'"
+check "boards: --board remove takes it out" "binst --board remove t13dp@10.9.9.9 >/dev/null; ! grep -q '10.9.9.9' $BH/wm-rpi-backup/boards.conf"
+check "doctor: reports a board that is behind and offers the update" "FAKE_BOARD_VERSION=0.0.1 WM_TEST_UPDATES=1 binst --doctor </dev/null | grep -q 'screen board t13dp@10.0.0.9 is behind'"
+check "doctor: a board that is current is ok" "FAKE_BOARD_VERSION=99.0.0 WM_TEST_UPDATES=1 binst --doctor </dev/null | grep -q 'screen board t13dp@10.0.0.9 has 99.0.0'"
+check "--check-updates shows the boards and points to --update-all" "FAKE_BOARD_VERSION=0.0.1 WM_TEST_NEW_VERSION=99.0.0 binst --check-updates | grep -q 'Screen board t13dp@10.0.0.9: installed 0.0.1'"
+check "--update-all is refused during a print" "WM_TEST_PRINT_STATE=printing binst --update-all | grep -q 'print is running or paused'"
+check "--help lists --update-all and --board" "bash $ROOT/installer.sh --help | grep -q -- '--update-all' && bash $ROOT/installer.sh --help | grep -q -- '--board add'"
 check "webcam helper: python tests" "python3 -I -W ignore $ROOT/tests/test_crowsnest.py"
 check "crowsnest.conf is the explained v5 file (every option, the manual link)" "grep -q 'mainsail-crew/crowsnest/blob/master/README.md' $HG/printer_data/config/crowsnest.conf && grep -q '^####  max_fps' $HG/printer_data/config/crowsnest.conf && grep -q '^\[cam 1\]' $HG/printer_data/config/crowsnest.conf && ! grep -q enable_rtsp $HG/printer_data/config/crowsnest.conf"
 check "webcam: install adds [webcam Camera] to moonraker.conf" "grep -q '^\[webcam Camera\]' $HG/printer_data/config/moonraker.conf && grep -q 'stream_url: /webcam/?action=stream' $HG/printer_data/config/moonraker.conf"

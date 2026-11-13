@@ -24,6 +24,9 @@
 # ./installer.sh --repair              put back services, nginx files, can0 rule and groups (data untouched)
 # ./installer.sh --update              update after you pulled a new version of this repository (your printer_data is not touched)
 # ./installer.sh --check-updates       read-only: list what is new on GitHub since your copy of this repository (then: git pull, ./installer.sh --update)
+# ./installer.sh --update-all           download and apply every newer version: this installer, the Fluidd panel (ACE Pro project) and the screen boards you added; refused during a print
+# ./installer.sh --update-boards        update only the screen boards you added (--board add user@host)
+# ./installer.sh --board add|remove|list [user@host]   screen boards this Pi may update over ssh (a key is set up once; the password is asked once)
 # ./installer.sh --get-latest          download the newest installer folder (git pull, or the GitHub tarball when this is not a clone); then run --update
 # ./installer.sh --undo [DIR]          put back the folders the installer moved aside (latest, or DIR)
 # ./installer.sh --backup [DIR]        save your config, calibration and database to a .tgz (only when you run it)
@@ -216,6 +219,9 @@ while [ $# -gt 0 ]; do
         --update)       MODE=update ;;
         --check-updates) MODE=checkupdates ;;
         --get-latest)   MODE=getlatest ;;
+        --update-all)   MODE=updateall ;;
+        --update-boards) MODE=updateboards ;;
+        --board)        MODE=board; BOARD_ACT="${2:-list}"; BOARD_TARGET="${3:-}"; shift $(( $# < 3 ? $# : 3 )) ;;
         --undo)         MODE=undo; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
@@ -1473,6 +1479,7 @@ step_acepro() {
     record "HOMEDIR wm-ultra-fluidd-acepro-panel"
     [ -f "$cfgd/rpi-ultra-install.conf" ] && mode=--update
     if ace_run_installer "$mode" && ace_installed; then
+        tr -d '[:space:]' < "$dir/VERSION" > "$BACKUP_ROOT/panel.version" 2>/dev/null   # what scripts/pi_update.sh --panel compares with
         print_success "ACE Pro driver and config are installed. Klipper loads them at its next restart; plug the ACE Pro into a USB port of the Pi."
     else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
 }
@@ -1505,7 +1512,7 @@ PY
     fi
     if [ "$WANT_ACEPRO" = 1 ] && [ -d "$(ace_dir)/.git" ] && ! grep -qiE '^\[update_manager +wm-ultra-fluidd-acepro-panel\]' "$conf"; then
         [ -e "$conf.wm-before-updatemgr-$STAMP" ] || cp "$conf" "$conf.wm-before-updatemgr-$STAMP"
-        printf '\n[update_manager wm-ultra-fluidd-acepro-panel]\ntype: git_repo\npath: %s\norigin: %s.git\nprimary_branch: main\nis_system_service: False\nmanaged_services: klipper\ninfo_tags:\n  desc=Anycubic ACE Pro driver and Fluidd panel (after updating, run ./installer.sh --update)\n' "$(ace_dir)" "$ACE_REPO_URL" >> "$conf"
+        printf '\n[update_manager wm-ultra-fluidd-acepro-panel]\ntype: git_repo\npath: %s\norigin: %s.git\nprimary_branch: main\nis_system_service: False\nmanaged_services: klipper\ninfo_tags:\n  desc=Anycubic ACE Pro driver and Fluidd panel (the Update button downloads it and the Pi applies it: backup, install, Klipper restart; log: ~/wm-pi-update.log)\n' "$(ace_dir)" "$ACE_REPO_URL" >> "$conf"
         added="${added:+$added, }wm-ultra-fluidd-acepro-panel"
     fi
     [ -z "$added" ] || print_info "Added to moonraker.conf: [update_manager $added]. Fluidd now shows when GitHub has a newer version. Its Update button downloads the files; for this installer they are applied by the wm-pi-update service (like ./installer.sh --update), for the ACE Pro panel run ./installer.sh --update afterwards."
@@ -1529,6 +1536,25 @@ step_pi_updater() {   # Fluidd's Update button for this installer: Moonraker onl
     SUDO systemctl enable --now wm-pi-update.path
     rm -f "$pth" "$svc"
     print_success "Fluidd's Update button for this installer now also applies the update (wm-pi-update service; log: ~/wm-pi-update.log)"
+}
+step_panel_updater() {   # Fluidd's Update button for the panel project: Moonraker only does "git pull"; wm-panel-update.path sees it and runs scripts/pi_update.sh --panel
+    local pd; pd="$(ace_dir)"
+    [ -d "$pd/.git" ] && [ -d "$REPO_DIR/.git" ] && [ -f "$REPO_DIR/scripts/pi_update.sh" ] || return 0
+    local user; user="$(id -un)"
+    local pth svc; pth="$(mktemp)"; svc="$(mktemp)"
+    printf '[Unit]\nDescription=Apply the Fluidd panel (ACE Pro) update after Fluidd downloaded it\n\n[Path]\nPathModified=%s/.git/logs/HEAD\nUnit=wm-panel-update.service\n\n[Install]\nWantedBy=multi-user.target\n' "$pd" > "$pth"
+    printf '[Unit]\nDescription=WM Ultra installer: apply a Fluidd panel update that Fluidd downloaded (log: ~/wm-pi-update.log)\n\n[Service]\nType=oneshot\nUser=%s\nEnvironment=HOME=%s\nWorkingDirectory=%s\nExecStart=/bin/bash %s/scripts/pi_update.sh --panel\n' "$user" "$HOME_DIR" "$REPO_DIR" "$REPO_DIR" > "$svc"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm-panel-update.path and wm-panel-update.service (the Fluidd Update button for the panel applies the new version)${NC}"; rm -f "$pth" "$svc"; return 0; fi
+    if [ "$TESTING" = 1 ]; then mkdir -p "$HOME_DIR/.wm-units"; cp "$pth" "$HOME_DIR/.wm-units/wm-panel-update.path"; cp "$svc" "$HOME_DIR/.wm-units/wm-panel-update.service"; fi
+    if ! cmp -s "$pth" /etc/systemd/system/wm-panel-update.path 2>/dev/null || ! cmp -s "$svc" /etc/systemd/system/wm-panel-update.service 2>/dev/null || [ "$TESTING" = 1 ]; then
+        SUDO install -m 644 "$pth" /etc/systemd/system/wm-panel-update.path
+        SUDO install -m 644 "$svc" /etc/systemd/system/wm-panel-update.service
+        record "FILE /etc/systemd/system/wm-panel-update.path"; record "FILE /etc/systemd/system/wm-panel-update.service"
+        SUDO systemctl daemon-reload
+    fi
+    SUDO systemctl enable --now wm-panel-update.path
+    rm -f "$pth" "$svc"
+    print_success "Fluidd's Update button for the Fluidd panel now also applies the update (wm-panel-update service; log: ~/wm-pi-update.log)"
 }
 step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
 upd_wants() { [ -z "$ONLY_ADDON" ] || [ "$ONLY_ADDON" = "$1" ]; }   # --update --only-addon NAME runs just that add-on
@@ -2265,6 +2291,7 @@ do_update() {
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     moonraker_add_update_entries
     step_pi_updater
+    step_panel_updater
     save_answers
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
@@ -2275,7 +2302,112 @@ do_update() {
     progress_bar 100 100 "Update finished"
     print_success "Update finished (installer $VERSION)."
 }
-do_check_updates() {   # read-only: compares this copy of the repository with GitHub
+# ---------------------------------------------------------------------------------------------------------------
+# Updates of everything this installer manages: the installer itself, the Fluidd panel (ACE Pro project) and the screen boards
+# ---------------------------------------------------------------------------------------------------------------
+BOARDS_FILE="$BACKUP_ROOT/boards.conf"      # one "user@host" per line: the screen boards this Pi may update over ssh
+wm_ssh() { ${WM_SSH:-ssh} -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new "$@"; }   # WM_SSH: test hook
+ver_newer() { [ -n "$1" ] && [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]; }   # $1 is a higher version than $2
+panel_installed_version() { head -n1 "$BACKUP_ROOT/panel.version" 2>/dev/null | tr -d '[:space:]'; }
+boards_list() { grep -vE '^[[:space:]]*(#|$)' "$BOARDS_FILE" 2>/dev/null; }
+print_active() {   # true while a print is running or paused (an update restarts Klipper)
+    local st; st="$(print_state 2>/dev/null)"
+    case "$st" in printing|paused) return 0 ;; *) return 1 ;; esac
+}
+git_fetch_quiet() { [ -n "${WM_TEST_NO_FETCH:-}" ] && return 0; timeout 60 git -C "$1" fetch --quiet 2>/dev/null; }
+panel_remote_version() {   # newest panel version on GitHub (after a fetch); '' when unknown
+    local d; d="$(ace_dir)"; [ -d "$d/.git" ] || return 0
+    git -C "$d" show "origin/main:VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
+}
+board_version() {   # the screen files' version on a board
+    wm_ssh "$1" 'for f in ~/wm-screen-backup/version ~/WM_Ultra_Vanilla_Klipper/VERSION; do [ -f "$f" ] && { head -n1 "$f"; exit 0; }; done' 2>/dev/null | head -n1 | tr -d '[:space:]'
+}
+updates_summary() {   # prints the state of the panel and the boards; sets UPD_PANEL_NEW / UPD_BOARDS_NEW (counts of things that are behind). $1 = newest installer version
+    UPD_PANEL_NEW=0; UPD_BOARDS_NEW=0
+    local d pv rv t bv
+    d="$(ace_dir)"
+    if [ -d "$d/.git" ]; then
+        git_fetch_quiet "$d" || print_warning "Could not reach GitHub for the Fluidd panel."
+        pv="$(panel_installed_version)"; [ -n "$pv" ] || pv="$(tr -d '[:space:]' < "$d/VERSION" 2>/dev/null)"; rv="$(panel_remote_version)"
+        if ver_newer "$rv" "$pv"; then UPD_PANEL_NEW=1; echo "  Fluidd panel: installed $pv, on GitHub $rv  (newer)"; else echo "  Fluidd panel: installed ${pv:-unknown}, on GitHub ${rv:-unknown}"; fi
+    fi
+    while read -r t; do
+        [ -n "$t" ] || continue
+        bv="$(board_version "$t")"
+        if [ -z "$bv" ]; then echo "  Screen board $t: cannot be reached (is it on, and was the key set up with ./installer.sh --board add $t ?)"; continue; fi
+        if ver_newer "${1:-}" "$bv"; then UPD_BOARDS_NEW=$((UPD_BOARDS_NEW+1)); echo "  Screen board $t: installed $bv, latest ${1:-?}  (newer)"; else echo "  Screen board $t: installed $bv, latest ${1:-unknown}"; fi
+    done < <(boards_list)
+}
+
+do_check_updates() {   # read-only: the installer, the Fluidd panel and the screen boards against GitHub
+    check_installer_part || return $?
+    local newv=""
+    if [ -d "$REPO_DIR/.git" ]; then newv="$(git -C "$REPO_DIR" show origin/main:VERSION 2>/dev/null | head -n1 | tr -d '[:space:]')"; fi
+    [ -n "$newv" ] || newv="$VERSION"
+    updates_summary "$newv"
+    local behind=0; [ "$(ver_newer "$newv" "$VERSION" && echo y)" = y ] && behind=1
+    if [ "$behind" = 1 ] || [ "$UPD_PANEL_NEW" = 1 ] || [ "$UPD_BOARDS_NEW" -gt 0 ]; then
+        echo "  To update everything at once: ./installer.sh --update-all"
+    fi
+    return 0
+}
+do_board() {   # --board add|remove|list [user@host]
+    mkdir -p "$BACKUP_ROOT"
+    case "$BOARD_ACT" in
+        list) if [ -n "$(boards_list)" ]; then echo "  Screen boards this Pi updates:"; boards_list | sed 's/^/    /'; else echo "  No screen board added. Add one with: ./installer.sh --board add t13dp@<board-ip>"; fi ;;
+        add)
+            case "$BOARD_TARGET" in *@*) ;; *) die_with_fix "give the board as user@address." "./installer.sh --board add t13dp@192.168.1.50" ;; esac
+            if [ "$TESTING" != 1 ] && ! wm_ssh "$BOARD_TARGET" true 2>/dev/null; then
+                [ -f "$HOME_DIR/.ssh/id_ed25519" ] || { mkdir -p "$HOME_DIR/.ssh"; chmod 700 "$HOME_DIR/.ssh"; ssh-keygen -q -t ed25519 -N '' -f "$HOME_DIR/.ssh/id_ed25519" -C "wm-pi-updater"; }
+                echo "  The board asks for its ssh password once, to accept this Pi's key (nothing else is changed on the board)."
+                ssh-copy-id -o StrictHostKeyChecking=accept-new "$BOARD_TARGET" || die_with_fix "the key could not be copied to $BOARD_TARGET." "check the address, that ssh is on, and the password."
+                wm_ssh "$BOARD_TARGET" true 2>/dev/null || die_with_fix "ssh to $BOARD_TARGET still asks for a password." "check ~/.ssh/authorized_keys on the board."
+            fi
+            grep -qxF "$BOARD_TARGET" "$BOARDS_FILE" 2>/dev/null || echo "$BOARD_TARGET" >> "$BOARDS_FILE"
+            print_success "Board $BOARD_TARGET added. Doctor and Update now include it; update it with ./installer.sh --update-boards" ;;
+        remove)
+            [ -n "$BOARD_TARGET" ] || die_with_fix "give the board to remove." "./installer.sh --board remove t13dp@192.168.1.50"
+            if [ -f "$BOARDS_FILE" ]; then grep -vxF "$BOARD_TARGET" "$BOARDS_FILE" > "$BOARDS_FILE.new"; mv "$BOARDS_FILE.new" "$BOARDS_FILE"; fi
+            print_success "Board $BOARD_TARGET removed from the list (its key stays on the board)." ;;
+        *) die_with_fix "--board needs add, remove or list." "./installer.sh --board list" ;;
+    esac
+}
+do_update_boards() {   # runs the board's own Update (the same root copy the Update button on its screen runs)
+    print_header "Update the screen boards"
+    local t n=0 bad=0
+    [ -n "$(boards_list)" ] || { echo "  No screen board added (./installer.sh --board add user@host). Nothing to do."; return 0; }
+    if print_active; then print_warning "A print is running or paused: the boards are not updated now (their update restarts Klipper)."; return 1; fi
+    local newv="$VERSION"
+    if [ -d "$REPO_DIR/.git" ]; then newv="$(git -C "$REPO_DIR" show origin/main:VERSION 2>/dev/null | head -n1 | tr -d '[:space:]')"; [ -n "$newv" ] || newv="$VERSION"; fi
+    while read -r t; do
+        [ -n "$t" ] || continue
+        local bv; bv="$(board_version "$t")"
+        if [ -z "$bv" ]; then print_warning "Board $t cannot be reached over ssh: skipped."; bad=$((bad+1)); continue; fi
+        if ! ver_newer "$newv" "$bv"; then print_success "Board $t is up to date ($bv)."; continue; fi
+        if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from $bv to $newv${NC}"; continue; fi
+        if wm_ssh "$t" 'sudo -n /usr/local/sbin/wm-factory-restore --update --yes --detach' 2>&1 | tail -n 3; [ "${PIPESTATUS[0]}" = 0 ]; then
+            print_success "Board $t: update started ($bv -> $newv). Its screen restarts by itself in about a minute."; n=$((n+1))
+        else print_warning "Board $t: the update did not start. On the board run once: bash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --post-update"; bad=$((bad+1)); fi
+    done < <(boards_list)
+    [ "$bad" = 0 ]
+}
+do_update_all() {   # download everything newer, apply it, then update the boards
+    print_header "Update everything (installer, Fluidd panel, screen boards)"
+    command -v git >/dev/null 2>&1 || die_with_fix "git is not installed." "sudo apt-get install git"
+    load_answers || die_with_fix "nothing is installed by this installer yet." "run ./installer.sh first."
+    if print_active; then die_with_fix "a print is running or paused." "update after the print: ./installer.sh --update-all"; fi
+    local d; d="$(ace_dir)"
+    if [ -d "$REPO_DIR/.git" ]; then git -C "$REPO_DIR" pull -q --ff-only 2>/dev/null && print_success "Installer files are current." || print_warning "Could not update $REPO_DIR (network, or local changes). Using the copy that is there."; fi
+    if [ -d "$d/.git" ]; then git -C "$d" pull -q --ff-only 2>/dev/null && print_success "Fluidd panel files are current." || print_warning "Could not update $d (network, or local changes). Using the copy that is there."; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run ./installer.sh --update --yes with the new files, then update the screen boards${NC}"; return 0; fi
+    local rc=0
+    bash "$REPO_DIR/installer.sh" --update --yes || rc=$?
+    [ "$rc" = 0 ] || { print_error "The update stopped (exit $rc). The boards were not touched."; return "$rc"; }
+    bash "$REPO_DIR/installer.sh" --update-boards || rc=$?
+    return "$rc"
+}
+
+check_installer_part() {   # read-only: compares this copy of the repository with GitHub
     print_header "Check for updates (read-only, changes nothing)"
     command -v git >/dev/null 2>&1 || die_with_fix "git is not installed." "sudo apt-get install git"
     if [ ! -d "$REPO_DIR/.git" ]; then   # a tar download: compare the version numbers
@@ -2444,11 +2576,37 @@ offer_fix() {  # description, command...
 }
 doc_ok()  { echo -e "  ${GREEN}[ok]${NC}      $1"; }
 doc_bad() { echo -e "  ${RED}[problem]${NC} $1"; echo -e "            ${DIM}$2${NC}"; DOC_PROBLEMS=$((DOC_PROBLEMS+1)); }
+doc_updates() {   # doctor: is a newer installer, Fluidd panel or screen board on GitHub? (needs the internet; skipped quietly without it)
+    [ "$TESTING" = 1 ] && [ -z "${WM_TEST_UPDATES:-}" ] && return 0
+    [ -d "$REPO_DIR/.git" ] || return 0
+    local newv="" pv rv d t bv behind=0
+    if git_fetch_quiet "$REPO_DIR"; then
+        newv="$(git -C "$REPO_DIR" show origin/main:VERSION 2>/dev/null | head -n1 | tr -d '[:space:]')"
+        if ver_newer "$newv" "$VERSION"; then doc_bad "a newer installer is on GitHub ($VERSION -> $newv)" "Update with ./installer.sh --update-all, or Fluidd's / the screen's Update button."; behind=1
+        else doc_ok "installer $VERSION is the newest on GitHub"; fi
+    else echo -e "  ${DIM}[skip]    GitHub could not be reached: updates not checked${NC}"; return 0; fi
+    d="$(ace_dir)"
+    if [ -d "$d/.git" ] && git_fetch_quiet "$d"; then
+        pv="$(panel_installed_version)"; [ -n "$pv" ] || pv="$(tr -d '[:space:]' < "$d/VERSION" 2>/dev/null)"; rv="$(panel_remote_version)"
+        if ver_newer "$rv" "$pv"; then doc_bad "a newer Fluidd panel is on GitHub ($pv -> $rv)" "Update with ./installer.sh --update-all, or the panel's Update button in Fluidd."; behind=1
+        else doc_ok "Fluidd panel ${pv:-unknown} is the newest on GitHub"; fi
+    fi
+    while read -r t; do
+        [ -n "$t" ] || continue
+        bv="$(board_version "$t")"
+        if [ -z "$bv" ]; then doc_bad "screen board $t cannot be reached over ssh" "Check that it is on; set the key up again with ./installer.sh --board add $t"
+        elif ver_newer "$newv" "$bv"; then doc_bad "screen board $t is behind ($bv, latest $newv)" "Update with ./installer.sh --update-boards (or --update-all)."; behind=1
+        else doc_ok "screen board $t has $bv (newest)"; fi
+    done < <(boards_list)
+    [ "$behind" = 1 ] && offer_fix "update everything now (installer, Fluidd panel, screen boards; a backup is taken first)" bash "$REPO_DIR/installer.sh" --update-all
+    return 0
+}
 do_doctor() {
     DOC_PROBLEMS=0
     load_answers || true
     print_header "Doctor (asks before changing anything)"
     devbox_notice
+    doc_updates
     rpi_old_names_present && doc_bad "config files still have the old wm_ names (wm_calibration.cfg ...)" "Run ./installer.sh --update: it renames them to rpi_ (copies first) and changes the include lines in printer.cfg."
     if [ "${FIXALL:-0}" = 1 ]; then
         echo "  Fix everything: every problem the Doctor finds is fixed with its normal safe fix (the same fixes it would offer one by one). Your printer data is not touched."
@@ -2691,6 +2849,7 @@ uninstall_system_files() {
     SUDO systemctl disable klipper; SUDO systemctl disable moonraker
     [ -f /etc/systemd/system/klipper-mcu.service ] && { SUDO systemctl stop klipper-mcu; SUDO systemctl disable klipper-mcu; }   # the host MCU this installer built
     [ -f /etc/systemd/system/wm-pi-update.path ] && { SUDO systemctl stop wm-pi-update.path; SUDO systemctl disable wm-pi-update.path; }   # Fluidd's Update button helper
+    [ -f /etc/systemd/system/wm-panel-update.path ] && { SUDO systemctl stop wm-panel-update.path; SUDO systemctl disable wm-panel-update.path; }   # the same for the Fluidd panel
     local k v
     while read -r k v; do
         case "$k" in
@@ -3389,6 +3548,9 @@ case "$MODE" in
     update)     do_update; exit 0 ;;
     checkupdates) do_check_updates; exit $? ;;
     getlatest)  do_get_latest; exit $? ;;
+    updateall)  do_update_all; exit $? ;;
+    updateboards) do_update_boards; exit $? ;;
+    board)      do_board; exit $? ;;
     undo)       do_undo; exit 0 ;;
     backup)     do_backup; exit 0 ;;
     restore)    do_restore; exit 0 ;;
@@ -3419,7 +3581,7 @@ rpi_names_migrate
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_remote; step_crowsnest; step_start
+step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_fluidd_categories
 restart_klipper_after

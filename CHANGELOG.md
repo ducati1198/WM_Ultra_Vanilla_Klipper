@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.7.0
+
+- **Update everything from one place.** Fluidd's Update button for the **Fluidd panel (ACE Pro project)** now applies the update on the Pi, like the installer's own Update button: backup, install, Klipper restart (`wm-panel-update.path` watches the panel folder, `scripts/pi_update.sh --panel` applies it; refused during a print; log `~/wm-pi-update.log`). Before, it only downloaded the files.
+- **Screen boards updated from the Pi.** `./installer.sh --board add t13dp@<board-ip>` asks for the board's password once and sets up an ssh key; `--board list|remove` manage the list. `./installer.sh --update-boards` runs each board's own Update (the same root script the Update button on its screen runs), and the Pi's Update now does it after the installer update. Only boards you add are ever touched.
+- **`./installer.sh --update-all`** downloads and applies the installer, the Fluidd panel and then the boards. `--check-updates` now also lists the panel and the boards (installed and latest).
+- **Doctor** checks all three against GitHub and offers "update everything now" for what is behind (it skips quietly when the Pi has no internet).
+- **Update Pi button on the screen:** lists what is new (installer, Fluidd panel) and has two choices, "Not now" and "Update now".
+
 ## 2.6.0
 
 - **The config files this installer puts on the Pi are now called rpi_ instead of wm_.** `rpi_calibration.cfg`, `rpi_nozzle.cfg`, `rpi_pi.cfg`, `rpi_print_end.cfg`, `rpi_tool_leds.cfg`, `rpi_fan_guard.cfg`, `rpi_chamber_light.json`, `rpi_mcu_temps.cfg`, `rpi_mcu.cfg` (was `wm_rpi_mcu.cfg`), and the ACE Pro files `rpi_ace_driver.cfg`, `rpi_ace.cfg`, `rpi_endless.cfg`, `rpi_stats.cfg`, `rpi-ultra-install.conf` (ACE panel project 1.6.0). Macro names (`WM_BED_LEVELING`, `_WM_NOZZLE_TYPE`, `ACE_WM_ASSIST` ...), variable names and the helper script `wm_nozzle.py` keep their names.

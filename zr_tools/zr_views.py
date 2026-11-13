@@ -504,11 +504,11 @@ class ViewsMixin:
                 self._screen.show_popup_message("Backup failed: %s" % e)
         self._confirm_call("Backup", "Save your config, calibration and database to ~/wm-backups?", _go)
 
-    def _confirm_call(self, title, text, func):
+    def _confirm_call(self, title, text, func, no="Cancel", yes="OK"):
         label = Gtk.Label(label=text)
         label.set_line_wrap(True)
-        buttons = [{"name": "Cancel", "response": Gtk.ResponseType.CANCEL},
-                   {"name": "OK", "response": Gtk.ResponseType.OK}]
+        buttons = [{"name": no, "response": Gtk.ResponseType.CANCEL},
+                   {"name": yes, "response": Gtk.ResponseType.OK}]
 
         def _resp(dialog, response_id):
             self._gtk.remove_dialog(dialog)
@@ -606,31 +606,43 @@ class ViewsMixin:
 
     def _pi_update_answer(self, base, info):
         try:
+            panel = (info or {}).get("panel") or {}
+            names = L.pi_update_names(info) if info else []
             if info is None:
                 self._screen.show_popup_message("Could not check for a new version. Is the Pi online?")
             elif not info["known"]:
                 self._screen.show_popup_message("This installer is not in the Pi's update list yet.\nIn SSH run once: cd ~/WM_Ultra_Vanilla_Klipper && ./installer.sh --update")
             elif info["problem"]:
                 self._screen.show_popup_message(info["problem"])
-            elif not info["behind"]:
-                self._screen.show_popup_message("The Pi is up to date.\nInstalled: %s" % (info["version"] or "unknown"), 1)
+            elif not names:
+                text = "The Pi is up to date.\nInstaller: %s" % (info["version"] or "unknown")
+                if panel.get("known"):
+                    text += "    Fluidd panel: %s" % (panel.get("version") or "unknown")
+                if panel.get("problem"):
+                    text += "\n" + panel["problem"]
+                self._screen.show_popup_message(text, 1)
             else:
+                lines = []
+                if names[0] == L.PI_UPDATE_NAME:
+                    lines.append("Installer: %s -> %s" % (info["version"] or "unknown", info["remote"] or "unknown"))
+                if panel.get("known") and panel.get("behind"):
+                    lines.append("Fluidd panel: %s -> %s" % (panel.get("version") or "unknown", panel.get("remote") or "unknown"))
                 self._confirm_call("Update Pi",
-                                   "A new version is available.\nInstalled: %s    Latest: %s\n"
-                                   "It makes a backup, updates the configs and add-ons, then restarts Klipper and Moonraker.\n"
-                                   "The screen shows 'Disconnected' for about a minute. Do not power off. Update now?"
-                                   % (info["version"] or "unknown", info["remote"] or "unknown"),
-                                   lambda: self._pi_update_run(base))
+                                   "New versions are available:\n%s\n"
+                                   "Update now makes a backup, updates the configs, the Fluidd panel and the screen boards added on the Pi, then restarts Klipper and Moonraker.\n"
+                                   "The screen shows 'Disconnected' for about a minute. Do not power off."
+                                   % "\n".join(lines),
+                                   lambda: self._pi_update_run(base, names), no="Not now", yes="Update now")
         except Exception:
             logging.exception("ZR Tools: Pi update check")
         return False
 
-    def _pi_update_run(self, base):
+    def _pi_update_run(self, base, names=None):
         if not self._require_idle():
             return
 
         def _go():
-            GLib.idle_add(self._pi_update_started, *L.pi_update_start(base))
+            GLib.idle_add(self._pi_update_started, *L.pi_update_start(base, names=names))
         self._screen.show_popup_message("Starting the Pi update ...", 1)
         threading.Thread(target=_go, daemon=True).start()
 

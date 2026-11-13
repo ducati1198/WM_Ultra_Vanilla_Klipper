@@ -236,6 +236,18 @@ class Logic(unittest.TestCase):
         self.assertFalse(ok); self.assertTrue(msg)
         src = open(os.path.join(SRC, "zr_views.py")).read()
         self.assertIn('"Update Pi", self._pi_update', src)         # the button is on the More page, also on the Pi's own screen
+        # the Fluidd panel is part of the answer, and "Update now" asks for the right entry
+        both = {"result": {"version_info": {"WM_Ultra_Vanilla_Klipper": {"version": "v2.6.0", "current_hash": "a", "remote_hash": "a"},
+                                           "wm-ultra-fluidd-acepro-panel": {"version": "v1.6.0", "remote_version": "v1.6.1", "current_hash": "a", "remote_hash": "b"}}}}
+        info = L.pi_update_parse(both); info["panel"] = L.pi_update_parse(both, L.PANEL_UPDATE_NAME)
+        self.assertFalse(info["behind"]); self.assertTrue(info["panel"]["behind"])
+        self.assertEqual(L.pi_update_names(info), ["wm-ultra-fluidd-acepro-panel"])
+        info["behind"] = True
+        self.assertEqual(L.pi_update_names(info), ["WM_Ultra_Vanilla_Klipper"])      # the installer's update pulls the panel itself
+        info["behind"] = False; info["panel"]["behind"] = False
+        self.assertEqual(L.pi_update_names(info), [])
+        self.assertEqual(L.pi_update_names({"known": False, "behind": False, "panel": {"known": False}}), [])
+        self.assertIn('no="Not now", yes="Update now"', src)       # option 1: leave it, option 2: update now
 
     def test_job_status_light_patch_always_shows_the_button(self):
         d = tempfile.mkdtemp(); f = os.path.join(d, "job_status.py")

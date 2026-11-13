@@ -427,6 +427,7 @@ def latest_version(url=None, timeout=10):
 # files, wm-pi-update.path then runs scripts/pi_update.sh = installer.sh --update --yes on the Pi)
 # ---------------------------------------------------------------------------
 PI_UPDATE_NAME = "WM_Ultra_Vanilla_Klipper"
+PANEL_UPDATE_NAME = "wm-ultra-fluidd-acepro-panel"     # the Fluidd panel (ACE Pro) project: its Update button is applied by wm-panel-update.service
 
 
 def _moonraker(base, method, path, timeout):
@@ -455,21 +456,38 @@ def pi_update_parse(status, name=PI_UPDATE_NAME):
 
 
 def pi_update_check(base, timeout=40):
-    """Asks Moonraker to look at GitHub, then reads the result. Returns the pi_update_parse dict, or None when Moonraker cannot be reached."""
+    """Asks Moonraker to look at GitHub, then reads the result. Returns the pi_update_parse dict of the installer with the Fluidd panel
+    under "panel" (same keys; known=False when the panel is not in the update list), or None when Moonraker cannot be reached."""
     try:
-        try:
-            _moonraker(base, "POST", "/machine/update/refresh?name=%s" % PI_UPDATE_NAME, timeout)
-        except Exception:
-            pass                    # an older Moonraker may refuse a single-name refresh: the status still shows the last check
-        return pi_update_parse(_moonraker(base, "GET", "/machine/update/status", timeout))
+        for name in (PI_UPDATE_NAME, PANEL_UPDATE_NAME):
+            try:
+                _moonraker(base, "POST", "/machine/update/refresh?name=%s" % name, timeout)
+            except Exception:
+                pass                # an older Moonraker may refuse a single-name refresh: the status still shows the last check
+        status = _moonraker(base, "GET", "/machine/update/status", timeout)
+        info = pi_update_parse(status)
+        info["panel"] = pi_update_parse(status, PANEL_UPDATE_NAME)
+        return info
     except Exception:
         return None
 
 
-def pi_update_start(base, timeout=60):
-    """Starts the download. Returns (ok, message)."""
+def pi_update_names(info):
+    """Which update-manager entries 'Update now' downloads. The installer's own update also brings the Fluidd panel along (it pulls it),
+    so the panel is asked for only when it is behind on its own."""
+    if info.get("behind") and info.get("known"):
+        return [PI_UPDATE_NAME]
+    panel = info.get("panel") or {}
+    if panel.get("known") and panel.get("behind") and not panel.get("problem"):
+        return [PANEL_UPDATE_NAME]
+    return []
+
+
+def pi_update_start(base, timeout=60, names=None):
+    """Starts the download (one POST per name; default: the installer). Returns (ok, message)."""
     try:
-        _moonraker(base, "POST", "/machine/update/client?name=%s" % PI_UPDATE_NAME, timeout)
+        for name in (names or [PI_UPDATE_NAME]):
+            _moonraker(base, "POST", "/machine/update/client?name=%s" % name, timeout)
         return True, ""
     except Exception as e:
         body = ""
