@@ -1400,4 +1400,5 @@ RW2="$T/rw2"; rm -rf "$RW2"; mkdir -p "$RW2/klipper/klippy"; echo x > "$RW2/klip
 check "a Pi with WonderMaker's own Klipper is refused, nothing is moved" "! inst $RW2 --from-github --model ultra-s >$T/rw2.out 2>&1; grep -q 'not the Klipper this installer sets up' $T/rw2.out && [ -f $RW2/klipper/klippy/klippy.py ] && [ ! -d $RW2/wm-rpi-backup/old-* ]"
 RW3="$T/rw3"; rm -rf "$RW3"; mkdir -p "$RW3/klipper/klippy/extras"; echo x > "$RW3/klipper/klippy/klippy.py"; echo x > "$RW3/klipper/klippy/extras/wm_mcu_tweaks.py"
 check "a Pi that already has this installer's Klipper is not refused (a reinstall moves the old folders aside)" "inst $RW3 --from-github --model ultra-s --dry-run >$T/rw3.out 2>&1; ! grep -q 'already runs WonderMaker' $T/rw3.out"
+for m in ultra ultra-s; do check "$m: RESUME prints \"Print resumed\" and hands feed assist back to the watcher (ACE only)" "grep -q 'RESPOND MSG=\"Print resumed\"' $ROOT/factory/$m/config/macros.cfg && grep -q 'VARIABLE=manual VALUE=-2' $ROOT/factory/$m/config/macros.cfg"; done
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

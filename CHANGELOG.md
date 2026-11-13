@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.3
+
+- **RESUME now says "Print resumed" in the console** and, when an ACE Pro is present, hands feed assist back to the automatic watcher after the print restarts (the manual choice is set to "no choice"). This was already on the dev Pi and is now in both factory `macros.cfg` files (Ultra and Ultra-S).
+
 ## 2.5.2
 
 - **Feed assist button moved next to Purge** on the toolhead Filament page (ACE Pro only). The bottom row is now Purge, Feed assist, Cool, all the same size. The button is purple with a green "ON" badge when feed assist is on, and dark grey with a red "OFF" badge when it is off, so you can see the state at a glance.
