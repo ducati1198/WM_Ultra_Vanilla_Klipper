@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.0
+
+- **Console messages for the important steps.** Wipe nozzle (which tool goes to the wipe area, and when it is done), resume ("Resuming the print", "Print resumed"), tool change ("Changing tool: T? to T?"), parking a tool in its dock, and load, unload, extrude and retract filament now print a line in the console.
+- **RESUME primes the nozzle.** Before the wipe, the tool goes to the wipe spot and purges 10 mm at 300 mm/min (ACE feed assist is on for that tool when an ACE is connected). There is no retract after it yet; it will be tuned after real resume tests.
+- **Tool changes keep the slicer's speed.** T0-T3 give the print its feedrate back, so moves after a tool change no longer crawl at the dock or wipe speed.
+- **Faster wipe, 200 mm/s** (variable `wipe_speed` in WIPE_NOZZLE, was 50 mm/s). The wipe saves and restores the G-code state.
+- **Cooldown waits do not reheat.** The cooldown at the end of NOZZLE_PREPARE and POP waits only until the nozzle is below 102.5 C (104.5 C in POP) instead of heating back up after an undershoot, and it uses the physical heater of the slot.
+- **7 mm clearance for idle moves.** New macro `_WM_CAL_CLEARANCE` raises the head to at least 7 mm above the bed before idle calibration, idle wipes and idle tool changes. It is skipped during a print or pause, and when X, Y and Z are not homed.
+- **Startup purge on the left edge** (X0, Y100 to Y150, 20 mm) instead of the front edge, which could reach the front panel.
+- **Maximum acceleration is 5000 mm/s2** (was 20000) in the factory printer.cfg.
+- Ideas from the Wondermaker+ project (anselor) were checked against this setup; only the items above were taken.
+
 ## 2.4.0
 
 - **Timelapse really works.** The installer now adds the `[timelapse]` section to `moonraker.conf` (before, Moonraker never loaded the timelapse part, so every layer printed "Timelapse: disabled, take frame ignored" and no video was made). The question now reads "Install and activate timelapse".
