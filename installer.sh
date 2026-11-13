@@ -410,13 +410,52 @@ step_unpack() {
 nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
-rpicfg_list() {   # wm_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
-    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = wm_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = wm_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; echo "$b"; done
+rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; echo "$b"; done
+}
+# Names: the config files this installer puts on the Pi used to be called wm_*.cfg (and wm_chamber_light.json,
+# wm-ultra-install.conf). Since 2.6.0 they are rpi_*.cfg. A Pi that has the old names is renamed once (copies of everything
+# that changes go to ~/wm-backups/rename-<time>/), and the [include ...] lines in the config files follow. Macro names
+# (WM_BED_LEVELING ...) and variable names are not touched.
+RPI_RENAME_MAP=(wm_ace_driver.cfg:rpi_ace_driver.cfg wm_ace.cfg:rpi_ace.cfg wm_calibration.cfg:rpi_calibration.cfg wm_chamber_light.json:rpi_chamber_light.json wm_endless.cfg:rpi_endless.cfg wm_fan_guard.cfg:rpi_fan_guard.cfg wm_mcu_temps.cfg:rpi_mcu_temps.cfg wm_nozzle.cfg:rpi_nozzle.cfg wm_pi.cfg:rpi_pi.cfg wm_print_end.cfg:rpi_print_end.cfg wm_rpi_mcu.cfg:rpi_mcu.cfg wm_stats.cfg:rpi_stats.cfg wm_tool_leds.cfg:rpi_tool_leds.cfg wm-ultra-install.conf:rpi-ultra-install.conf)
+rpi_old_names_present() {
+    local p cd="$HOME_DIR/printer_data/config"
+    for p in "${RPI_RENAME_MAP[@]}"; do [ -e "$cd/${p%%:*}" ] && return 0; done
+    return 1
+}
+rpi_names_migrate() {
+    rpi_old_names_present || return 0
+    local cd="$HOME_DIR/printer_data/config" p old new f n=0 bak="$HOME_DIR/wm-backups/rename-$STAMP"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rename the config files with the old wm_ names to rpi_ (copies first) and change the include lines${NC}"; return 0; fi
+    mkdir -p "$bak" && chmod 700 "$bak" 2>/dev/null
+    for p in "${RPI_RENAME_MAP[@]}"; do
+        old="${p%%:*}"; new="${p##*:}"
+        [ -e "$cd/$old" ] || continue
+        cp -a "$cd/$old" "$bak/$old"
+        if [ -e "$cd/$new" ]; then rm -f "$cd/$old"; print_warning "$old and $new both exist: kept $new (the old one is in $bak)"
+        else mv "$cd/$old" "$cd/$new" && print_success "Renamed $old to $new"; fi
+        n=$((n + 1))
+    done
+    for f in "$cd"/*.cfg; do
+        [ -f "$f" ] || continue
+        for p in "${RPI_RENAME_MAP[@]}"; do
+            old="${p%%:*}"; new="${p##*:}"
+            case "$old" in *.cfg) ;; *) continue ;; esac
+            grep -qE "^[[:space:]]*\[include[[:space:]]+${old//./\\.}[[:space:]]*\]" "$f" || continue
+            [ -e "$bak/$(basename "$f")" ] || cp -a "$f" "$bak/$(basename "$f")"
+            sed -i -E "s/^([[:space:]]*\[include[[:space:]]+)${old//./\\.}([[:space:]]*\])/\1$new\2/" "$f"
+        done
+    done
+    if [ -f "$STATE" ]; then   # the uninstall list names these files
+        for p in "${RPI_RENAME_MAP[@]}"; do old="${p%%:*}"; new="${p##*:}"; sed -i "s#/printer_data/config/${old//./\\.}\$#/printer_data/config/$new#" "$STATE"; done
+    fi
+    print_info "$n config file(s) renamed from wm_ to rpi_. Copies of the old files: $bak"
+    print_info "Klipper reads the new names at its next restart; the screen board uploads rpi_chamber_light.json after its own update."
 }
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
     print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
-    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/wm_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FULL_CALIBRATION, ...). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
+    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/rpi_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FULL_CALIBRATION, ...). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f
     [ -n "$(rpicfg_list)" ] || { print_warning "the rpi-cfg folder is missing from this repository: calibration macros not installed"; return 0; }
     if [ "$DRY" = 1 ] || [ ! -f "$cfg" ]; then echo -e "  ${DIM}would copy rpi-cfg/*.cfg into the config folder and add an [include] line for each to printer.cfg${NC}"; return 0; fi
@@ -425,7 +464,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
         fi
         cp "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"
-        if [ "$f" = wm_nozzle.cfg ]; then   # its shell command runs this script; it is kept outside the config folder, which WonderMaker updates merge
+        if [ "$f" = rpi_nozzle.cfg ]; then   # its shell command runs this script; it is kept outside the config folder, which WonderMaker updates merge
             mkdir -p "$(dirname "$(nozzle_script_dst)")" && cp "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" && chmod +x "$(nozzle_script_dst)"
             cp "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" && chmod +x "$(canids_script_dst)"   # behind WM_EXTRUDER_SETUP (Set Up)
         fi
@@ -456,7 +495,8 @@ do_rpicfg() {   # ./installer.sh --rpi-cfg
     print_header "The Pi's own config files (rpi-cfg)"
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
     guard_not_printing
-    # wm_nozzle.cfg needs Klipper's gcode shell command extension: put it in first (an install or update does that in its own step)
+    rpi_names_migrate
+    # rpi_nozzle.cfg needs Klipper's gcode shell command extension: put it in first (an install or update does that in its own step)
     [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ ! -d "$HOME_DIR/klipper/klippy/extras" ] || [ "$WANT_SHELLCMD" != 1 ] || step_shellcmd
     step_rpicfg
     step_moonraker_tune
@@ -829,20 +869,21 @@ step_pi_sensors() {   # ./installer.sh --pi-sensors, and at the end of an instal
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" content
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would add the board temperature sensors and [mcu rpi] once Klipper is running${NC}"; return 0; }
     [ -f "$cfg" ] || return 0
+    rpi_names_migrate
     if [ "$(service_state klipper)" != active ] && [ "${PISENS_INSTALL:-0}" != 1 ]; then print_info "Klipper is not running, so the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after Klipper has started."; return 0; fi   # (the install and update flows set PISENS_INSTALL: they add the files and Klipper loads them when it starts)
     case "$(print_state)" in printing|paused) print_info "A print is running: the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after the print."; return 0 ;; esac
     print_header "Board temperatures and the host MCU"
     why "Shows the chip temperature of every board in Fluidd, and connects Klipper to the host MCU service (sensors wired to the Pi's own pins). During the install Klipper is not running yet: the files are only added and Klipper loads them at its first start. On a Pi where Klipper runs, Klipper restarts after each and it is undone again if Klipper does not come back."
-    if rpicfg_included wm_mcu_temps.cfg; then print_success "board temperature sensors are already in use"
+    if rpicfg_included rpi_mcu_temps.cfg; then print_success "board temperature sensors are already in use"
     elif content="$(pisens_mcutemps_content)"; then
-        printf '%s\n' "$content" > "$cd/wm_mcu_temps.cfg"; pisens_add wm_mcu_temps.cfg "Board temperature sensors" || true
+        printf '%s\n' "$content" > "$cd/rpi_mcu_temps.cfg"; pisens_add rpi_mcu_temps.cfg "Board temperature sensors" || true
     else print_info "No [mcu] boards found in the config: board temperature sensors skipped."; fi
-    if rpicfg_included wm_rpi_mcu.cfg; then print_success "host MCU ([mcu rpi]) is already in use"
+    if rpicfg_included rpi_mcu.cfg; then print_success "host MCU ([mcu rpi]) is already in use"
     elif [ "$(service_state klipper-mcu)" != active ] || { [ "$TESTING" != 1 ] && [ ! -e /tmp/klipper_host_mcu ]; }; then
         print_info "The klipper-mcu service is not running, so [mcu rpi] was not added. Run ./installer.sh --update, then ./installer.sh --pi-sensors."
     else
-        printf '# The host MCU (service klipper-mcu): lets Klipper use sensors wired to the Pi'"'"'s own pins, as pins rpi:gpioN or rpi:None. See docs/HOST_MCU.md.\n[mcu rpi]\nserial: /tmp/klipper_host_mcu\n' > "$cd/wm_rpi_mcu.cfg"
-        pisens_add wm_rpi_mcu.cfg "Host MCU" || true
+        printf '# The host MCU (service klipper-mcu): lets Klipper use sensors wired to the Pi'"'"'s own pins, as pins rpi:gpioN or rpi:None. See docs/HOST_MCU.md.\n[mcu rpi]\nserial: /tmp/klipper_host_mcu\n' > "$cd/rpi_mcu.cfg"
+        pisens_add rpi_mcu.cfg "Host MCU" || true
     fi
 }
 
@@ -1411,15 +1452,15 @@ step_spoolman() {
 # ---------------------------------------------------------------------------
 ACE_REPO_URL="https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel"
 ace_dir() { echo "$HOME_DIR/wm-ultra-fluidd-acepro-panel"; }
-ace_cfg_files="wm_ace_driver.cfg wm_ace.cfg wm_endless.cfg wm_stats.cfg"
+ace_cfg_files="rpi_ace_driver.cfg rpi_ace.cfg rpi_endless.cfg rpi_stats.cfg"
 ace_run_installer() {   # MODE [ANSWERS fed to its questions; none = its defaults]
     ( cd "$(ace_dir)" && printf '%b' "${2:-}" | ACE_INSTALL_HOME="$HOME_DIR" ACE_KLIPPER_DIR="$HOME_DIR/klipper" ACE_CONFIG_DIR="$HOME_DIR/printer_data/config" ACE_INSTALLER_TEST="$TESTING" bash ./installer.sh "$1" )
 }
-ace_installed() { [ -f "$HOME_DIR/printer_data/config/wm_ace.cfg" ] && grep -qE '^[[:space:]]*\[include[[:space:]]+wm_ace\.cfg\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
+ace_installed() { [ -f "$HOME_DIR/printer_data/config/rpi_ace.cfg" ] && grep -qE '^[[:space:]]*\[include[[:space:]]+rpi_ace\.cfg\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_acepro() {
     [ "$WANT_ACEPRO" = 1 ] || return 0
     print_header "Step 12h: Anycubic ACE Pro"
-    why "Adds the ACE Pro driver for Klipper and its config files (wm_ace_driver.cfg, wm_ace.cfg, wm_endless.cfg, wm_stats.cfg). They come from the project wm-ultra-fluidd-acepro-panel, by running its own installer. Klipper loads the driver after it restarts. The ACE Pro is only used to load, unload and dry filament (the four toolheads do the switching)."
+    why "Adds the ACE Pro driver for Klipper and its config files (rpi_ace_driver.cfg, rpi_ace.cfg, rpi_endless.cfg, rpi_stats.cfg). They come from the project wm-ultra-fluidd-acepro-panel, by running its own installer. Klipper loads the driver after it restarts. The ACE Pro is only used to load, unload and dry filament (the four toolheads do the switching)."
     local dir cfgd="$HOME_DIR/printer_data/config" mode=--install; dir="$(ace_dir)"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: download $ACE_REPO_URL to ~/wm-ultra-fluidd-acepro-panel (or update it), then run its installer.sh with the default answers${NC}"; return 0; fi
     [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ -f "$cfgd/printer.cfg" ] || { warn_later "ACE Pro: Klipper or printer.cfg is not there yet. Run ./installer.sh --update --acepro on once they are."; return 0; }
@@ -1430,7 +1471,7 @@ step_acepro() {
     else warn_later "ACE Pro: $dir exists but is not a git copy. Move it away and run ./installer.sh --update --acepro on."; return 0; fi
     [ -f "$dir/installer.sh" ] || { warn_later "ACE Pro: $dir has no installer.sh."; return 0; }
     record "HOMEDIR wm-ultra-fluidd-acepro-panel"
-    [ -f "$cfgd/wm-ultra-install.conf" ] && mode=--update
+    [ -f "$cfgd/rpi-ultra-install.conf" ] && mode=--update
     if ace_run_installer "$mode" && ace_installed; then
         print_success "ACE Pro driver and config are installed. Klipper loads them at its next restart; plug the ACE Pro into a USB port of the Pi."
     else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
@@ -2188,11 +2229,12 @@ do_update() {
     check_system; preflight; update_notice; devbox_notice
     [ -d "$HOME_DIR/klipper" ] || die_with_fix "~/klipper is missing." "run ./installer.sh --doctor"
     if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
-    else echo "Your printer_data (config, calibration) is not touched, except: the Pi's own calibration macros file wm_calibration.cfg from rpi-cfg (refreshed; an edited copy is kept)$([ "$WANT_ACEPRO" = 1 ] && echo ", and the ACE Pro files (wm_ace_driver.cfg, wm_ace.cfg, wm_endless.cfg, wm_stats.cfg) which the ACE Pro project's own updater rewrites (its settings are kept)"), plus the Fluidd update entries in moonraker.conf (a copy is kept). Updated: services, nginx, can0 rule, Python packages, the Fluidd panel, add-ons$([ "$WANT_ACEPRO" = 1 ] && echo ", the ACE Pro driver"). Klipper is restarted at the end."; fi
+    else echo "Your printer_data (config, calibration) is not touched, except: the Pi's own calibration macros file rpi_calibration.cfg from rpi-cfg (refreshed; an edited copy is kept)$([ "$WANT_ACEPRO" = 1 ] && echo ", and the ACE Pro files (rpi_ace_driver.cfg, rpi_ace.cfg, rpi_endless.cfg, rpi_stats.cfg) which the ACE Pro project's own updater rewrites (its settings are kept)"), plus the Fluidd update entries in moonraker.conf (a copy is kept). Updated: services, nginx, can0 rule, Python packages, the Fluidd panel, add-ons$([ "$WANT_ACEPRO" = 1 ] && echo ", the ACE Pro driver"). Klipper is restarted at the end."; fi
     ask_yn "Go ahead?" y || exit 0
     local UT=8
     progress_bar 0 100 "Update step 1 of $UT: backup"
     auto_backup
+    rpi_names_migrate
     progress_bar 5 100 "Update step 2 of $UT: packages and Python"
     if [ -z "$ONLY_ADDON" ]; then step_packages; step_groups; step_python; fi
     progress_bar 20 100 "Update step 3 of $UT: Python packages"
@@ -2407,6 +2449,7 @@ do_doctor() {
     load_answers || true
     print_header "Doctor (asks before changing anything)"
     devbox_notice
+    rpi_old_names_present && doc_bad "config files still have the old wm_ names (wm_calibration.cfg ...)" "Run ./installer.sh --update: it renames them to rpi_ (copies first) and changes the include lines in printer.cfg."
     if [ "${FIXALL:-0}" = 1 ]; then
         echo "  Fix everything: every problem the Doctor finds is fixed with its normal safe fix (the same fixes it would offer one by one). Your printer data is not touched."
         ask_yn "Apply every fix without asking again?" n && DOC_FIXALL=1 || echo "  Normal mode: the Doctor asks before each fix."
@@ -2443,7 +2486,7 @@ do_doctor() {
     fi
     if [ "$WANT_ACEPRO" = 1 ]; then
         if [ ! -d "$(ace_dir)" ]; then doc_bad "the ACE Pro project is missing (~/wm-ultra-fluidd-acepro-panel)" "Klipper's ACE driver is linked from that folder."; offer_fix "download it and install the ACE Pro driver and config" step_acepro
-        elif ! ace_installed || [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ]; then doc_bad "the ACE Pro driver or its config is not set up (wm_ace.cfg, the include line or the link in Klipper's extras)" "The ACE Pro does not work until it is."; offer_fix "run the ACE Pro installer again" step_acepro
+        elif ! ace_installed || [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ]; then doc_bad "the ACE Pro driver or its config is not set up (rpi_ace.cfg, the include line or the link in Klipper's extras)" "The ACE Pro does not work until it is."; offer_fix "run the ACE Pro installer again" step_acepro
         else doc_ok "ACE Pro driver and config are in place"; fi
     fi
     if [ "$WANT_SHAKETUNE" = 1 ]; then
@@ -2469,7 +2512,7 @@ do_doctor() {
         elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf" "The WM_ calibration macros are not loaded."; offer_fix "add the include line for $rf" step_rpicfg
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
         else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
-        if [ "$rf" = wm_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
+        if [ "$rf" = rpi_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
             if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind _WM_NOZZLE_TYPE) is in place"
             else doc_bad "wm_nozzle.py is missing or different in ~/printer_data/wm-tools" "_WM_NOZZLE_TYPE could not write the nozzle diameter."; offer_fix "copy wm_nozzle.py again" step_rpicfg; fi
             if cmp -s "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" 2>/dev/null; then doc_ok "wm_canids.py (the helper behind WM_EXTRUDER_SETUP) is in place"
@@ -2494,8 +2537,8 @@ do_doctor() {
         [ "$(service_enabled $s)" = enabled ] && doc_ok "$s starts at boot" || { doc_bad "$s will not start at boot" "The Pi would come up without the web page."; offer_fix "enable $s" bash -c "sudo systemctl enable $s"; }
     done
     if [ -f /etc/systemd/system/klipper-mcu.service ] || [ "$TESTING" != 1 ] && [ -x /usr/local/bin/klipper_mcu ]; then
-        [ "$(service_state klipper-mcu)" = active ] && doc_ok "klipper-mcu (the host MCU) is running" || { doc_bad "klipper-mcu (the host MCU) is not running" "$(rpicfg_included wm_rpi_mcu.cfg && echo "printer.cfg uses [mcu rpi], so Klipper cannot start without it." || echo "Nothing uses it yet, but Fluidd lists it as stopped.")"; offer_fix "start klipper-mcu and enable it at boot" bash -c "sudo systemctl enable --now klipper-mcu"; }
-    elif rpicfg_included wm_rpi_mcu.cfg; then doc_bad "printer.cfg uses [mcu rpi] but the klipper-mcu service is not installed" "Klipper cannot start without it. Run ./installer.sh --update to build it."; fi
+        [ "$(service_state klipper-mcu)" = active ] && doc_ok "klipper-mcu (the host MCU) is running" || { doc_bad "klipper-mcu (the host MCU) is not running" "$(rpicfg_included rpi_mcu.cfg && echo "printer.cfg uses [mcu rpi], so Klipper cannot start without it." || echo "Nothing uses it yet, but Fluidd lists it as stopped.")"; offer_fix "start klipper-mcu and enable it at boot" bash -c "sudo systemctl enable --now klipper-mcu"; }
+    elif rpicfg_included rpi_mcu.cfg; then doc_bad "printer.cfg uses [mcu rpi] but the klipper-mcu service is not installed" "Klipper cannot start without it. Run ./installer.sh --update to build it."; fi
     id -nG "$WM_USER" 2>/dev/null | tr ' ' '\n' | grep -qx tty || [ "$TESTING" = 1 ] && doc_ok "user $WM_USER is in the tty group (Klipper can open the host MCU)" || { doc_bad "user $WM_USER is not in the tty group" "Klipper could not open the host MCU ([mcu rpi]): 'Permission denied' on /tmp/klipper_host_mcu."; offer_fix "add $WM_USER to the tty group (Klipper must be restarted afterwards)" bash -c "sudo usermod -aG tty $WM_USER"; }
     if [ "$TESTING" != 1 ]; then sudo nginx -t >/dev/null 2>&1 && doc_ok "nginx configuration is valid" || { doc_bad "nginx configuration is invalid" "sudo nginx -t shows why."; offer_fix "reinstall the nginx files" step_nginx; }; fi
     [ -f /etc/udev/rules.d/99-wm-can0.rules ] || [ "$TESTING" = 1 ] && doc_ok "can0 rule installed" || { doc_bad "can0 rule missing" "can0 would not come up by itself."; offer_fix "install it" step_can; }
@@ -2640,6 +2683,7 @@ do_uninstall() {
     [ -f "$STATE" ] || die_with_fix "no install record at $STATE." "nothing to remove."
     echo "This removes the services, nginx files and can0 rule the installer added. Your files in ~ are left in place."
     ask_yn "Continue?" n || exit 0
+    rpi_names_migrate
     uninstall_system_files
 }
 uninstall_system_files() {
@@ -2725,6 +2769,7 @@ do_cleanup() {   # a page of installer-made files you can delete; your printer d
 }
 do_remove_addon() {   # one removal, with a bar that moves as its steps happen
     local rc=0
+    rpi_names_migrate
     PROG_RM_SEEN=""; [ "${PROG_QUIET:-0}" = 1 ] || PROG_RM=1
     do_remove_addon_core || rc=$?
     PROG_RM=0
@@ -2740,12 +2785,12 @@ do_remove_addon_core() {
         shell-command)
             local ef="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" users
             [ -f "$ef" ] || { print_info "The shell command extension is not installed."; return 0; }
-            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v '/wm_nozzle\.cfg$' | tr '\n' ' ')"   # wm_nozzle.cfg is ours: it is taken out below
+            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v '/rpi_nozzle\.cfg$' | tr '\n' ' ')"   # rpi_nozzle.cfg is ours: it is taken out below
             if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
             ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
-            if [ -f "$cfgd/wm_nozzle.cfg" ]; then   # _WM_NOZZLE_TYPE needs the extension: take its include out (printer.cfg is copied first) and keep the file aside
-                [ -f "$cfgd/printer.cfg" ] && cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" && sed -i '/^[[:space:]]*\[include[[:space:]]\+wm_nozzle\.cfg[[:space:]]*\]/d' "$cfgd/printer.cfg"
-                mv "$cfgd/wm_nozzle.cfg" "$cfgd/wm_nozzle.cfg.wm-removed-$STAMP"; print_info "wm_nozzle.cfg (_WM_NOZZLE_TYPE) was taken out of printer.cfg too, because it needs the extension. It is kept as wm_nozzle.cfg.wm-removed-$STAMP."
+            if [ -f "$cfgd/rpi_nozzle.cfg" ]; then   # _WM_NOZZLE_TYPE needs the extension: take its include out (printer.cfg is copied first) and keep the file aside
+                [ -f "$cfgd/printer.cfg" ] && cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" && sed -i '/^[[:space:]]*\[include[[:space:]]\+rpi_nozzle\.cfg[[:space:]]*\]/d' "$cfgd/printer.cfg"
+                mv "$cfgd/rpi_nozzle.cfg" "$cfgd/rpi_nozzle.cfg.wm-removed-$STAMP"; print_info "rpi_nozzle.cfg (_WM_NOZZLE_TYPE) was taken out of printer.cfg too, because it needs the extension. It is kept as rpi_nozzle.cfg.wm-removed-$STAMP."
             fi
             rm -f "$ef"; WANT_SHELLCMD=0; save_answers
             print_success "Removed. Restart Klipper from Fluidd when you are ready." ;;
@@ -2779,20 +2824,20 @@ do_remove_addon_core() {
         screen) do_screen_remove ;;
         acepro)
             local adir bk; adir="$(ace_dir)"; bk="$HOME_DIR/acepro-backup"
-            if ! ace_installed && [ ! -d "$adir" ] && [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ] && ! ls "$cfgd"/wm_ace*.cfg "$cfgd"/wm_endless.cfg "$cfgd"/wm_stats.cfg >/dev/null 2>&1; then print_info "The ACE Pro is not installed."; return 0; fi
-            echo "  This removes everything that belongs to the ACE Pro: its four config files (wm_ace_driver.cfg, wm_ace.cfg, wm_endless.cfg, wm_stats.cfg) and their include lines in printer.cfg (a copy is kept), the ACE links in Klipper's extras, and the downloaded project ~/wm-ultra-fluidd-acepro-panel."
+            if ! ace_installed && [ ! -d "$adir" ] && [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ] && ! ls "$cfgd"/rpi_ace*.cfg "$cfgd"/rpi_endless.cfg "$cfgd"/rpi_stats.cfg >/dev/null 2>&1; then print_info "The ACE Pro is not installed."; return 0; fi
+            echo "  This removes everything that belongs to the ACE Pro: its four config files (rpi_ace_driver.cfg, rpi_ace.cfg, rpi_endless.cfg, rpi_stats.cfg) and their include lines in printer.cfg (a copy is kept), the ACE links in Klipper's extras, and the downloaded project ~/wm-ultra-fluidd-acepro-panel."
             echo "  The Fluidd Toolheads panel stays (it works without an ACE; the ACE parts hide themselves). Klipper needs a restart afterwards."
             ask_yn "Remove the ACE Pro?" n || { echo "Nothing changed."; return 0; }
             guard_not_printing
             local ok=0
             if [ -f "$adir/installer.sh" ]; then ace_run_installer --uninstall "y\n" && ok=1; fi
             # whatever the project's own uninstaller left (or if it could not run): the same removal by hand, printer.cfg saved first
-            if grep -qE '^[[:space:]]*\[include[[:space:]]+wm_(ace_driver|ace|endless|stats)\.cfg\]' "$cfgd/printer.cfg" 2>/dev/null; then
+            if grep -qE '^[[:space:]]*\[include[[:space:]]+rpi_(ace_driver|ace|endless|stats)\.cfg\]' "$cfgd/printer.cfg" 2>/dev/null; then
                 cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-acepro-removal-$STAMP"
-                sed -i -E '/^[[:space:]]*\[include[[:space:]]+wm_(ace_driver|ace|endless|stats)\.cfg\]/d' "$cfgd/printer.cfg"
+                sed -i -E '/^[[:space:]]*\[include[[:space:]]+rpi_(ace_driver|ace|endless|stats)\.cfg\]/d' "$cfgd/printer.cfg"
                 print_info "Removed the ACE include lines from printer.cfg (copy: printer.cfg.wm-before-acepro-removal-$STAMP)"
             fi
-            local af; for af in $ace_cfg_files wm-ultra-install.conf; do [ -e "$cfgd/$af" ] && rm_path "$cfgd/$af"; done
+            local af; for af in $ace_cfg_files rpi-ultra-install.conf; do [ -e "$cfgd/$af" ] && rm_path "$cfgd/$af"; done
             for af in ace temperature_ace.py virtual_pins.py; do [ -L "$HOME_DIR/klipper/klippy/extras/$af" ] && rm -f "$HOME_DIR/klipper/klippy/extras/$af"; done
             rm_path "$adir"
             moonraker_drop_update_section wm-ultra-fluidd-acepro-panel
@@ -3370,6 +3415,7 @@ questions
 show_plan
 [ "$DRY" = 1 ] || ask_yn "Go ahead?" y || { echo "Nothing changed."; exit 0; }
 guard_not_printing
+rpi_names_migrate
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules

@@ -10,14 +10,14 @@ A small Klipper program that runs on the Pi itself and acts like one more microc
 
 1. **Builds and installs it** (step 7b). WonderMaker's `~/klipper` has no MCU source folder, so the installer builds it from the Klipper source in `~/klipper` (the same version as the host; only if that is missing is the official source, pinned in `config/pins/addons.txt` line `klipper-upstream`, cloned into `~/klipper-host-mcu`). The build files go to `~/klipper-host-mcu`. It builds it for the Linux process target, installs `/usr/local/bin/klipper_mcu` and `/etc/systemd/system/klipper-mcu.service`, and enables and starts the service.
 2. **Adds the user to the `tty` group** (step 2). The host MCU runs as root and its socket `/tmp/klipper_host_mcu` belongs to group `tty`; without that group Klipper gets "Permission denied" and `[mcu rpi]` fails. Klipper must be restarted once after the group is added (the next step does that).
-3. **Connects Klipper to it, after Klipper is running.** At the end of an install or update, and with `./installer.sh --pi-sensors`, the installer writes `~/printer_data/config/wm_rpi_mcu.cfg`:
+3. **Connects Klipper to it, after Klipper is running.** At the end of an install or update, and with `./installer.sh --pi-sensors`, the installer writes `~/printer_data/config/rpi_mcu.cfg`:
 
    ```
    [mcu rpi]
    serial: /tmp/klipper_host_mcu
    ```
 
-   includes it from `printer.cfg` (after the other includes, above the `SAVE_CONFIG` block), saves a copy of `printer.cfg` (`printer.cfg.wm-before-wm_rpi_mcu-<time>`) and restarts Klipper. **If Klipper does not come back to "ready", the include line and the file are taken out again, the old `printer.cfg` is restored and Klipper is restarted once more.** The refused file is kept as `wm_rpi_mcu.cfg.wm-failed-<time>`, and the reason is in `~/printer_data/logs/klippy.log`.
+   includes it from `printer.cfg` (after the other includes, above the `SAVE_CONFIG` block), saves a copy of `printer.cfg` (`printer.cfg.wm-before-rpi_mcu-<time>`) and restarts Klipper. **If Klipper does not come back to "ready", the include line and the file are taken out again, the old `printer.cfg` is restored and Klipper is restarted once more.** The refused file is kept as `rpi_mcu.cfg.wm-failed-<time>`, and the reason is in `~/printer_data/logs/klippy.log`.
 
    It is not added while a print is running, while Klipper is stopped, or when the `klipper-mcu` service is not running.
 
@@ -25,8 +25,8 @@ The same step also adds the chip temperature of every printer board (see below).
 
 ## Temperatures it adds
 
-- `wm_pi.cfg` (installed with the other Pi config files): `[temperature_sensor raspberry_pi]`, the Pi's own CPU temperature (`temperature_host`, limit 85 C). It does not need the host MCU.
-- `wm_mcu_temps.cfg` (written by the `--pi-sensors` step, one section for every `[mcu]` board found in your config): `mcu_main`, `mcu_hub`, `mcu_extruder`, `mcu_t0` .. `mcu_t3`, `mcu_loadcell`. They read the processor chip of each board (`temperature_mcu`), so they are a few degrees above the air around the board. The range is -20 to 110 C on purpose: outside it Klipper stops the printer, and a wide range keeps a cold room or one bad reading from doing that.
+- `rpi_pi.cfg` (installed with the other Pi config files): `[temperature_sensor raspberry_pi]`, the Pi's own CPU temperature (`temperature_host`, limit 85 C). It does not need the host MCU.
+- `rpi_mcu_temps.cfg` (written by the `--pi-sensors` step, one section for every `[mcu]` board found in your config): `mcu_main`, `mcu_hub`, `mcu_extruder`, `mcu_t0` .. `mcu_t3`, `mcu_loadcell`. They read the processor chip of each board (`temperature_mcu`), so they are a few degrees above the air around the board. The range is -20 to 110 C on purpose: outside it Klipper stops the printer, and a wide range keeps a cold room or one bad reading from doing that.
 
 ## Using it for your own parts
 
@@ -47,4 +47,4 @@ SPI must be enabled on the Pi first (`sudo raspi-config`, Interface Options, SPI
 ## If something goes wrong
 
 - Fluidd shows "mcu 'rpi': Unable to connect": run `./installer.sh --doctor`. It checks that the `klipper-mcu` service is running and that your user is in the `tty` group, and offers a fix for each.
-- To go back to how it was: remove `[include wm_rpi_mcu.cfg]` and `[include wm_mcu_temps.cfg]` from `printer.cfg` (or restore one of the `printer.cfg.wm-before-...` copies) and restart Klipper. The service can stay installed; it does nothing on its own.
+- To go back to how it was: remove `[include rpi_mcu.cfg]` and `[include rpi_mcu_temps.cfg]` from `printer.cfg` (or restore one of the `printer.cfg.wm-before-...` copies) and restart Klipper. The service can stay installed; it does nothing on its own.

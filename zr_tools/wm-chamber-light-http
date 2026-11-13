@@ -3,7 +3,7 @@
 GET  /light         -> {"on": true|false}
 POST /light         body {"on": true|false}  or  POST /light/toggle
 It calls the root helper /usr/local/sbin/wm-chamber-light. The Fluidd panel on the Pi finds this service through
-wm_chamber_light.json, which this service uploads to Moonraker (config folder) at start and then every 10 minutes.
+rpi_chamber_light.json, which this service uploads to Moonraker (config folder) at start and then every 10 minutes.
 usage: wm-chamber-light-http [--port 8765] [--conf /home/t13dp/printer_data/config/KlipperScreen.conf]"""
 import argparse
 import json
@@ -88,14 +88,14 @@ def my_ip_towards(host):
 
 
 def register(conf, port):
-    """Tell the Pi where this service is: upload wm_chamber_light.json into Moonraker's config folder."""
+    """Tell the Pi where this service is: upload rpi_chamber_light.json into Moonraker's config folder."""
     host = moonraker_host(conf)
     if not host:
         return False
     body = json.dumps({"url": "http://%s:%d" % (my_ip_towards(host), port)})
     b = uuid.uuid4().hex
     parts = ('--%s\r\nContent-Disposition: form-data; name="root"\r\n\r\nconfig\r\n'
-             '--%s\r\nContent-Disposition: form-data; name="file"; filename="wm_chamber_light.json"\r\n'
+             '--%s\r\nContent-Disposition: form-data; name="file"; filename="rpi_chamber_light.json"\r\n'
              'Content-Type: application/json\r\n\r\n%s\r\n--%s--\r\n') % (b, b, body, b)
     req = urllib.request.Request("http://%s:7125/server/files/upload" % host, parts.encode(), method="POST",
                                  headers={"Content-Type": "multipart/form-data; boundary=" + b})

@@ -76,7 +76,7 @@ class Tool(unittest.TestCase):
 
     def test_saved_copies_are_not_copied_into_the_private_config(self):
         src = os.path.join(TMP, "cfgsrc"); dst = os.path.join(TMP, "cfgdst")
-        for n in ("printer.cfg", "printer.cfg.wm-before-cfgmerge-1", "wm_nozzle.cfg.wm-removed-1", "a.cfg.before-update", "x.log"): write(os.path.join(src, n), "x")
+        for n in ("printer.cfg", "printer.cfg.wm-before-cfgmerge-1", "rpi_nozzle.cfg.wm-removed-1", "a.cfg.before-update", "x.log"): write(os.path.join(src, n), "x")
         shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*D.COPY_IGNORE))
         self.assertEqual(os.listdir(dst), ["printer.cfg"])
 

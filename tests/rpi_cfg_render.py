@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Renders every macro of rpi-cfg/wm_calibration.cfg and rpi-cfg/wm_nozzle.cfg with jinja2 (Klipper style: { } for expressions) and a mock printer.
+"""Renders every macro of rpi-cfg/rpi_calibration.cfg and rpi-cfg/rpi_nozzle.cfg with jinja2 (Klipper style: { } for expressions) and a mock printer.
 Run: python3 tests/rpi_cfg_render.py      (needs jinja2; exit 0 = all good, 77 = jinja2 not installed)"""
 import os, re, sys
 try:
@@ -7,7 +7,7 @@ try:
 except ImportError:
     sys.exit(77)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-text = open(os.path.join(ROOT, "rpi-cfg", "wm_calibration.cfg")).read() + "\n" + open(os.path.join(ROOT, "rpi-cfg", "wm_nozzle.cfg")).read()
+text = open(os.path.join(ROOT, "rpi-cfg", "rpi_calibration.cfg")).read() + "\n" + open(os.path.join(ROOT, "rpi-cfg", "rpi_nozzle.cfg")).read()
 macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', text, re.M)}
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
@@ -79,8 +79,8 @@ want("bed pid asks first", run("WM_BED_PID"), "_WM_CAL_ASK STAGE=bedpid TARGET=6
 want("bed pid runs", run("WM_BED_PID", {"CONFIRM": "1"}), "PID_CALIBRATE HEATER=heater_bed TARGET=60", "TURN_OFF_HEATERS", "SAVE_CONFIG")
 want("bed pid SAVE=0", run("WM_BED_PID", {"CONFIRM": "1", "SAVE": "0"}), "PID_CALIBRATE", none=("SAVE_CONFIG",))
 want("bed pid refuses watermark", run("WM_BED_PID", {"CONFIRM": "1"}, control="watermark"), "RAISE: heater_bed uses control: watermark")
-# tool head LEDs (rpi-cfg/wm_tool_leds.cfg): a delayed_gcode, not a macro
-led = re.search(r'^\[delayed_gcode WM_TOOL_LEDS\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "wm_tool_leds.cfg")).read(), re.M).group(1)
+# tool head LEDs (rpi-cfg/rpi_tool_leds.cfg): a delayed_gcode, not a macro
+led = re.search(r'^\[delayed_gcode WM_TOOL_LEDS\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_tool_leds.cfg")).read(), re.M).group(1)
 def leds(detected, undefined=(), thr=4):
     pr = {"filament_switch_sensor filament%d" % i: {"filament_detected": detected[i]} for i in range(4) if i not in undefined}
     pr["save_variables"] = {"variables": {"thr_number": thr}}
@@ -88,8 +88,8 @@ def leds(detected, undefined=(), thr=4):
 want("leds: filament = green, none = red", leds([True, False, True, False]), "SET_LED LED=T0_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T1_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T2_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "UPDATE_DELAYED_GCODE ID=WM_TOOL_LEDS DURATION=2")
 want("leds: only the tool heads this printer has", leds([True] * 4, thr=2), "SET_LED LED=T1_RGB", none=("T2_RGB", "T3_RGB"))
 want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "SET_LED LED=T2_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1")
-# print end watcher (rpi-cfg/wm_print_end.cfg)
-pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "wm_print_end.cfg")).read(), re.M).group(1)
+# print end watcher (rpi-cfg/rpi_print_end.cfg)
+pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_print_end.cfg")).read(), re.M).group(1)
 def pend(state, ready):
     pr = {"print_stats": {"state": state}, "gcode_macro START_PRINT": {"print_body_ready": ready}}
     return ["<<run PRINT_END>>" if l.strip() == "PRINT_END" else l.strip() for l in env.from_string(pe).render(printer=pr).splitlines() if l.strip()]

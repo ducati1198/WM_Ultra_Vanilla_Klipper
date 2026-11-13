@@ -33,5 +33,5 @@ So the chamber is left exactly as `zru-s.cfg` has it, and the chamber is not tun
 
 
 ## Added in 1.23.49
-- `wm_chamber_pid_macro.cfg`: the WM_CHAMBER_PID macro and the chamber stage of WM_FULL_CALIBRATION, removed from rpi-cfg/wm_calibration.cfg.
+- `wm_chamber_pid_macro.cfg`: the WM_CHAMBER_PID macro and the chamber stage of WM_FULL_CALIBRATION, removed from rpi-cfg/rpi_calibration.cfg.
 - `heaters_py_finding.md`: the heaters.py 1.18 factor, why it breaks the tune, options.

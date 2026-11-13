@@ -434,8 +434,8 @@ check "ultra has its own factory folder" "[ -d $ROOT/factory/ultra/klipper/klipp
 check "ultra folder: zru-s.cfg off, ultra-s folder: on" "grep -q '^# \\[include zru-s.cfg\\]' $ROOT/factory/ultra/config/printer.cfg && grep -q '^\\[include zru-s.cfg\\]' $ROOT/factory/ultra-s/config/printer.cfg"
 check "both folders pass their checksums" "(cd $ROOT/factory/ultra && sha256sum -c SHA256SUMS) && (cd $ROOT/factory/ultra-s && sha256sum -c SHA256SUMS)"
 check "ultra model leaves zru-s.cfg off" "grep -q '^# \\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg && ! grep -q '^\\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg"
-check "rpi-cfg: wm_calibration.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $HG/printer_data/config/wm_calibration.cfg && grep -q '^\\[include wm_calibration.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/wm_calibration.cfg $HU/printer_data/config/wm_calibration.cfg && grep -q '^\\[include wm_calibration.cfg\\]' $HU/printer_data/config/printer.cfg"
-check "rpi-cfg: wm_tool_leds.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/wm_tool_leds.cfg $HG/printer_data/config/wm_tool_leds.cfg && grep -q '^\\[include wm_tool_leds.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/wm_tool_leds.cfg $HU/printer_data/config/wm_tool_leds.cfg && grep -q '^\\[include wm_tool_leds.cfg\\]' $HU/printer_data/config/printer.cfg"
+check "rpi-cfg: rpi_calibration.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $HG/printer_data/config/rpi_calibration.cfg && grep -q '^\\[include rpi_calibration.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/rpi_calibration.cfg $HU/printer_data/config/rpi_calibration.cfg && grep -q '^\\[include rpi_calibration.cfg\\]' $HU/printer_data/config/printer.cfg"
+check "rpi-cfg: rpi_tool_leds.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/rpi_tool_leds.cfg $HG/printer_data/config/rpi_tool_leds.cfg && grep -q '^\\[include rpi_tool_leds.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/rpi_tool_leds.cfg $HU/printer_data/config/rpi_tool_leds.cfg && grep -q '^\\[include rpi_tool_leds.cfg\\]' $HU/printer_data/config/printer.cfg"
 MT="$T/mt"; rm -rf "$MT"; mkdir -p "$MT"; cp "$ROOT/tests/fixtures/moonraker_wm_style.conf" "$MT/old.conf"
 sed -i 's|^frame_path:.*|frame_path: /tmp/timelapse/|; /^camera:/d' "$MT/old.conf"
 check "moonraker: conf fix adds the K1 sections, frames folder and timelapse options, and is idempotent" "python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $MT/old.conf --write >/dev/null; [ \$? = 10 ]; grep -q '^frame_path: ~/printer_data/frames/' $MT/old.conf && grep -q '^camera: default' $MT/old.conf && grep -q '^parkpos: back_right' $MT/old.conf && grep -q '^\\[file_manager\\]' $MT/old.conf && grep -q '^\\[machine\\]' $MT/old.conf && python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $MT/old.conf >/dev/null"
@@ -444,10 +444,10 @@ check "moonraker: your own timelapse values are not changed" "printf '[timelapse
 check "moonraker: factory moonraker.conf (both models) is already complete" "( for m in ultra ultra-s; do python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $ROOT/factory/\$m/config/moonraker.conf >/dev/null || exit 1; done )"
 check "moonraker: the timelapse step adds [update_manager timelapse] and the frames folder" "[ -d $HG/printer_data/frames ] && grep -q '^\\[update_manager timelapse\\]' $HG/printer_data/config/moonraker.conf"
 check "moonraker: the timelapse step also adds the [timelapse] section so the component loads" "grep -q '^\\[timelapse\\]' $HG/printer_data/config/moonraker.conf && grep -q '^frame_path: ~/printer_data/frames/' $HG/printer_data/config/moonraker.conf"
-check "rpi-cfg: wm_print_end.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/wm_print_end.cfg $HG/printer_data/config/wm_print_end.cfg && grep -q '^\\[include wm_print_end.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/wm_print_end.cfg $HU/printer_data/config/wm_print_end.cfg && grep -q '^\\[include wm_print_end.cfg\\]' $HU/printer_data/config/printer.cfg"
-check "rpi-cfg: calibration windows close on the screen too (prompt_end in the start, stop, save and cancel paths)" "W=$ROOT/rpi-cfg/wm_calibration.cfg; sed -n '/^\\[gcode_macro _WM_CAL_PRECHECK\\]/,/^\\[gcode_macro _WM_CAL_ASK\\]/p' \$W | grep -q prompt_end && sed -n '/^\\[gcode_macro _WM_CAL_STOP\\]/,/^\\[gcode_macro _WM_PROMPT_CLOSE\\]/p' \$W | grep -q prompt_end && grep -q 'Save and Restart|_WM_SAVE|' \$W && grep -q 'Cancel|_WM_PROMPT_CLOSE' \$W && ! grep -q 'Cancel|M118' \$W"
-check "rpi-cfg: bed leveling, vibration compensation and bed PID say which step they are on" "W=$ROOT/rpi-cfg/wm_calibration.cfg; for m in 'Bed leveling - step 2' 'Vibration compensation - step 2' 'Bed PID - heating'; do grep -q \"\$m\" \$W || exit 1; done"
-check "rpi-cfg: exactly one include line, and printer.cfg was saved first" "[ \$(grep -c 'include wm_calibration.cfg' $HG/printer_data/config/printer.cfg) = 1 ] && ls $HG/printer_data/config/printer.cfg.wm-before-rpicfg-*"
+check "rpi-cfg: rpi_print_end.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/rpi_print_end.cfg $HG/printer_data/config/rpi_print_end.cfg && grep -q '^\\[include rpi_print_end.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/rpi_print_end.cfg $HU/printer_data/config/rpi_print_end.cfg && grep -q '^\\[include rpi_print_end.cfg\\]' $HU/printer_data/config/printer.cfg"
+check "rpi-cfg: calibration windows close on the screen too (prompt_end in the start, stop, save and cancel paths)" "W=$ROOT/rpi-cfg/rpi_calibration.cfg; sed -n '/^\\[gcode_macro _WM_CAL_PRECHECK\\]/,/^\\[gcode_macro _WM_CAL_ASK\\]/p' \$W | grep -q prompt_end && sed -n '/^\\[gcode_macro _WM_CAL_STOP\\]/,/^\\[gcode_macro _WM_PROMPT_CLOSE\\]/p' \$W | grep -q prompt_end && grep -q 'Save and Restart|_WM_SAVE|' \$W && grep -q 'Cancel|_WM_PROMPT_CLOSE' \$W && ! grep -q 'Cancel|M118' \$W"
+check "rpi-cfg: bed leveling, vibration compensation and bed PID say which step they are on" "W=$ROOT/rpi-cfg/rpi_calibration.cfg; for m in 'Bed leveling - step 2' 'Vibration compensation - step 2' 'Bed PID - heating'; do grep -q \"\$m\" \$W || exit 1; done"
+check "rpi-cfg: exactly one include line, and printer.cfg was saved first" "[ \$(grep -c 'include rpi_calibration.cfg' $HG/printer_data/config/printer.cfg) = 1 ] && ls $HG/printer_data/config/printer.cfg.wm-before-rpicfg-*"
 check "rpi-cfg: the include sits before the SAVE_CONFIG block, not after it" "! sed -n '/SAVE_CONFIG/,\$p' $HG/printer_data/config/printer.cfg | grep -q 'include wm_calibration'"
 check "rpi-cfg: the macros render and behave (jinja2)" "python3 $ROOT/tests/rpi_cfg_render.py; r=\$?; [ \$r = 0 ] || [ \$r = 77 ]"
 check "rpi-cfg: every WonderMaker macro it calls exists in both factory folders" "for m in G29 PROBE_CALIBRATE CALIBRATE_OFFSET_ALL_RAPID_MODE NOZZLE_PREPARE NOZZLE_CALIBRATE_TOOL_OFFSET RAPID_MODE PARK_CURRENT_TOOL; do for d in ultra ultra-s; do grep -q \"^\\[gcode_macro \$m\\]\" $ROOT/factory/\$d/config/*.cfg || exit 1; done; done"
@@ -597,29 +597,50 @@ check "undo keeps what it replaced" "ls -d $UH/wm-rpi-backup/undone-*"
 echo "== doctor and support bundle"
 check "doctor passes on a good install" "WM_TEST_SCREEN=1024x600 WM_TEST_TOUCH=1 WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
 D='WM_HOME='"$G2"' WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash '"$ROOT"'/installer.sh --doctor'
-check "doctor: calibration macros are ok on a good install" "eval \"$D\" 2>&1 | grep -q 'calibration macros wm_calibration.cfg (included in printer.cfg, same as rpi-cfg)'"
-rm -f "$G2/printer_data/config/wm_calibration.cfg"
-check "doctor reports a missing wm_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'calibration macros file wm_calibration.cfg is missing'"
+check "doctor: calibration macros are ok on a good install" "eval \"$D\" 2>&1 | grep -q 'calibration macros rpi_calibration.cfg (included in printer.cfg, same as rpi-cfg)'"
+rm -f "$G2/printer_data/config/rpi_calibration.cfg"
+check "doctor reports a missing rpi_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'calibration macros file rpi_calibration.cfg is missing'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
-check "Fix everything puts wm_calibration.cfg back" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $G2/printer_data/config/wm_calibration.cfg"
-sed -i '/include wm_calibration.cfg/d' "$G2/printer_data/config/printer.cfg"
-check "doctor reports a missing include line" "eval \"$D\" 2>&1 | grep -q 'printer.cfg does not include wm_calibration.cfg'"
+check "Fix everything puts rpi_calibration.cfg back" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $G2/printer_data/config/rpi_calibration.cfg"
+sed -i '/include rpi_calibration.cfg/d' "$G2/printer_data/config/printer.cfg"
+check "doctor reports a missing include line" "eval \"$D\" 2>&1 | grep -q 'printer.cfg does not include rpi_calibration.cfg'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
-check "Fix everything adds the include line back (once)" "[ \$(grep -c 'include wm_calibration.cfg' $G2/printer_data/config/printer.cfg) = 1 ]"
-echo '# my edit' >> "$G2/printer_data/config/wm_calibration.cfg"
-check "doctor notices an edited wm_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'wm_calibration.cfg differs from the one in rpi-cfg'"
+check "Fix everything adds the include line back (once)" "[ \$(grep -c 'include rpi_calibration.cfg' $G2/printer_data/config/printer.cfg) = 1 ]"
+echo '# my edit' >> "$G2/printer_data/config/rpi_calibration.cfg"
+check "doctor notices an edited rpi_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'rpi_calibration.cfg differs from the one in rpi-cfg'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
-check "the fix keeps the edited copy and restores the repository one" "grep -q 'my edit' $G2/printer_data/config/wm_calibration.cfg.wm-before-rpicfg-* && cmp $ROOT/rpi-cfg/wm_calibration.cfg $G2/printer_data/config/wm_calibration.cfg"
-NB1=$(ls "$G2/printer_data/config" | grep -c "wm_calibration.cfg.wm-before")
+check "the fix keeps the edited copy and restores the repository one" "grep -q 'my edit' $G2/printer_data/config/rpi_calibration.cfg.wm-before-rpicfg-* && cmp $ROOT/rpi-cfg/rpi_calibration.cfg $G2/printer_data/config/rpi_calibration.cfg"
+NB1=$(ls "$G2/printer_data/config" | grep -c "rpi_calibration.cfg.wm-before")
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/rc.out" 2>&1 </dev/null
-check "--rpi-cfg runs, is idempotent, adds no second include" "grep -q 'wm_calibration.cfg is installed (printer.cfg already includes it)' $T/rc.out && [ \$(grep -c 'include wm_calibration.cfg' $G2/printer_data/config/printer.cfg) = 1 ]"
-check "--rpi-cfg with nothing changed makes no extra copy of wm_calibration.cfg" "[ \$(ls $G2/printer_data/config/ | grep -c 'wm_calibration.cfg.wm-before') = $NB1 ]"
-check "--rpi-cfg dry run changes nothing" "rm -f $G2/printer_data/config/wm_calibration.cfg; WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --rpi-cfg --dry-run >/dev/null 2>&1 </dev/null; [ ! -f $G2/printer_data/config/wm_calibration.cfg ]"
+check "--rpi-cfg runs, is idempotent, adds no second include" "grep -q 'rpi_calibration.cfg is installed (printer.cfg already includes it)' $T/rc.out && [ \$(grep -c 'include rpi_calibration.cfg' $G2/printer_data/config/printer.cfg) = 1 ]"
+check "--rpi-cfg with nothing changed makes no extra copy of rpi_calibration.cfg" "[ \$(ls $G2/printer_data/config/ | grep -c 'rpi_calibration.cfg.wm-before') = $NB1 ]"
+check "--rpi-cfg dry run changes nothing" "rm -f $G2/printer_data/config/rpi_calibration.cfg; WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --rpi-cfg --dry-run >/dev/null 2>&1 </dev/null; [ ! -f $G2/printer_data/config/rpi_calibration.cfg ]"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
-check "--rpi-cfg restores a deleted file" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $G2/printer_data/config/wm_calibration.cfg"
-check "nozzle: wm_nozzle.cfg is installed and included, with its helper script" "cmp $ROOT/rpi-cfg/wm_nozzle.cfg $G2/printer_data/config/wm_nozzle.cfg && [ \$(grep -c '^\\[include wm_nozzle.cfg\\]' $G2/printer_data/config/printer.cfg) = 1 ] && cmp $ROOT/scripts/wm_nozzle.py $G2/printer_data/wm-tools/wm_nozzle.py"
+check "--rpi-cfg restores a deleted file" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $G2/printer_data/config/rpi_calibration.cfg"
+check "nozzle: rpi_nozzle.cfg is installed and included, with its helper script" "cmp $ROOT/rpi-cfg/rpi_nozzle.cfg $G2/printer_data/config/rpi_nozzle.cfg && [ \$(grep -c '^\\[include rpi_nozzle.cfg\\]' $G2/printer_data/config/printer.cfg) = 1 ] && cmp $ROOT/scripts/wm_nozzle.py $G2/printer_data/wm-tools/wm_nozzle.py"
 check "nozzle: the shell command extension is there too" "[ -f $G2/klipper/klippy/extras/gcode_shell_command.py ]"
 check "nozzle: doctor is happy with the helper script" "eval \"$D\" 2>&1 | grep -q 'wm_nozzle.py (the helper behind _WM_NOZZLE_TYPE) is in place'"
+# Rename wm_ -> rpi_ (2.6.0): a Pi with the old file names is renamed once, include lines follow, copies are kept
+CF="$G2/printer_data/config"
+mv "$CF/rpi_calibration.cfg" "$CF/wm_calibration.cfg"; mv "$CF/rpi_nozzle.cfg" "$CF/wm_nozzle.cfg"
+echo '# my fan guard' > "$CF/wm_fan_guard.cfg"; echo '{"url": "http://x"}' > "$CF/wm_chamber_light.json"
+sed -i 's/\[include rpi_calibration.cfg\]/[include wm_calibration.cfg]/; s/\[include rpi_nozzle.cfg\]/[include wm_nozzle.cfg]/' "$CF/printer.cfg"
+printf '[include wm_fan_guard.cfg]\n' >> "$CF/extra_include_test.cfg"
+echo '# my edit of the old name' >> "$CF/wm_calibration.cfg"
+cp "$CF/printer.cfg" "$T/printer_before_rename.cfg"
+check "doctor reports the old wm_ names" "eval \"$D\" 2>&1 | grep -q 'still have the old wm_ names'"
+check "dry run renames nothing" "WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --rpi-cfg --dry-run >/dev/null 2>&1 </dev/null; [ -f $CF/wm_calibration.cfg ] && [ ! -e $CF/rpi_calibration.cfg ]"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/ren.out" 2>&1 </dev/null
+check "rename: the old files are gone, the rpi_ files exist" "[ ! -e $CF/wm_calibration.cfg ] && [ ! -e $CF/wm_nozzle.cfg ] && [ ! -e $CF/wm_fan_guard.cfg ] && [ ! -e $CF/wm_chamber_light.json ] && [ -f $CF/rpi_fan_guard.cfg ] && [ -f $CF/rpi_chamber_light.json ] && [ -f $CF/rpi_calibration.cfg ] && [ -f $CF/rpi_nozzle.cfg ]"
+check "rename: printer.cfg includes the new names, each once, none of the old" "[ \$(grep -c 'include rpi_calibration.cfg' $CF/printer.cfg) = 1 ] && [ \$(grep -c 'include rpi_nozzle.cfg' $CF/printer.cfg) = 1 ] && ! grep -qE 'include wm_(calibration|nozzle)' $CF/printer.cfg"
+check "rename: another config file's include line follows too" "grep -q '^\[include rpi_fan_guard.cfg\]' $CF/extra_include_test.cfg"
+check "rename: the content of the files is kept (the edited copy was refreshed from rpi-cfg, the old edit is saved)" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $CF/rpi_calibration.cfg && grep -q 'my edit of the old name' $CF/rpi_calibration.cfg.wm-before-rpicfg-*"
+check "rename: a user file without a repo copy keeps its content" "grep -q 'my fan guard' $CF/rpi_fan_guard.cfg"
+check "rename: copies of the old files and printer.cfg are in ~/wm-backups/rename-*" "ls $G2/wm-backups/rename-*/wm_fan_guard.cfg $G2/wm-backups/rename-*/printer.cfg >/dev/null"
+check "rename: the SAVE_CONFIG block of printer.cfg is untouched" "[ \"\$(sed -n '/SAVE_CONFIG/,\$p' $CF/printer.cfg)\" = \"\$(sed -n '/SAVE_CONFIG/,\$p' $T/printer_before_rename.cfg)\" ]"
+check "rename: doctor is clean of the old-name problem" "! eval \"$D\" 2>&1 | grep -q 'still have the old wm_ names'"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/ren2.out" 2>&1 </dev/null
+check "rename: running it again renames nothing" "! grep -q 'renamed from wm_ to rpi_' $T/ren2.out"
 rm -f "$G2/printer_data/wm-tools/wm_nozzle.py"
 check "nozzle: doctor notices a missing helper script" "yes n | WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'wm_nozzle.py is missing or different'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
@@ -647,13 +668,13 @@ check "nozzle script: the SAVE_CONFIG block of printer.cfg is unchanged" "[ \"\$
 NZ2="$T/nz2"; mkdir -p "$NZ2"; { cat "$ROOT/factory/ultra-s/config/printer.cfg" | sed '$d'; printf '#*# [extruder1]\n#*# nozzle_diameter = 0.400000\n'; } > "$NZ2/printer.cfg"
 check "nozzle script: a nozzle_diameter that sits in the SAVE_CONFIG block is changed there too" "python3 $ROOT/scripts/wm_nozzle.py --config $NZ2 set 1 0.8 >/dev/null && grep -q '^#\\*# nozzle_diameter = 0.800000' $NZ2/printer.cfg"
 HNZ="$T/hnz"; mkdir -p "$HNZ"; inst "$HNZ" --from-github --model ultra-s --shell-command off >/dev/null
-check "nozzle: with the shell command extension off, wm_nozzle.cfg is not installed or included" "[ ! -f $HNZ/printer_data/config/wm_nozzle.cfg ] && ! grep -q 'wm_nozzle' $HNZ/printer_data/config/printer.cfg"
+check "nozzle: with the shell command extension off, rpi_nozzle.cfg is not installed or included" "[ ! -f $HNZ/printer_data/config/rpi_nozzle.cfg ] && ! grep -q 'wm_nozzle' $HNZ/printer_data/config/printer.cfg"
 check "nozzle: and the doctor does not ask for it" "! yes n | WM_HOME=$HNZ WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'wm_nozzle'"
 inst "$HNZ" --update --shell-command on >/dev/null
-check "nozzle: turning the extension on installs wm_nozzle.cfg and includes it" "[ -f $HNZ/printer_data/config/wm_nozzle.cfg ] && grep -q '^\\[include wm_nozzle.cfg\\]' $HNZ/printer_data/config/printer.cfg && [ -f $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
-check "nozzle: removing the shell command extension takes wm_nozzle.cfg out of printer.cfg first" "M 'y\n' $HNZ --remove shell-command | grep -q 'Removed' && ! grep -q 'wm_nozzle.cfg' $HNZ/printer_data/config/printer.cfg && ls $HNZ/printer_data/config/wm_nozzle.cfg.wm-removed-* && [ ! -e $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
+check "nozzle: turning the extension on installs rpi_nozzle.cfg and includes it" "[ -f $HNZ/printer_data/config/rpi_nozzle.cfg ] && grep -q '^\\[include rpi_nozzle.cfg\\]' $HNZ/printer_data/config/printer.cfg && [ -f $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
+check "nozzle: removing the shell command extension takes rpi_nozzle.cfg out of printer.cfg first" "M 'y\n' $HNZ --remove shell-command | grep -q 'Removed' && ! grep -q 'rpi_nozzle.cfg' $HNZ/printer_data/config/printer.cfg && ls $HNZ/printer_data/config/rpi_nozzle.cfg.wm-removed-* && [ ! -e $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
 
-# Fluidd window macros (wm_nozzle.cfg / wm_calibration.cfg): mistakes found on a real printer
+# Fluidd window macros (rpi_nozzle.cfg / rpi_calibration.cfg): mistakes found on a real printer
 cat > "$T/macro_cycle.py" <<'PY'
 import re, sys
 macros = {}
@@ -674,11 +695,11 @@ for n in macros: walk(n, [n])
 print('\n'.join(bad)); sys.exit(1 if bad else 0)
 PY
 check "windows: no ';' inside a RESPOND message (Klipper cuts the line there: Malformed command)" "! grep -n 'RESPOND.*MSG=.*;' $ROOT/rpi-cfg/*.cfg"
-check "windows: no macro of ours calls itself, directly or through others (Klipper: called recursively)" "python3 -I $T/macro_cycle.py $ROOT/rpi-cfg/wm_nozzle.cfg $ROOT/rpi-cfg/wm_calibration.cfg"
+check "windows: no macro of ours calls itself, directly or through others (Klipper: called recursively)" "python3 -I $T/macro_cycle.py $ROOT/rpi-cfg/rpi_nozzle.cfg $ROOT/rpi-cfg/rpi_calibration.cfg"
 check "windows: the cycle test really catches a loop" "printf '[gcode_macro A]\ngcode:\n    B\n[gcode_macro B]\ngcode:\n    A\n' > $T/loop.cfg; ! python3 -I $T/macro_cycle.py $T/loop.cfg"
-check "windows: Extruder Setup matching goes from tool to tool through a delayed gcode" "grep -q '^\\[delayed_gcode _WM_MATCH_NEXT\\]' $ROOT/rpi-cfg/wm_nozzle.cfg && grep -q 'UPDATE_DELAYED_GCODE ID=_WM_MATCH_NEXT' $ROOT/rpi-cfg/wm_nozzle.cfg && grep -q '^variable_next: 0' $ROOT/rpi-cfg/wm_nozzle.cfg"
+check "windows: Extruder Setup matching goes from tool to tool through a delayed gcode" "grep -q '^\\[delayed_gcode _WM_MATCH_NEXT\\]' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q 'UPDATE_DELAYED_GCODE ID=_WM_MATCH_NEXT' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q '^variable_next: 0' $ROOT/rpi-cfg/rpi_nozzle.cfg"
 check "windows: both start checks show a Fluidd window before they stop" "python3 -I $ROOT/tests/check_windows.py checks"
-check "windows: Restart Klipper now closes the window first" "grep -q 'Restart Klipper now|_WM_RESTART_KLIPPER|primary' $ROOT/rpi-cfg/wm_nozzle.cfg && python3 -I $ROOT/tests/check_windows.py restart"
+check "windows: Restart Klipper now closes the window first" "grep -q 'Restart Klipper now|_WM_RESTART_KLIPPER|primary' $ROOT/rpi-cfg/rpi_nozzle.cfg && python3 -I $ROOT/tests/check_windows.py restart"
 rm -f "$G2"/klipper/klippy/extras/cs1237.*.so
 check "doctor finds a missing module and restores it from the repo" "WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor; ls $G2/klipper/klippy/extras/cs1237.*.so"
 check "doctor reports bad network clock/power as problems" "! WM_TEST_THROTTLED=0x50005 WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
@@ -1034,28 +1055,28 @@ for m in "" " HUB" " EX_T" " T0" " T1" " CELL"; do printf '[mcu%s]\nserial: x\n'
 printf '[mcu rpi]\nserial: /tmp/x\n' > "$PS/printer_data/config/zz_old.cfg.bak"
 printf '[include b.cfg]\n[include b_HUB.cfg]\n\n[save_variables]\nfilename: /tmp/v.cfg\n\n#*# <---------------------- SAVE_CONFIG ---------------------->\n#*# DO NOT EDIT THIS BLOCK OR BELOW.\n' > "$PS/printer_data/config/printer.cfg"
 : > "$PS/.sudo.log"; OUT="$(inst "$PS" --pi-sensors)"; PC="$PS/printer_data/config"
-check "--pi-sensors writes one temperature sensor for every [mcu] board and names them" "grep -q '^\[temperature_sensor mcu_main\]' $PC/wm_mcu_temps.cfg && grep -q 'sensor_mcu: HUB' $PC/wm_mcu_temps.cfg && grep -q '^\[temperature_sensor mcu_extruder\]' $PC/wm_mcu_temps.cfg && grep -q '^\[temperature_sensor mcu_t0\]' $PC/wm_mcu_temps.cfg && grep -q '^\[temperature_sensor mcu_loadcell\]' $PC/wm_mcu_temps.cfg && [ \$(grep -c '^\[temperature_sensor' $PC/wm_mcu_temps.cfg) = 6 ]"
-check "board temperature sensors use sensor_mcu with the right board and a wide range" "grep -c 'min_temp: -20' $PC/wm_mcu_temps.cfg | grep -qx 6 && grep -c 'max_temp: 110' $PC/wm_mcu_temps.cfg | grep -qx 6 && ! grep -q 'sensor_mcu: rpi' $PC/wm_mcu_temps.cfg"
-check "the includes go after the other includes and above the SAVE_CONFIG block" "awk '/^\[include wm_mcu_temps.cfg\]/{a=NR} /^\[include wm_rpi_mcu.cfg\]/{b=NR} /SAVE_CONFIG/{s=NR} /^\[include b_HUB.cfg\]/{h=NR} END{exit !(a>h && b>h && a<s && b<s)}' $PC/printer.cfg"
-check "[mcu rpi] is in its own file with the host MCU socket" "grep -q '^\[mcu rpi\]' $PC/wm_rpi_mcu.cfg && grep -q 'serial: /tmp/klipper_host_mcu' $PC/wm_rpi_mcu.cfg"
-check "Klipper is restarted once for each, and a copy of printer.cfg is kept" "[ \$(grep -c 'systemctl restart klipper' $PS/.sudo.log) = 2 ] && ls $PC/printer.cfg.wm-before-wm_mcu_temps-* $PC/printer.cfg.wm-before-wm_rpi_mcu-*"
-check "a second run changes nothing" "OUT2=\$(inst $PS --pi-sensors); echo \"\$OUT2\" | grep -q 'already in use' && [ \$(grep -c 'include wm_mcu_temps.cfg' $PC/printer.cfg) = 1 ]"
+check "--pi-sensors writes one temperature sensor for every [mcu] board and names them" "grep -q '^\[temperature_sensor mcu_main\]' $PC/rpi_mcu_temps.cfg && grep -q 'sensor_mcu: HUB' $PC/rpi_mcu_temps.cfg && grep -q '^\[temperature_sensor mcu_extruder\]' $PC/rpi_mcu_temps.cfg && grep -q '^\[temperature_sensor mcu_t0\]' $PC/rpi_mcu_temps.cfg && grep -q '^\[temperature_sensor mcu_loadcell\]' $PC/rpi_mcu_temps.cfg && [ \$(grep -c '^\[temperature_sensor' $PC/rpi_mcu_temps.cfg) = 6 ]"
+check "board temperature sensors use sensor_mcu with the right board and a wide range" "grep -c 'min_temp: -20' $PC/rpi_mcu_temps.cfg | grep -qx 6 && grep -c 'max_temp: 110' $PC/rpi_mcu_temps.cfg | grep -qx 6 && ! grep -q 'sensor_mcu: rpi' $PC/rpi_mcu_temps.cfg"
+check "the includes go after the other includes and above the SAVE_CONFIG block" "awk '/^\[include rpi_mcu_temps.cfg\]/{a=NR} /^\[include rpi_mcu.cfg\]/{b=NR} /SAVE_CONFIG/{s=NR} /^\[include b_HUB.cfg\]/{h=NR} END{exit !(a>h && b>h && a<s && b<s)}' $PC/printer.cfg"
+check "[mcu rpi] is in its own file with the host MCU socket" "grep -q '^\[mcu rpi\]' $PC/rpi_mcu.cfg && grep -q 'serial: /tmp/klipper_host_mcu' $PC/rpi_mcu.cfg"
+check "Klipper is restarted once for each, and a copy of printer.cfg is kept" "[ \$(grep -c 'systemctl restart klipper' $PS/.sudo.log) = 2 ] && ls $PC/printer.cfg.wm-before-rpi_mcu_temps-* $PC/printer.cfg.wm-before-rpi_mcu-*"
+check "a second run changes nothing" "OUT2=\$(inst $PS --pi-sensors); echo \"\$OUT2\" | grep -q 'already in use' && [ \$(grep -c 'include rpi_mcu_temps.cfg' $PC/printer.cfg) = 1 ]"
 PR="$T/pr"; rm -rf "$PR"; cp -a "$PS" "$PR"; rm -f "$PR/printer_data/config/wm_"*.cfg "$PR/printer_data/config/"printer.cfg.wm-*; sed -i '/include wm_/d' "$PR/printer_data/config/printer.cfg"; : > "$PR/.sudo.log"; cp "$PR/printer_data/config/printer.cfg" "$T/pr.before"
 OUT="$(WM_TEST_KLIPPER_AFTER=error inst "$PR" --pi-sensors)"
-check "when Klipper does not become ready the sensors are taken out again, printer.cfg is back as it was, and it says so" "echo \"\$OUT\" | grep -q 'Taking it out again' && cmp -s $T/pr.before $PR/printer_data/config/printer.cfg && [ ! -e $PR/printer_data/config/wm_mcu_temps.cfg ] && ls $PR/printer_data/config/wm_mcu_temps.cfg.wm-failed-* && echo \"\$OUT\" | grep -q 'was not added'"
+check "when Klipper does not become ready the sensors are taken out again, printer.cfg is back as it was, and it says so" "echo \"\$OUT\" | grep -q 'Taking it out again' && cmp -s $T/pr.before $PR/printer_data/config/printer.cfg && [ ! -e $PR/printer_data/config/rpi_mcu_temps.cfg ] && ls $PR/printer_data/config/rpi_mcu_temps.cfg.wm-failed-* && echo \"\$OUT\" | grep -q 'was not added'"
 check "...and Klipper is restarted a second time to load the old config" "[ \$(grep -c 'systemctl restart klipper' $PR/.sudo.log) -ge 2 ]"
 PN="$T/pn"; rm -rf "$PN"; cp -a "$PS" "$PN"; rm -f "$PN/.svc/klipper.active"; rm -f "$PN/printer_data/config/wm_"*.cfg; sed -i '/include wm_/d' "$PN/printer_data/config/printer.cfg"; : > "$PN/.sudo.log"
 OUT="$(inst "$PN" --pi-sensors)"
-check "Klipper not running: nothing is changed and it says when to run it" "echo \"\$OUT\" | grep -q 'Klipper is not running' && [ ! -e $PN/printer_data/config/wm_mcu_temps.cfg ] && ! grep -q 'restart klipper' $PN/.sudo.log"
+check "Klipper not running: nothing is changed and it says when to run it" "echo \"\$OUT\" | grep -q 'Klipper is not running' && [ ! -e $PN/printer_data/config/rpi_mcu_temps.cfg ] && ! grep -q 'restart klipper' $PN/.sudo.log"
 PP="$T/pp"; rm -rf "$PP"; cp -a "$PN" "$PP"; touch "$PP/.svc/klipper.active"
 OUT="$(WM_TEST_PRINT_STATE=printing inst "$PP" --pi-sensors)"; RCP=$?
-check "during a print --pi-sensors refuses" "[ $RCP != 0 ] && [ ! -e $PP/printer_data/config/wm_mcu_temps.cfg ]"
-check "--dry-run changes nothing" "inst $PN --dry-run --pi-sensors | grep -q 'would add' ; [ ! -e $PN/printer_data/config/wm_mcu_temps.cfg ]"
+check "during a print --pi-sensors refuses" "[ $RCP != 0 ] && [ ! -e $PP/printer_data/config/rpi_mcu_temps.cfg ]"
+check "--dry-run changes nothing" "inst $PN --dry-run --pi-sensors | grep -q 'would add' ; [ ! -e $PN/printer_data/config/rpi_mcu_temps.cfg ]"
 PF="$T/pf"; rm -rf "$PF"; mkdir -p "$PF"; OUT="$(WM_TEST_PI_SENSORS_FLOW=1 WM_TEST_CANQUERY=$T/can_ok.txt inst "$PF" --from-github --model ultra-s)"
-check "an install runs the sensors step at the end, after Klipper is started, and includes the Pi sensor" "echo \"\$OUT\" | grep -q 'Board temperatures and the host MCU' && [ -f $PF/printer_data/config/wm_mcu_temps.cfg ] && [ ! -e $PF/printer_data/config/wm_rpi_mcu.cfg ] && grep -q 'include wm_pi.cfg' $PF/printer_data/config/printer.cfg"
+check "an install runs the sensors step at the end, after Klipper is started, and includes the Pi sensor" "echo \"\$OUT\" | grep -q 'Board temperatures and the host MCU' && [ -f $PF/printer_data/config/rpi_mcu_temps.cfg ] && [ ! -e $PF/printer_data/config/rpi_mcu.cfg ] && grep -q 'include rpi_pi.cfg' $PF/printer_data/config/printer.cfg"
 check "...and [mcu rpi] is left out when the klipper-mcu service is not running" "echo \"\$OUT\" | grep -q 'klipper-mcu service is not running'"
 check "the tty group is added with the others" "grep -q 'usermod -aG dialout,plugdev,moonraker-admin,tty' $ROOT/installer.sh"
-check "wm_pi.cfg: the Pi temperature sensor, limit 85" "grep -q '^\[temperature_sensor raspberry_pi\]' $ROOT/rpi-cfg/wm_pi.cfg && grep -q 'sensor_type: temperature_host' $ROOT/rpi-cfg/wm_pi.cfg && grep -q 'max_temp: 85' $ROOT/rpi-cfg/wm_pi.cfg"
+check "rpi_pi.cfg: the Pi temperature sensor, limit 85" "grep -q '^\[temperature_sensor raspberry_pi\]' $ROOT/rpi-cfg/rpi_pi.cfg && grep -q 'sensor_type: temperature_host' $ROOT/rpi-cfg/rpi_pi.cfg && grep -q 'max_temp: 85' $ROOT/rpi-cfg/rpi_pi.cfg"
 OUT="$(WM_TEST_PI_MODEL='Raspberry Pi 4 Model B Rev 1.4' inst "$PS" --status)"
 check "--status shows the Pi model and memory" "echo \"\$OUT\" | grep -q 'Computer: Raspberry Pi 4 Model B Rev 1.4, 4096 MB memory'"
 check "the install plan shows the Pi model" "WM_TEST_PI_MODEL='Raspberry Pi 5 Model B Rev 1.0' inst $T/pmodel5 --from-github --model ultra-s --dry-run | grep -q 'This computer:   Raspberry Pi 5 Model B Rev 1.0'"
@@ -1078,10 +1099,10 @@ cfg="$ACE_CONFIG_DIR"; x="$ACE_KLIPPER_DIR/klippy/extras"; here="$(cd "$(dirname
 case "$1" in
   --install|--update)
     for f in wm_ace_driver wm_ace wm_endless wm_stats; do echo "# $f" > "$cfg/$f.cfg"; grep -q "^\[include $f.cfg\]" "$cfg/printer.cfg" || sed -i "1i [include $f.cfg]" "$cfg/printer.cfg"; done
-    echo 'VERSION="9.9.9"' > "$cfg/wm-ultra-install.conf"; ln -sfn "$here/extras/ace" "$x/ace"; mkdir -p "$ACE_INSTALL_HOME/acepro-backup/wm-1" ;;
+    echo 'VERSION="9.9.9"' > "$cfg/rpi-ultra-install.conf"; ln -sfn "$here/extras/ace" "$x/ace"; mkdir -p "$ACE_INSTALL_HOME/acepro-backup/wm-1" ;;
   --uninstall)
     read -r a; [ "$a" = y ] || exit 0
-    sed -i -E '/^\[include wm_(ace_driver|ace|endless|stats)\.cfg\]/d' "$cfg/printer.cfg"; rm -f "$cfg"/wm_ace_driver.cfg "$cfg"/wm_ace.cfg "$cfg"/wm_endless.cfg "$cfg"/wm_stats.cfg "$cfg/wm-ultra-install.conf" "$x/ace" ;;
+    sed -i -E '/^\[include rpi_(ace_driver|ace|endless|stats)\.cfg\]/d' "$cfg/printer.cfg"; rm -f "$cfg"/rpi_ace_driver.cfg "$cfg"/rpi_ace.cfg "$cfg"/rpi_endless.cfg "$cfg"/rpi_stats.cfg "$cfg/rpi-ultra-install.conf" "$x/ace" ;;
 esac
 STUBEOF
 chmod +x "$STUBACE/installer.sh"; export WM_TEST_ACEPRO_SRC="$STUBACE"
@@ -1098,7 +1119,7 @@ inst "$NS" --update --only-addon acepro --acepro on > "$T/ace1.out"
 check "ACE Pro: the project is downloaded and its installer runs as an install, for this home, in test mode" "[ -f $NS/wm-ultra-fluidd-acepro-panel/installer.sh ] && grep -q -- '--install home=$NS test=1' $NS/.ace-stub.log"
 check "ACE Pro: config files, include lines and the Klipper link are in place" "for f in wm_ace_driver wm_ace wm_endless wm_stats; do [ -f $NS/printer_data/config/\$f.cfg ] && grep -q \"^\\[include \$f.cfg\\]\" $NS/printer_data/config/printer.cfg || exit 1; done; [ -L $NS/klipper/klippy/extras/ace ]"
 check "ACE Pro: remembered, in the plan, in --status" "grep -q 'WANT_ACEPRO=1' $NS/wm-rpi-backup/install.conf && inst $NS --status | grep -E 'acepro +installed'"
-check "ACE Pro: the next --update runs the project's installer as an update, no second include line" "inst $NS --update --only-addon acepro >/dev/null; grep -q -- '--update home=' $NS/.ace-stub.log && [ \$(grep -c 'include wm_ace.cfg' $NS/printer_data/config/printer.cfg) = 1 ]"
+check "ACE Pro: the next --update runs the project's installer as an update, no second include line" "inst $NS --update --only-addon acepro >/dev/null; grep -q -- '--update home=' $NS/.ace-stub.log && [ \$(grep -c 'include rpi_ace.cfg' $NS/printer_data/config/printer.cfg) = 1 ]"
 printf '[server]\nport: 7125\n\n[update_manager]\n' > "$NS/printer_data/config/moonraker.conf"
 inst "$NS" --update --only-addon acepro >/dev/null; inst "$NS" --update --only-addon acepro >/dev/null
 check "Fluidd update entries: the panel repo and this installer's repo are added to moonraker.conf once, other sections stay, a copy is kept" "grep -c '^\[update_manager wm-ultra-fluidd-acepro-panel\]' $NS/printer_data/config/moonraker.conf | grep -qx 1 && grep -c '^\[update_manager WM_Ultra_Vanilla_Klipper\]' $NS/printer_data/config/moonraker.conf | grep -qx 1 && grep -q 'origin: https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel.git' $NS/printer_data/config/moonraker.conf && grep -q 'path: $NS/wm-ultra-fluidd-acepro-panel' $NS/printer_data/config/moonraker.conf && grep -q '^\[update_manager\]' $NS/printer_data/config/moonraker.conf && ls $NS/printer_data/config/moonraker.conf.wm-before-updatemgr-*"
@@ -1107,13 +1128,13 @@ rm -f "$NS/klipper/klippy/extras/ace"
 check "ACE Pro: doctor notices the missing link and offers the fix" "yes n | WM_HOME=$NS WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'ACE Pro driver or its config is not set up'"
 WM_HOME="$NS" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
 check "ACE Pro: Fix everything puts the link back" "[ -L $NS/klipper/klippy/extras/ace ]"
-check "--remove acepro asks first and keeps everything on no" "M 'n\n' $NS --remove acepro | grep -q 'Nothing changed' && [ -f $NS/printer_data/config/wm_ace.cfg ] && [ -d $NS/wm-ultra-fluidd-acepro-panel ]"
-check "--remove acepro removes configs, include lines, link and the project, keeps a copy of printer.cfg and the saved copies on no" "M 'y\nn\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/wm_ace*.cfg $NS/printer_data/config/wm_endless.cfg $NS/printer_data/config/wm_stats.cfg $NS/printer_data/config/wm-ultra-install.conf 2>/dev/null && ! grep -q 'wm_ace\\|wm_endless\\|wm_stats' $NS/printer_data/config/printer.cfg && [ ! -e $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ] && [ -d $NS/acepro-backup ] && grep -q 'WANT_ACEPRO=0' $NS/wm-rpi-backup/install.conf"
+check "--remove acepro asks first and keeps everything on no" "M 'n\n' $NS --remove acepro | grep -q 'Nothing changed' && [ -f $NS/printer_data/config/rpi_ace.cfg ] && [ -d $NS/wm-ultra-fluidd-acepro-panel ]"
+check "--remove acepro removes configs, include lines, link and the project, keeps a copy of printer.cfg and the saved copies on no" "M 'y\nn\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/rpi_ace*.cfg $NS/printer_data/config/rpi_endless.cfg $NS/printer_data/config/rpi_stats.cfg $NS/printer_data/config/rpi-ultra-install.conf 2>/dev/null && ! grep -q 'wm_ace\\|wm_endless\\|wm_stats' $NS/printer_data/config/printer.cfg && [ ! -e $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ] && [ -d $NS/acepro-backup ] && grep -q 'WANT_ACEPRO=0' $NS/wm-rpi-backup/install.conf"
 check "--remove acepro also takes its Fluidd update entry out (the installer's own entry stays)" "! grep -q 'update_manager wm-ultra-fluidd-acepro-panel' $NS/printer_data/config/moonraker.conf && grep -q '^\[update_manager WM_Ultra_Vanilla_Klipper\]' $NS/printer_data/config/moonraker.conf"
 check "--remove acepro again says it is not installed" "M 'y\n' $NS --remove acepro | grep -q 'not installed'"
 inst "$NS" --update --only-addon acepro --acepro on >/dev/null
 rm -f "$NS/wm-ultra-fluidd-acepro-panel/installer.sh"
-check "--remove acepro still works when the project's installer is gone, and can delete the saved copies" "M 'y\ny\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/wm_ace*.cfg 2>/dev/null && ! grep -q 'wm_ace' $NS/printer_data/config/printer.cfg && [ ! -L $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/acepro-backup ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ]"
+check "--remove acepro still works when the project's installer is gone, and can delete the saved copies" "M 'y\ny\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/rpi_ace*.cfg 2>/dev/null && ! grep -q 'wm_ace' $NS/printer_data/config/printer.cfg && [ ! -L $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/acepro-backup ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ]"
 unset WM_TEST_ACEPRO_SRC
 
 echo "== screen board menu"
@@ -1329,7 +1350,7 @@ G5="$T/g5"; rm -rf "$G5"; mkdir -p "$G5/printer_data"; cp -r "$ROOT/factory/ultr
 python3 "$ROOT/scripts/wm_pidcfg.py" fix "$P5" T0 >/dev/null; rm -f "$P5"/*.wm-before-pidcfg-*   # a Pi whose PID settings are already fine
 sed -i 's/^pressure_advance: 0.032/pressure_advance: 0.045/; s/^#\*# pid_kp = 26.638/#*# pid_kp = 99.999/' "$P5/printer.cfg"
 sed -i 's|^#\*# <---------------------- SAVE_CONFIG|[output_pin my_led]\npin: PB1\n\n&|' "$P5/printer.cfg"
-sed -i '1i [include wm_calibration.cfg]' "$P5/printer.cfg"
+sed -i '1i [include rpi_calibration.cfg]' "$P5/printer.cfg"
 cp "$P5/printer.cfg" "$T/pc5.mine"
 WM_HOME="$G5" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$RP/installer.sh" --cfg-merge > "$T/cm0.out" 2>&1 </dev/null
 check "--cfg-merge with no record only records the starting point and changes nothing" "cmp $P5/printer.cfg $T/pc5.mine && cmp $G5/printer_data/wm-baseline/printer.cfg $RP/factory/ultra-s/config/printer.cfg && grep -q 'Recorded this repository' $T/cm0.out"
@@ -1338,7 +1359,7 @@ WM_HOME="$G5" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$RP/installer.sh" --cfg-
 check "--cfg-merge dry run changes nothing" "cmp $P5/printer.cfg $T/pc5.mine"
 WM_HOME="$G5" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$RP/installer.sh" --cfg-merge > "$T/cm1.out" 2>&1 </dev/null
 check "merge: WonderMaker's new setting and new section arrive" "grep -q '^max_extrude_cross_section:6000' $P5/printer.cfg && grep -q '^\\[output_pin wm_new_pin\\]' $P5/printer.cfg"
-check "merge: my value (a conflict, assume-yes keeps mine), my section and my include stay" "grep -q '^pressure_advance: 0.045' $P5/printer.cfg && grep -q '^\\[output_pin my_led\\]' $P5/printer.cfg && head -1 $P5/printer.cfg | grep -qx '\\[include wm_calibration.cfg\\]'"
+check "merge: my value (a conflict, assume-yes keeps mine), my section and my include stay" "grep -q '^pressure_advance: 0.045' $P5/printer.cfg && grep -q '^\\[output_pin my_led\\]' $P5/printer.cfg && head -1 $P5/printer.cfg | grep -qx '\\[include rpi_calibration.cfg\\]'"
 check "merge: the SAVE_CONFIG block is mine, byte for byte" "diff <(sed -n '/SAVE_CONFIG ---/,\$p' $T/pc5.mine) <(sed -n '/SAVE_CONFIG ---/,\$p' $P5/printer.cfg)"
 check "merge: a copy of my printer.cfg is kept and the starting point moves to the new version" "cmp $T/pc5.mine $P5/printer.cfg.wm-before-cfgmerge-* && cmp $G5/printer_data/wm-baseline/printer.cfg $RP/factory/ultra-s/config/printer.cfg"
 NBC=$(ls $P5 | grep -c 'wm-before-cfgmerge')

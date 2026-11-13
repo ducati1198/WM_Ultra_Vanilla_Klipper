@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.6.0
+
+- **The config files this installer puts on the Pi are now called rpi_ instead of wm_.** `rpi_calibration.cfg`, `rpi_nozzle.cfg`, `rpi_pi.cfg`, `rpi_print_end.cfg`, `rpi_tool_leds.cfg`, `rpi_fan_guard.cfg`, `rpi_chamber_light.json`, `rpi_mcu_temps.cfg`, `rpi_mcu.cfg` (was `wm_rpi_mcu.cfg`), and the ACE Pro files `rpi_ace_driver.cfg`, `rpi_ace.cfg`, `rpi_endless.cfg`, `rpi_stats.cfg`, `rpi-ultra-install.conf` (ACE panel project 1.6.0). Macro names (`WM_BED_LEVELING`, `_WM_NOZZLE_TYPE`, `ACE_WM_ASSIST` ...), variable names and the helper script `wm_nozzle.py` keep their names.
+- **`./installer.sh --update` renames an existing Pi once.** Copies of the old files and of every config file it edits go to `~/wm-backups/rename-<time>/`, the files are renamed, the `[include ...]` lines in `printer.cfg` (and in other config files) are changed, and the uninstall list is updated. Your own edits in these files are kept. If an old and a new file both exist, the new one is kept. Doctor tells you when the old names are still there. Klipper reads the new names at its next restart (the update restarts it).
+- **Chamber light:** the screen board service now uploads `rpi_chamber_light.json`, and the Fluidd panel (ACE project 1.6.0) reads it. Update the Pi, Fluidd panel and screen board together; until the board is updated the Chamber light button stays hidden.
+
 ## 2.5.3
 
 - **RESUME now says "Print resumed" in the console** and, when an ACE Pro is present, hands feed assist back to the automatic watcher after the print restarts (the manual choice is set to "no choice"). This was already on the dev Pi and is now in both factory `macros.cfg` files (Ultra and Ultra-S).

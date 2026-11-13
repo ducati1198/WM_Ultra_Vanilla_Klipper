@@ -83,7 +83,7 @@ def _repo_factory_dir():
 
 
 def _repo_rpi_cfg_dir():
-    """the repo's rpi-cfg/ folder (the Pi's own config files, such as wm_calibration.cfg), or None when the tool runs outside the repo"""
+    """the repo's rpi-cfg/ folder (the Pi's own config files, such as rpi_calibration.cfg), or None when the tool runs outside the repo"""
     d = os.path.dirname(os.path.abspath(__file__))
     for _ in range(6):
         if os.path.isdir(p(d, "rpi-cfg")): return p(d, "rpi-cfg")
@@ -102,7 +102,7 @@ def rpi_cfg_files():
     """names of the Pi's own config files. They are not WonderMaker's, so no release contains them and apply never changes them"""
     d = _repo_rpi_cfg_dir()
     names = sorted(x for x in os.listdir(d) if x.endswith(".cfg")) if d else []
-    return names or ["wm_calibration.cfg"]
+    return names or ["rpi_calibration.cfg"]
 
 
 # a release that ships a file with one of these names must not replace the Pi's own copy
@@ -116,7 +116,7 @@ def rpi_cfg_state():
     except OSError: pc = ""
     for n in rpi_cfg_files():
         live = p(cfgd, n)
-        if n == "wm_nozzle.cfg" and not os.path.isfile(live) and not os.path.isfile(p(LIVE, "klipper", "klippy", "extras", "gcode_shell_command.py")): continue   # it needs the shell command extension; without it the installer leaves it out on purpose
+        if n == "rpi_nozzle.cfg" and not os.path.isfile(live) and not os.path.isfile(p(LIVE, "klipper", "klippy", "extras", "gcode_shell_command.py")): continue   # it needs the shell command extension; without it the installer leaves it out on purpose
         if not os.path.isfile(live): st = "missing (run ./installer.sh --rpi-cfg)"
         elif not re.search(r"^\s*\[include\s+%s\s*\]" % re.escape(n), pc, re.M): st = "not included in printer.cfg (run ./installer.sh --rpi-cfg)"
         elif d and os.path.isfile(p(d, n)) and not same_text(live, p(d, n)): st = "differs from the copy in rpi-cfg (edited, or older; ./installer.sh --rpi-cfg replaces it and keeps yours)"
@@ -1081,7 +1081,7 @@ def cmd_diff(a):
     # macros defined twice in the NEW release (the second include wins in Klipper)
     if d: lines += ["", "== Macros defined in more than one file in this release (the later include wins)"] + d
     clash = rpi_cfg_clash(newcfg)
-    if clash: lines += ["", "== Macros this release defines that the Pi's own files (rpi-cfg) define too (the later include wins)"] + clash; notes.append("A macro name in this release is also used by rpi-cfg/wm_calibration.cfg: rename one of them.")
+    if clash: lines += ["", "== Macros this release defines that the Pi's own files (rpi-cfg) define too (the later include wins)"] + clash; notes.append("A macro name in this release is also used by rpi-cfg/rpi_calibration.cfg: rename one of them.")
     for r, (m, ls, code) in sorted(CFG_INFO.items()):
         lines += ["", "== What apply would merge into %s (your own lines and the SAVE_CONFIG block stay%s)" % (r.split("/")[-1], "; settings you both changed are asked one by one" if code == 11 else "")] + ["  " + x for x in ls]
     ensure(p(DATA, "reports")); rp = p(DATA, "reports", "%s-%s.txt" % (a.version, now()))
@@ -1314,7 +1314,7 @@ BASE_CHECKS = ["Klipper reaches 'ready' with no error in Fluidd", "All toolheads
                "Homing X Y Z", "Bed heats; every nozzle heats and the temperatures read sensible", "Fans and chamber heater respond",
                "Tool change T0 -> T1 -> T2 -> T3 and back, no crash, wipe works", "Probe / bed mesh runs; the saved mesh loads",
                "Nozzle offsets still right (a short two-colour test print)", "Pause, resume and cancel", "Power-loss recovery marker (plr) still works",
-               "Screen (KlipperScreen / ZR Tools) opens and shows temperatures", "Pi calibration macros are still there: WM_CAL_HELP in Fluidd lists them (rpi-cfg/wm_calibration.cfg)", "PID settings: python3 wm_release.py pid-cfg says OK (otherwise SAVE_CONFIG cannot store a PID result)", "Run: ./installer.sh --doctor and --check"]
+               "Screen (KlipperScreen / ZR Tools) opens and shows temperatures", "Pi calibration macros are still there: WM_CAL_HELP in Fluidd lists them (rpi-cfg/rpi_calibration.cfg)", "PID settings: python3 wm_release.py pid-cfg says OK (otherwise SAVE_CONFIG cannot store a PID result)", "Run: ./installer.sh --doctor and --check"]
 KEY_CHECKS = [("macros", "Macros changed: dry-run START_PRINT / PRINT_END with a real file; check the purge line"), ("offset", "Offset files changed: redo or at least verify XY/Z offsets for every tool"),
               ("change_", "Tool-change files changed: watch the first 3 tool changes closely, hand on the stop"), ("load_cell", "Load cell config changed: test the probe 5 times in one spot"),
               ("hub", "Hub config changed: filament load/unload on each path"), ("extruder", "Extruder config changed: check rotation distance with a 100 mm extrusion"),

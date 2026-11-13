@@ -92,7 +92,7 @@ if mr:
     conf = os.path.join(tmp, "KlipperScreen.conf")
     open(conf, "w").write("[printer X]\nmoonraker_host: 127.0.0.1\n")
     ok = svc.register(conf, 8765)
-    check("register uploads wm_chamber_light.json into the config folder", ok and got.get("path") == "/server/files/upload" and 'filename="wm_chamber_light.json"' in got["body"] and "config" in got["body"] and '"url": "http://127.0.0.1:8765"' in got["body"])
+    check("register uploads rpi_chamber_light.json into the config folder", ok and got.get("path") == "/server/files/upload" and 'filename="rpi_chamber_light.json"' in got["body"] and "config" in got["body"] and '"url": "http://127.0.0.1:8765"' in got["body"])
     check("no conf file means no upload and no crash", svc.register(os.path.join(tmp, "none.conf"), 8765) is False)
     mr.shutdown()
 else:

@@ -1211,7 +1211,7 @@ class Panel(ViewsMixin, ScreenPanel):
         at = a if a >= 0 else 0
         have = {str(x).strip().upper() for x in (self._sections() or [])}
 
-        def wm(name):      # WonderMaker calibration macros (rpi-cfg/wm_calibration.cfg, wm_nozzle.cfg): hidden when the Pi lacks them
+        def wm(name):      # WonderMaker calibration macros (rpi-cfg/rpi_calibration.cfg, rpi_nozzle.cfg): hidden when the Pi lacks them
             return not have or ("GCODE_MACRO " + name) in have
 
         # (icon, label, script, confirm question or None). The WM_* macros open their own Start / Cancel window

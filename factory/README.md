@@ -17,7 +17,7 @@ Both use the same Klipper, Moonraker and MCU files. The settings in `config/` co
 |---|---|
 | Klipper (upstream, Klipper3d, **v0.13.0-827-g29d4ec2d6**) | [`klipper/`](ultra-s/klipper): browsable source folder with `lib/`, GPL v3 (`COPYING`), plus WonderMaker's modules in `klippy/extras/` (below) and the Pi-side modules `wm_adaptive_mesh`, `wm_mcu_tweaks`, `wm_pin_pulse`, `wm_stepper_diag`, `wm_gcode_compat`, `wm_ready_compat` |
 | Moonraker (upstream, Arksine, **v0.11.0-4-gb559b9a**) | [`moonraker/`](ultra-s/moonraker): browsable source folder, GPL v3 (`LICENSE`) |
-| Settings | `config/`: `printer.cfg`, macros, extruders, hub, load cell, offset calibration, Moonraker config, `tmt1.ini`, `saved_variables.cfg`, `zru-s.cfg`, `wm_fan_guard.cfg`, `wm_chamber_light.json` |
+| Settings | `config/`: `printer.cfg`, macros, extruders, hub, load cell, offset calibration, Moonraker config, `tmt1.ini`, `saved_variables.cfg`, `zru-s.cfg`, `rpi_fan_guard.cfg`, `rpi_chamber_light.json` |
 | `printer.cfg` per toolhead count | `config-variants/printer1.cfg` ... `printer4.cfg` (1 to 4 toolheads) |
 | WonderMaker's helper scripts | `scripts/` (CAN id tools, restore factory settings, `set_zru_include.sh`, ...) |
 | MCU update scripts and firmware | `mcu/*.sh`, `mcu/mcu_info.ini`, the `klipper*.bin` files (never run by the installer) |

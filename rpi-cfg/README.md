@@ -4,12 +4,12 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 
 | File | What it is |
 |---|---|
-| [`wm_calibration.cfg`](wm_calibration.cfg) | The calibration items of the WonderMaker screen app (General > Maintenance) as macros you start from Fluidd |
-| [`wm_nozzle.cfg`](wm_nozzle.cfg) | The screen app's General > Nozzle Type and Extruder Setup pages as Fluidd window wizards (`WM_EXTRUDER_SETUP`, and `_WM_NOZZLE_TYPE`, hidden, which `WM_NOZZLE_CHANGE` offers) and `WM_NOZZLE_CHANGE`, which only the Pi has. Needs Klipper's gcode shell command extension, so the installer only adds it where that is installed |
-| [`wm_tool_leds.cfg`](wm_tool_leds.cfg) | The tool head LEDs: green while the tool head's filament sensor sees filament, red when it does not (checked every 2 seconds). The factory screen set these colours; on the Pi nothing did |
-| [`wm_print_end.cfg`](wm_print_end.cfg) | Runs `PRINT_END` once when a print finishes and the G-code did not call it (the slicer end G-code is the comment `;PRINT_END`; the original screen board ran it, the Pi has nothing that does). Raises Z, parks the head, heaters off, motors off. |
+| [`rpi_calibration.cfg`](rpi_calibration.cfg) | The calibration items of the WonderMaker screen app (General > Maintenance) as macros you start from Fluidd |
+| [`rpi_nozzle.cfg`](rpi_nozzle.cfg) | The screen app's General > Nozzle Type and Extruder Setup pages as Fluidd window wizards (`WM_EXTRUDER_SETUP`, and `_WM_NOZZLE_TYPE`, hidden, which `WM_NOZZLE_CHANGE` offers) and `WM_NOZZLE_CHANGE`, which only the Pi has. Needs Klipper's gcode shell command extension, so the installer only adds it where that is installed |
+| [`rpi_tool_leds.cfg`](rpi_tool_leds.cfg) | The tool head LEDs: green while the tool head's filament sensor sees filament, red when it does not (checked every 2 seconds). The factory screen set these colours; on the Pi nothing did |
+| [`rpi_print_end.cfg`](rpi_print_end.cfg) | Runs `PRINT_END` once when a print finishes and the G-code did not call it (the slicer end G-code is the comment `;PRINT_END`; the original screen board ran it, the Pi has nothing that does). Raises Z, parks the head, heaters off, motors off. |
 
-## `wm_calibration.cfg`: macros
+## `rpi_calibration.cfg`: macros
 
 | Macro | Same as the app's | What it runs |
 |---|---|---|
@@ -26,7 +26,7 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 
 Safety, in every macro: it refuses to start while a print runs or while any heater has a target above 0, it asks you to confirm in a Fluidd window (Start / Cancel), and it turns the heaters off at the end. `SAVE_CONFIG` restarts Klipper. Stay at the printer.
 
-Not included on purpose: Feed & Discharge (it needs the nozzle removed and your hands on the printer). Nozzle Type and Extruder Setup are in `wm_nozzle.cfg`, below.
+Not included on purpose: Feed & Discharge (it needs the nozzle removed and your hands on the printer). Nozzle Type and Extruder Setup are in `rpi_nozzle.cfg`, below.
 
 The macros call WonderMaker's own macros (`G29`, `PROBE_CALIBRATE`, `CALIBRATE_OFFSET_ALL_*`), so the factory `macros.cfg` and `offset_calibrate.cfg` must be installed too (they are, from `factory/<model>/config`).
 
@@ -54,7 +54,7 @@ Klipper's `SAVE_CONFIG` stores a PID result in `printer.cfg`. It **refuses** whe
 
 `scripts/wm_pidcfg.py check|fix CONFIG_DIR` does both. The installer runs it (step 4d, also `./installer.sh --pid-cfg`), the Doctor and Fix everything repair it, and `python3 tools/wm-release/wm_release.py pid-cfg [--fix]` does the same from the release tool. Every file it changes is first copied to `<file>.wm-before-pidcfg-<time>`; your values are kept.
 
-## `wm_nozzle.cfg`: Nozzle Type and Extruder Setup
+## `rpi_nozzle.cfg`: Nozzle Type and Extruder Setup
 
 These macros open a window in Fluidd and take you through it step by step, like `WM_FULL_CALIBRATION`. They refuse to start during a print.
 
@@ -69,7 +69,7 @@ Things to know:
 - Klipper uses `nozzle_diameter` only as a label (the factory `max_extrude_cross_section` is fixed), so the slicer's nozzle setting is what counts. The material is only recorded: nothing in Klipper reads it. The factory screen app keeps it in `tmt1.ini` (`[nozzle] type0..3`, 0 = hardened steel is what the app shows by default); the helper also updates that file when it exists.
 - `is_nozzle_setting = 1` is WonderMaker's own switch: while it is on, the tool change macros do not complain that a tool is missing from its dock. That is why the calibration macros refuse to start while it is on, and why `_WM_NOZZLE_CHANGE_END` exists.
 - After a real nozzle change run `WM_NOZZLE_TEMP_CAL` (hotend PID) and `WM_OFFSETS_RAPID`.
-- The diameter is written by `wm_nozzle.py` (`scripts/` in the repository, copied by the installer to `~/printer_data/wm-tools/`) through the gcode shell command extension. Without that extension (`--shell-command off`) the installer leaves `wm_nozzle.cfg` out, because Klipper would not start with its `[gcode_shell_command]` section. `./installer.sh --remove shell-command` takes `wm_nozzle.cfg` out of `printer.cfg` first and keeps the file as `wm_nozzle.cfg.wm-removed-<time>`.
+- The diameter is written by `wm_nozzle.py` (`scripts/` in the repository, copied by the installer to `~/printer_data/wm-tools/`) through the gcode shell command extension. Without that extension (`--shell-command off`) the installer leaves `rpi_nozzle.cfg` out, because Klipper would not start with its `[gcode_shell_command]` section. `./installer.sh --remove shell-command` takes `rpi_nozzle.cfg` out of `printer.cfg` first and keeps the file as `rpi_nozzle.cfg.wm-removed-<time>`.
 - `WM_EXTRUDER_SETUP` is the app's page, and its Set Up is the app's matching, read from the app's code (`start_nozzle_setting`): per tool it asks for `Tn`, reads which dock sensor is empty, and takes the id stored for that dock. Differences: this one stops at the first tool that cannot be picked up (the app goes on), and asks before it writes (the app writes and restarts by itself). If something goes wrong half way it puts `is_nozzle_setting` back to 0 and writes nothing; a tool may still be on the carriage, so look at the printer first. The ids are written by `wm_canids.py` (same folder as `wm_nozzle.py`); by hand: `python3 ~/printer_data/wm-tools/wm_canids.py show` or `... apply ID0 ID1 ID2 ID3`.
 - You can also run the helper by hand: `python3 ~/printer_data/wm-tools/wm_nozzle.py show` or `... set 1 0.6 1` (tool 0 to 3, diameter, type).
 - `WM_NOZZLE_CHANGE` follows what the factory macros do (`_UNLOCK_TOOL`, `is_nozzle_setting`); the app has nothing like it. `WM_EXTRUDER_SETUP` follows the app's code and its instruction text.

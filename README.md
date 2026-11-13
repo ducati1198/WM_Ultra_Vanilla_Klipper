@@ -105,9 +105,9 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 ## Vanilla Klipper: what is different
 
 - **Klipper and Moonraker are the upstream ones**, not WonderMaker's modified copies, and they are pinned in this repository (Klipper v0.13.0-827-g29d4ec2d6, Moonraker v0.11.0-4-gb559b9a). Upstream is what WonderMaker's code was forked from, so the printer's own modules are added to it (the 5 compiled ones, unchanged, and the Python ones).
-- **A clean start.** The files in this repository carry no bed mesh, PID results, input shaper, probe offset or tool offsets: a new install calibrates itself (`WM_BED_LEVELING`, `WM_FULL_CALIBRATION`, the Z offset of each tool; see the macros in `rpi-cfg/wm_calibration.cfg`). The probe `z_offset` in `printer.cfg` starts at `0`.
+- **A clean start.** The files in this repository carry no bed mesh, PID results, input shaper, probe offset or tool offsets: a new install calibrates itself (`WM_BED_LEVELING`, `WM_FULL_CALIBRATION`, the Z offset of each tool; see the macros in `rpi-cfg/rpi_calibration.cfg`). The probe `z_offset` in `printer.cfg` starts at `0`.
 - **MCU firmware is WonderMaker's.** The boards keep their firmware (the installer never flashes anything). Upstream Klipper would print "deprecated code" warnings for it (Fluidd would show them); `wm_mcu_tweaks` hides those two (set `hide_mcu_deprecated: False` under `[wm_mcu_tweaks]` to show them). They are harmless: the printer works.
-- **Fan guard:** `wm_fan_guard.cfg` replaces WonderMaker's patched fan check with plain Klipper macros: if the part cooling fan (and, on the Ultra-S, the auxiliary fan) is on but reports 0 RPM for 30 seconds, it shows an error and pauses the print. On an Ultra, `[include zru-s.cfg]` is commented out and the guard only watches the part fan. It never checks the fans in `zru-s.cfg` (chamber fans, air filter). Set `variable_enabled: 0` to switch it off.
+- **Fan guard:** `rpi_fan_guard.cfg` replaces WonderMaker's patched fan check with plain Klipper macros: if the part cooling fan (and, on the Ultra-S, the auxiliary fan) is on but reports 0 RPM for 30 seconds, it shows an error and pauses the print. On an Ultra, `[include zru-s.cfg]` is commented out and the guard only watches the part fan. It never checks the fans in `zru-s.cfg` (chamber fans, air filter). Set `variable_enabled: 0` to switch it off.
 - **Python:** Klipper runs in Python 3.9 (`uv` installs it next to Bookworm's 3.11); Moonraker runs in Bookworm's 3.11.
 - **A Pi that already runs WonderMaker's Klipper (or an install made with wm-ultra-rpi) is not converted.** The installer stops with a message before changing anything. Use a fresh SD card.
 - **ACE Pro is not installed automatically.** The installer asks (default no); add it later with `./installer.sh --update --acepro on`.
@@ -367,7 +367,7 @@ Pause and template custom G-code:
 
 ![OrcaSlicer: Pause G-code and Template Custom G-code](docs/img/orca-machine-gcode-pause.png)
 
-The Pi also has a safety net: if a G-code file finishes without calling `PRINT_END`, [`wm_print_end.cfg`](rpi-cfg/wm_print_end.cfg) runs it once. It does not replace `START_PRINT`, so the start line above is needed.
+The Pi also has a safety net: if a G-code file finishes without calling `PRINT_END`, [`rpi_print_end.cfg`](rpi-cfg/rpi_print_end.cfg) runs it once. It does not replace `START_PRINT`, so the start line above is needed.
 
 ## 5. Fluidd (web panel and ZR Tools)
 
@@ -407,7 +407,7 @@ Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use
 
 The plugin ([WM Toolhead Mapper](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin), from the [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) repository) lets you pick, inside Orca, which toolhead prints each filament. When you send or export, it writes the choice at the top of the G-code, so the print needs no popup at start. It reads your four toolheads (colour, material, loaded or empty) from the printer, so an ACE Pro is not needed.
 
-**On the Pi (once):** the plugin calls a macro (`WM_SET_TOOL_MAP`) that lives in the panel repository's `wm_stats.cfg`. Install it with that repository's installer, then restart Klipper:
+**On the Pi (once):** the plugin calls a macro (`WM_SET_TOOL_MAP`) that lives in the panel repository's `rpi_stats.cfg`. Install it with that repository's installer, then restart Klipper:
 
 ```bash
 cd ~
@@ -718,7 +718,7 @@ installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: upstream Klipper and Moonraker (+ WonderMaker's modules), settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run Klipper on a Pi with no printer, see README-DEVBOX.md
-rpi-cfg/                the Pi's own config files (not WonderMaker's): wm_calibration.cfg (calibration macros) and wm_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and wm_tool_leds.cfg (tool head LEDs: green filament, red none); installed by the installer
+rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_calibration.cfg (calibration macros) and rpi_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and rpi_tool_leds.cfg (tool head LEDs: green filament, red none); installed by the installer
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                stage_from_repo.sh, wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
@@ -798,7 +798,7 @@ In Fluidd's software update page the entry `WM_Ultra_Vanilla_Klipper` has an **U
 
 If you have an Anycubic ACE Pro (feeder and dryer), the install asks **"Do you have an Anycubic ACE Pro to connect?"** (default no). Answer yes there, or add it later from the menu (Add-ons) or with `./installer.sh --update --acepro on`. The ACE Pro is only used to load, unload and dry filament; the four toolheads still do the switching.
 
-The ACE Pro driver and its config belong to the project [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel). This installer downloads it to `~/wm-ultra-fluidd-acepro-panel` (updated with `git pull` on every `--update`) and runs **its own installer** with the default answers, so you get what that project's README describes: the driver linked into Klipper's `extras` (`ace`, `temperature_ace.py`, `virtual_pins.py`), the four config files `wm_ace_driver.cfg`, `wm_ace.cfg`, `wm_endless.cfg`, `wm_stats.cfg` with their include lines in `printer.cfg`, and the endless-spool macros. Keep the downloaded folder: the links point into it. Klipper loads the driver at its next restart, and the ACE Pro is plugged into a USB port of the Pi. The Fluidd Toolheads panel itself is installed by this installer in any case; the ACE parts of that panel appear once Klipper reports an ACE.
+The ACE Pro driver and its config belong to the project [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel). This installer downloads it to `~/wm-ultra-fluidd-acepro-panel` (updated with `git pull` on every `--update`) and runs **its own installer** with the default answers, so you get what that project's README describes: the driver linked into Klipper's `extras` (`ace`, `temperature_ace.py`, `virtual_pins.py`), the four config files `rpi_ace_driver.cfg`, `rpi_ace.cfg`, `rpi_endless.cfg`, `rpi_stats.cfg` with their include lines in `printer.cfg`, and the endless-spool macros. Keep the downloaded folder: the links point into it. Klipper loads the driver at its next restart, and the ACE Pro is plugged into a USB port of the Pi. The Fluidd Toolheads panel itself is installed by this installer in any case; the ACE parts of that panel appear once Klipper reports an ACE.
 
 Without an ACE Pro none of this is installed. The Doctor checks the folder, the config and the link, and Fix everything repairs them.
 

@@ -3,7 +3,7 @@
 Klipper reads the whole macro before it runs any line, so {action_raise_error(...)} stopped the macro before
 RESPOND ... action:prompt_end ran, and the KlipperScreen window stayed open. The error now comes from a tiny macro,
 _WM_FAIL, called as a normal line (it runs after prompt_end). Idempotent.
-usage: wm_fail_patch.py wm_calibration.cfg"""
+usage: wm_fail_patch.py rpi_calibration.cfg"""
 import re
 import sys
 

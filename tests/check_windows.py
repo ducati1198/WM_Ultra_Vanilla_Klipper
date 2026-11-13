@@ -1,8 +1,8 @@
-"""Checks of the Fluidd window macros in rpi-cfg/wm_nozzle.cfg. Usage: check_windows.py checks|restart"""
+"""Checks of the Fluidd window macros in rpi-cfg/rpi_nozzle.cfg. Usage: check_windows.py checks|restart"""
 import os
 import sys
 
-s = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rpi-cfg", "wm_nozzle.cfg")).read()
+s = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rpi-cfg", "rpi_nozzle.cfg")).read()
 
 
 def body(name):
