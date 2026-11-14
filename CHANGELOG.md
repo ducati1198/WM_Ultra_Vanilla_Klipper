@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.5
+
+- **`ZR_PURGE` lowers the bed first.** `z_rise` now runs at the start of `ZR_PURGE` (`zr_tools.cfg`). Before, the move to the purge position (X-13 Y80) happened with no drop when X and Y were already homed, because the drop only ran inside the homing.
+
 ## 2.7.4
 
 - **The Z drop before X/Y moves works on upstream Klipper.** The factory `z_rise` checked `printer.query_endstops.last_query.z`, a name only WonderMaker's own Klipper uses (it shortens `stepper_z` to `z`). On upstream Klipper the endstop is `stepper_z`, so `z_rise` never did anything and the bed was not lowered before homing or tool changes. `printer.cfg` (all variants) now has a fixed `z_rise` (with a helper `_z_rise_run`): it lowers the bed 5 mm when Z is below 5 mm and the Z endstop is not triggered, never while a print runs or is paused, and in the not-homed case it marks only Z as homed for that one move and clears it again.

@@ -417,6 +417,7 @@ check "wrong user refused outside test mode" "! WM_HOME=$T/h6 bash $ROOT/install
 echo "== factory files from the repository (no printer)"
 (cd "$ROOT/factory/ultra-s" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
 check "factory sources are plain folders, committed" "[ -f $ROOT/factory/ultra-s/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/ultra-s/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/ultra-s/klipper/klippy/klippy.py"
+check "ZR_PURGE lowers the bed (z_rise) before its X/Y moves" "awk '/gcode_macro ZR_PURGE/{f=1} f&&/^    z_rise/{ok=1} f&&/G1 X-13 Y80/{exit !ok}' $ROOT/zr_tools/zr_tools.cfg"
 for m in ultra ultra-s; do
   check "$m: z_rise is the fixed one (reads stepper_z, no last_query.z test) in printer.cfg and the 4 variants" "for f in $ROOT/factory/$m/config/printer.cfg $ROOT/factory/$m/config-variants/printer?.cfg; do grep -q 'gcode_macro _z_rise_run' \$f && grep -q 'q.stepper_z' \$f && ! grep -q 'last_query.z==0' \$f || exit 1; done"
   check "$m: z_rise runs first in _UNLOCK_TOOL, _LOCK_TOOL, WIPE_NOZZLE, WIPE_NOZZLE_SIMPLE, EXTRUDE_FILAMENT, RETRACT_FILAMENT, filament_insert_gcode" "[ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/change_macros.cfg) = 2 ] && [ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/fz-wipe-nozzle.cfg) = 2 ] && [ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/macros.cfg) = 3 ]"
