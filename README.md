@@ -373,6 +373,20 @@ Pause and template custom G-code:
 
 The Pi also has a safety net: if a G-code file finishes without calling `PRINT_END`, [`rpi_print_end.cfg`](rpi-cfg/rpi_print_end.cfg) runs it once. It does not replace `START_PRINT`, so the start line above is needed.
 
+#### Heating the chamber from OrcaSlicer (Ultra-S)
+
+Set the chamber temperature in the filament or process settings of Orca (*Chamber temperature*). Orca then calls `M191` for you. To also heat the bed while the chamber warms up, put this line **above** `START_PRINT` in Machine start G-code (plain command, no `;`):
+
+```
+M191 S[chamber_temperature] BED_TEMP=[bed_temperature_initial_layer_single]
+```
+
+If you leave the line out, Orca adds its own `M191 S<chamber>` to the file, and the bed then uses `bed_assist_temp` (100 C). Check the sliced file: only one `M191` line should be there, and it should show `BED_TEMP=`.
+
+What `M191` does while it waits: the part fan (50 %) and the auxiliary fan (100 %) circulate the air, the nozzle on the carriage is held at 150 C, the bed is heated, and the chamber heater goes to the target. It waits until the chamber is within 1 C of the target, then switches the fans and the nozzle off. `START_PRINT` sets its own temperatures afterwards. The limit is 65 C; a higher chamber value stops with an error, and `S0` does nothing.
+
+Settings (in `macros.cfg`, macro `M191`): `max_chamber` 65, `part_fan_speed` 0.5, `aux_fan_speed` 1.0, `extruder_preheat_temp` 150 (0 = off), `bed_assist_temp` 100 (0 = off, used only when the slicer sends no `BED_TEMP=`).
+
 ## 5. Fluidd (web panel and ZR Tools)
 
 Fluidd is the web page you use to control the printer from a phone or computer: open `http://<pi address>/` (see 3.5). The installer puts WonderMaker's Fluidd on the Pi, and adds the **Toolheads** panel (and the ACE Pro parts, if you add one). Update it later with `./installer.sh --update`.

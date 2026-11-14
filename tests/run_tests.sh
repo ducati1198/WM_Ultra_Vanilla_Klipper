@@ -419,6 +419,9 @@ echo "== factory files from the repository (no printer)"
 check "factory sources are plain folders, committed" "[ -f $ROOT/factory/ultra-s/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/ultra-s/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/ultra-s/klipper/klippy/klippy.py"
 check "ZR_PURGE lowers the bed (z_rise) before its X/Y moves" "awk '/gcode_macro ZR_PURGE/{f=1} f&&/^    z_rise/{ok=1} f&&/G1 X-13 Y80/{exit !ok}' $ROOT/zr_tools/zr_tools.cfg"
 for m in ultra ultra-s; do
+  check "$m: M191 strips the = from BED_TEMP (Klipper passes it as =65)" "grep -q 'params.BED_TEMP|default(bed_assist_temp)|string|replace(\"=\", \"\")' $ROOT/factory/$m/config/macros.cfg"
+done
+for m in ultra ultra-s; do
   check "$m: M191 has the chamber limit, the fans, the nozzle preheat and the bed assist" "awk '/gcode_macro M191/{f=1} /gcode_macro _RGB_CLOSE/{f=0} f' $ROOT/factory/$m/config/macros.cfg | grep -q 'variable_max_chamber' && awk '/gcode_macro M191/{f=1} /gcode_macro _RGB_CLOSE/{f=0} f' $ROOT/factory/$m/config/macros.cfg | grep -q 'params.BED_TEMP' && awk '/gcode_macro M191/{f=1} /gcode_macro _RGB_CLOSE/{f=0} f' $ROOT/factory/$m/config/macros.cfg | grep -q 'auxiliary_fan' && grep -q 'variable_bed_assist_temp' $ROOT/factory/$m/config/macros.cfg"
 done
 for m in ultra ultra-s; do

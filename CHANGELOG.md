@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7.9
+
+- **`M191` now reads `BED_TEMP=` correctly, so the bed heats.** On an M command Klipper hands `BED_TEMP=65` to the macro as the text `=65`, which the macro read as 0 and skipped `M140`. The `=` is now removed first (`macros.cfg`, both models). Tested on the Pi: the print's start line `M191 S50 BED_TEMP=65` now sets the bed.
+- **README: new section "Heating the chamber from OrcaSlicer"** with the start G-code line, what `M191` does, its variables and the 65 C limit.
+
 ## 2.7.8
 
 - **`M191` heats the bed even when the slicer sends no `BED_TEMP=`.** Orca writes its own `M191 S<chamber>` line when the start G-code has no `M191`, and that line has no `BED_TEMP=`, so the bed assist did nothing. New variable `bed_assist_temp` (default 100 C, 0 = off) is used then. To use the first-layer bed temperature instead, put `M191 S[chamber_temperature] BED_TEMP=[bed_temperature_initial_layer_single]` above `START_PRINT` in Orca's Machine start G-code.
