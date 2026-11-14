@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.1
+
+- **Tool head LEDs no longer stop the automatic filament load.** `WM_TOOL_LEDS` (`rpi_tool_leds.cfg`, runs every 2 s) now sends the LED colour with `SYNC=0`. Before, each colour update woke the toolhead and put Klipper's idle timeout into "Printing", and upstream Klipper ignores a filament-inserted event in that state, so WonderMaker's own load (heat, push, wipe, park) never started when you pushed filament in or after an ACE load.
+
 ## 2.7.0
 
 - **Update everything from one place.** Fluidd's Update button for the **Fluidd panel (ACE Pro project)** now applies the update on the Pi, like the installer's own Update button: backup, install, Klipper restart (`wm-panel-update.path` watches the panel folder, `scripts/pi_update.sh --panel` applies it; refused during a print; log `~/wm-pi-update.log`). Before, it only downloaded the files.
