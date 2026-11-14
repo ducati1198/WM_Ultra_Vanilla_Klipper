@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7.4
+
+- **The Z drop before X/Y moves works on upstream Klipper.** The factory `z_rise` checked `printer.query_endstops.last_query.z`, a name only WonderMaker's own Klipper uses (it shortens `stepper_z` to `z`). On upstream Klipper the endstop is `stepper_z`, so `z_rise` never did anything and the bed was not lowered before homing or tool changes. `printer.cfg` (all variants) now has a fixed `z_rise` (with a helper `_z_rise_run`): it lowers the bed 5 mm when Z is below 5 mm and the Z endstop is not triggered, never while a print runs or is paused, and in the not-homed case it marks only Z as homed for that one move and clears it again.
+- **`z_rise` runs first in the macros that move X or Y by themselves:** `_UNLOCK_TOOL`, `_LOCK_TOOL` (every tool swap and park), `WIPE_NOZZLE`, `WIPE_NOZZLE_SIMPLE`, `EXTRUDE_FILAMENT`, `RETRACT_FILAMENT` and `filament_insert_gcode`. Homing already calls it through `homing_override`. Both models and the four printer variants. `--cfg-merge` brings the change to a Pi that is already installed.
+
 ## 2.7.3
 
 - **`SET_GCODE_OFFSET` wrapper in `rpi_pi.cfg`** (moved from the ACE panel's `rpi_ace.cfg`). While Z is not homed it sets the offsets without the move (`MOVE=1` becomes `MOVE=0`), so WonderMaker's tool change no longer stops with "Must home axis first" on upstream Klipper. With Z homed it passes everything through unchanged. The built-in command is kept as `_WM_SET_GCODE_OFFSET`.

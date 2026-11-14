@@ -417,6 +417,10 @@ check "wrong user refused outside test mode" "! WM_HOME=$T/h6 bash $ROOT/install
 echo "== factory files from the repository (no printer)"
 (cd "$ROOT/factory/ultra-s" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
 check "factory sources are plain folders, committed" "[ -f $ROOT/factory/ultra-s/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/ultra-s/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/ultra-s/klipper/klippy/klippy.py"
+for m in ultra ultra-s; do
+  check "$m: z_rise is the fixed one (reads stepper_z, no last_query.z test) in printer.cfg and the 4 variants" "for f in $ROOT/factory/$m/config/printer.cfg $ROOT/factory/$m/config-variants/printer?.cfg; do grep -q 'gcode_macro _z_rise_run' \$f && grep -q 'q.stepper_z' \$f && ! grep -q 'last_query.z==0' \$f || exit 1; done"
+  check "$m: z_rise runs first in _UNLOCK_TOOL, _LOCK_TOOL, WIPE_NOZZLE, WIPE_NOZZLE_SIMPLE, EXTRUDE_FILAMENT, RETRACT_FILAMENT, filament_insert_gcode" "[ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/change_macros.cfg) = 2 ] && [ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/fz-wipe-nozzle.cfg) = 2 ] && [ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/macros.cfg) = 3 ]"
+done
 check "the 5 compiled modules are in the repo and match their factory checksums" "cd $ROOT/factory/ultra-s/klipper && sha256sum -c ../modules.sha256"
 check "klipper archive has its license" "[ -f $ROOT/factory/ultra-s/klipper/COPYING ] && [ -f $ROOT/factory/ultra-s/moonraker/LICENSE ]"
 check "factory config has placeholder CAN ids (main board, hub, extruder board) and empty ones for T0-T3 and the load cell, which the installer fills" "grep -q 'canbus_uuid: 000000000000' $ROOT/factory/ultra-s/config/wm_zru_mcu.cfg && [ \$(cat $ROOT/factory/ultra-s/config/wm_zru_*.cfg | grep -ic \"canbus_uuid: [0-9a-f]\\{12\\}\") = 3 ]"
