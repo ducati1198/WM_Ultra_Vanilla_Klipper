@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.3
+
+- **`SET_GCODE_OFFSET` wrapper in `rpi_pi.cfg`** (moved from the ACE panel's `rpi_ace.cfg`). While Z is not homed it sets the offsets without the move (`MOVE=1` becomes `MOVE=0`), so WonderMaker's tool change no longer stops with "Must home axis first" on upstream Klipper. With Z homed it passes everything through unchanged. The built-in command is kept as `_WM_SET_GCODE_OFFSET`.
+
 ## 2.7.2
 
 - **Tool head LEDs use the factory macros.** `WM_TOOL_LEDS` (`rpi_tool_leds.cfg`) calls `_RGB_CURRENT` (green, tool on the carriage with filament), `_RGB_LOAD` (blue, filament in another tool head) and `_RGB_UNLOAD` (red, no filament), the same colours as the factory screen. It still checks every 2 s but only calls a macro when a tool's state changes (kept in `_WM_LED_STATE`), so the automatic filament load is not blocked.
