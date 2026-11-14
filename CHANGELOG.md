@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.7
+
+- **`M191` (wait for the chamber temperature) improved** in `macros.cfg` of both models. Orca's `M191 S[chamber_temperature] BED_TEMP=[bed_temperature_initial_layer_single]` now also starts the part fan (50 %) and the auxiliary fan (100 %) to circulate the air, warms the nozzle on the carriage to 150 C, and uses the bed to help heating when `BED_TEMP` is given; the fans and the nozzle are switched off again when the chamber is at its target. A target above 65 C is refused (the same limit as `ZR_CHAMBER`). The speeds, the preheat temperature and the limit are variables at the top of the macro (0 = off). `M141` is unchanged.
+
 ## 2.7.6
 
 - **More filament materials** in the ZR Tools list (`zr_logic.py`, shared with the Fluidd panel through `tmt1.ini`): PLA+, PLA-CF, PETG-CF, PA, PA-CF, PC, ABS-CF, PA-GF, PC-ABS, PP and BVOH, added at the end so no saved index moves. The factory touchscreen may not know the new ones.
