@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.8
+
+- **`M191` heats the bed even when the slicer sends no `BED_TEMP=`.** Orca writes its own `M191 S<chamber>` line when the start G-code has no `M191`, and that line has no `BED_TEMP=`, so the bed assist did nothing. New variable `bed_assist_temp` (default 100 C, 0 = off) is used then. To use the first-layer bed temperature instead, put `M191 S[chamber_temperature] BED_TEMP=[bed_temperature_initial_layer_single]` above `START_PRINT` in Orca's Machine start G-code.
+
 ## 2.7.7
 
 - **`M191` (wait for the chamber temperature) improved** in `macros.cfg` of both models. Orca's `M191 S[chamber_temperature] BED_TEMP=[bed_temperature_initial_layer_single]` now also starts the part fan (50 %) and the auxiliary fan (100 %) to circulate the air, warms the nozzle on the carriage to 150 C, and uses the bed to help heating when `BED_TEMP` is given; the fans and the nozzle are switched off again when the chamber is at its target. A target above 65 C is refused (the same limit as `ZR_CHAMBER`). The speeds, the preheat temperature and the limit are variables at the top of the macro (0 = off). `M141` is unchanged.
