@@ -81,13 +81,17 @@ want("bed pid SAVE=0", run("WM_BED_PID", {"CONFIRM": "1", "SAVE": "0"}), "PID_CA
 want("bed pid refuses watermark", run("WM_BED_PID", {"CONFIRM": "1"}, control="watermark"), "RAISE: heater_bed uses control: watermark")
 # tool head LEDs (rpi-cfg/rpi_tool_leds.cfg): a delayed_gcode, not a macro
 led = re.search(r'^\[delayed_gcode WM_TOOL_LEDS\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_tool_leds.cfg")).read(), re.M).group(1)
-def leds(detected, undefined=(), thr=4):
+def leds(detected, undefined=(), thr=4, cur=99, seen=(-1, -1, -1, -1)):
     pr = {"filament_switch_sensor filament%d" % i: {"filament_detected": detected[i]} for i in range(4) if i not in undefined}
-    pr["save_variables"] = {"variables": {"thr_number": thr}}
+    pr["save_variables"] = {"variables": {"thr_number": thr, "current_extruder": cur}}
+    pr["gcode_macro _WM_LED_STATE"] = {"seen": list(seen)}
     return [l.strip() for l in env.from_string(led).render(printer=pr).splitlines() if l.strip()]
-want("leds: filament = green, none = red", leds([True, False, True, False]), "SET_LED LED=T0_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1 SYNC=0", "SET_LED LED=T1_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1 SYNC=0", "SET_LED LED=T2_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1 SYNC=0", "SET_LED LED=T3_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1 SYNC=0", "UPDATE_DELAYED_GCODE ID=WM_TOOL_LEDS DURATION=2")
-want("leds: only the tool heads this printer has", leds([True] * 4, thr=2), "SET_LED LED=T1_RGB", none=("T2_RGB", "T3_RGB"))
-want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "SET_LED LED=T2_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1 SYNC=0", "SET_LED LED=T3_RGB RED=0.0 GREEN=1.0 BLUE=0.0 TRANSMIT=1 SYNC=0")
+want("leds: first pass: filament = blue, none = red", leds([True, False, True, False]), "_RGB_LOAD T=0", "_RGB_UNLOAD T=1", "_RGB_LOAD T=2", "_RGB_UNLOAD T=3", "SET_GCODE_VARIABLE MACRO=_WM_LED_STATE VARIABLE=seen VALUE=[1,0,1,0]", "UPDATE_DELAYED_GCODE ID=WM_TOOL_LEDS DURATION=2")
+want("leds: tool on the carriage with filament = green", leds([True, True, False, False], cur=1), "_RGB_LOAD T=0", "_RGB_CURRENT T=1", "VALUE=[1,2,0,0]")
+want("leds: nothing changed -> no LED call", leds([True, False, True, False], seen=(1, 0, 1, 0)), "SET_GCODE_VARIABLE", none=("_RGB_",))
+want("leds: only the tool that changed is called", leds([True, True, True, False], seen=(1, 0, 1, 0)), "_RGB_LOAD T=1", none=("T=0", "T=2", "T=3"))
+want("leds: only the tool heads this printer has", leds([True] * 4, thr=2), "_RGB_LOAD T=1", none=("T=2", "T=3"))
+want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "_RGB_UNLOAD T=2", "_RGB_LOAD T=3")
 # print end watcher (rpi-cfg/rpi_print_end.cfg)
 pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_print_end.cfg")).read(), re.M).group(1)
 def pend(state, ready):

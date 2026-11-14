@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.2
+
+- **Tool head LEDs use the factory macros.** `WM_TOOL_LEDS` (`rpi_tool_leds.cfg`) calls `_RGB_CURRENT` (green, tool on the carriage with filament), `_RGB_LOAD` (blue, filament in another tool head) and `_RGB_UNLOAD` (red, no filament), the same colours as the factory screen. It still checks every 2 s but only calls a macro when a tool's state changes (kept in `_WM_LED_STATE`), so the automatic filament load is not blocked.
+
 ## 2.7.1
 
 - **Tool head LEDs no longer stop the automatic filament load.** `WM_TOOL_LEDS` (`rpi_tool_leds.cfg`, runs every 2 s) now sends the LED colour with `SYNC=0`. Before, each colour update woke the toolhead and put Klipper's idle timeout into "Printing", and upstream Klipper ignores a filament-inserted event in that state, so WonderMaker's own load (heat, push, wipe, park) never started when you pushed filament in or after an ACE load.
