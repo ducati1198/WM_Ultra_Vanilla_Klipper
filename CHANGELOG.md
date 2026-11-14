@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.7.10
+
+Cleanup from the 2026-11-14 code audit (both models). Nothing changes on a print; tested on the dev Pi.
+
+- **`_raise_z` (`change_macros.cfg`): removed a branch that never ran.** It tested `printer.query_endstops.last_query.z`, a name that only WonderMaker's Klipper has, and would have called `SET_KINEMATIC_POSITION` (marking Z homed at an unknown position). The 2 mm raise during prints (first branch) is unchanged.
+- **`TEST_ROUND` removed** (`change_macros.cfg`). It called `CALIBRATE_TOOL_OFFSETS`, which does not exist, and nothing used it.
+- **Five dead duplicate macros removed from `offset_calibrate.cfg`:** `_OFFSET_RESET`, `_OFFSET_SET`, `_SAVE_TOOL_POSITION`, `CALIBRATE_TOOL_POSITION`, `SAVE_T_POSITON`. `change_macros.cfg` is included after it, so its copies were the ones that ran (the same order as on the factory screen board).
+- **`_OFFSET_RESET` now prints "OFFSET_RESET" in the console**, like the removed copy did (`_OFFSET_SET` already printed its message).
+
 ## 2.7.9
 
 - **`M191` now reads `BED_TEMP=` correctly, so the bed heats.** On an M command Klipper hands `BED_TEMP=65` to the macro as the text `=65`, which the macro read as 0 and skipped `M140`. The `=` is now removed first (`macros.cfg`, both models). Tested on the Pi: the print's start line `M191 S50 BED_TEMP=65` now sets the bed.
