@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.6
+
+- **More filament materials** in the ZR Tools list (`zr_logic.py`, shared with the Fluidd panel through `tmt1.ini`): PLA+, PLA-CF, PETG-CF, PA, PA-CF, PC, ABS-CF, PA-GF, PC-ABS, PP and BVOH, added at the end so no saved index moves. The factory touchscreen may not know the new ones.
+
 ## 2.7.5
 
 - **`ZR_PURGE` lowers the bed first.** `z_rise` now runs at the start of `ZR_PURGE` (`zr_tools.cfg`). Before, the move to the purge position (X-13 Y80) happened with no drop when X and Y were already homed, because the drop only ran inside the homing.

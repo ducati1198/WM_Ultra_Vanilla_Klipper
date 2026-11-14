@@ -679,6 +679,9 @@ TOUCH_MATERIALS = [
     ("PLA", 210, 1), ("PLA Silk", 215, 3), ("ABS", 250, 8), ("PETG", 240, 6), ("PLA Matte", 210, 4),
     ("PLA Metal", 215, 15), ("ABS Matte", 250, 8), ("PETG Matte", 240, 6), ("PVA", 200, 13), ("TPE", 225, 10),
     ("Marble", 210, 15), ("HIPS", 235, 14), ("TPU", 225, 10), ("PET", 240, 15), ("Wood", 200, 15), ("ASA", 255, 9),
+    # added at the END (no index moves); the factory touchscreen may not know them
+    ("PLA+", 215, 2), ("PLA-CF", 220, 5), ("PETG-CF", 250, 7), ("PA", 270, 11), ("PA-CF", 280, 11),
+    ("PC", 270, 12), ("ABS-CF", 260, 8), ("PA-GF", 280, 11), ("PC-ABS", 260, 12), ("PP", 230, 15), ("BVOH", 210, 15),
 ]
 
 
