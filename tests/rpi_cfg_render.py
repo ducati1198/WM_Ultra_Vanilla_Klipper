@@ -44,7 +44,7 @@ def want(label, lines, *must, none=()):
     for m in none:
         if m in j: bad.append("%s: unexpected %r in\n%s" % (label, m, j))
 for n in macros: env.from_string(macros[n])
-want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_SCREWS_CAL", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "_WM_CAL_STOP", "WM_CAL_HELP", "WM_BED_PID", "WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION", "_WM_FULL_CALIBRATION_DONE", "_WM_NOZZLE_TYPE", "_WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
+want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_SCREWS_CAL", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "_WM_CAL_STOP", "WM_CAL_HELP", "WM_BED_PID", "WM_FIRST_RUN_CAL", "_WM_FIRST_RUN_CAL", "_WM_FIRST_RUN_CAL_DONE", "_WM_NOZZLE_TYPE", "_WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
 want("level asks first", run("WM_BED_LEVELING"), "_WM_CAL_ASK STAGE=level", none=("G29",))
 want("level runs", run("WM_BED_LEVELING", {"CONFIRM": "1"}), "G28", "G29", "TURN_OFF_HEATERS", "SAVE_CONFIG")
 want("level SAVE=0", run("WM_BED_LEVELING", {"CONFIRM": "1", "SAVE": "0"}), "G29", none=("SAVE_CONFIG",))
@@ -102,21 +102,57 @@ want("print end: already run (G-code called it) -> not twice", pend("complete", 
 want("print end: printing / cancelled / idle -> nothing", pend("printing", True) + pend("cancelled", True) + pend("standby", True), "UPDATE_DELAYED_GCODE", none=("<<run",))
 want("no chamber macro any more", sorted(macros), none=("WM_CHAMBER_PID",))
 want("bed pid refuses odd target", run("WM_BED_PID", {"TARGET": "200"}), "RAISE")
-want("full calibration: window, nothing runs", run("WM_FULL_CALIBRATION"), "prompt_begin Full Calibration", "_WM_FULL_CALIBRATION", "Hotend PID: tunes", none=("G29", "SAVE_CONFIG\n", "PID_CALIBRATE"))
-want("full calibration: watermark says skipped", run("WM_FULL_CALIBRATION", control="watermark"), "Hotend PID: skipped")
-want("full calibration: checks first", run("WM_FULL_CALIBRATION")[:1], "_WM_CAL_PRECHECK")
-want("full calibration starts with the extruder setup (flag on, then the matching)", run("_WM_FULL_CALIBRATION"), "_WM_MATCH_CHECK", "Full calibration - 1 of 6", "VARIABLE=full VALUE=1", "_WM_MATCH_RUN", none=("G29", "WM_BED_LEVELING"))
-want("full calibration: a start that cannot happen never sets the flag", run("_WM_FULL_CALIBRATION")[:4], "_WM_CAL_PRECHECK", "_WM_MATCH_CHECK")
-want("full calibration stages 2 to 6 in order", run("_WM_FULL_CALIBRATION_REST"), "WM_BED_LEVELING CONFIRM=1 SAVE=0", "WM_OFFSETS_RAPID CONFIRM=1", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0", "WM_BED_PID CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL TARGET=220 T=all CONFIRM=1 SAVE=0", "_WM_FULL_CALIBRATION_DONE", "2 of 6", "6 of 6", none=("SAVE_CONFIG\n", "_WM_MATCH_RUN"))
-want("full calibration skips PID on watermark", run("_WM_FULL_CALIBRATION_REST", control="watermark"), "skipped")
-want("full calibration window lists the extruder setup first", run("WM_FULL_CALIBRATION"), "1) Extruder setup", "6) Hotend PID", "hang the extruders on the rear support")
-want("matching in a full calibration: all docks right goes straight on", run("_WM_MATCH_FINISH", full=1), "_WM_FULL_CALIBRATION_REST", "VARIABLE=full VALUE=0", none=("prompt_show", "_WM_MATCH_APPLY"))
-want("matching alone: all docks right shows the result and does not go on", run("_WM_MATCH_FINISH", full=0), "nothing was changed", "prompt_show", none=("_WM_FULL_CALIBRATION_REST",))
-want("matching in a full calibration: other ids stop and say to start again", run("_WM_MATCH_FINISH", full=1, actual=[1, 0, 2, 3]), "_WM_MATCH_APPLY", "start WM_FULL_CALIBRATION again", "VARIABLE=full VALUE=0", none=("_WM_FULL_CALIBRATION_REST",))
-want("matching in a full calibration: duplicate ids stop", run("_WM_MATCH_FINISH", full=1, actual=[0, 0, 2, 3]), "same CAN id", "did not go on", none=("_WM_FULL_CALIBRATION_REST", "_WM_MATCH_APPLY"))
+want("full calibration: window, nothing runs", run("WM_FIRST_RUN_CAL"), "prompt_begin First Run Calibration", "_WM_FIRST_RUN_CAL", "Hotend PID: tunes", none=("G29", "SAVE_CONFIG\n", "PID_CALIBRATE"))
+want("full calibration: watermark says skipped", run("WM_FIRST_RUN_CAL", control="watermark"), "Hotend PID: skipped")
+want("full calibration: checks first", run("WM_FIRST_RUN_CAL")[:1], "_WM_CAL_PRECHECK")
+want("full calibration starts with the extruder setup (flag on, then the matching)", run("_WM_FIRST_RUN_CAL"), "_WM_MATCH_CHECK", "First run calibration - 1 of 7", "VARIABLE=full VALUE=1", "_WM_MATCH_RUN", none=("G29", "WM_BED_LEVELING"))
+want("full calibration: a start that cannot happen never sets the flag", run("_WM_FIRST_RUN_CAL")[:4], "_WM_CAL_PRECHECK", "_WM_MATCH_CHECK")
+want("full calibration stages 2 to 6 in order", run("_WM_FIRST_RUN_CAL_REST"), "WM_BED_LEVELING CONFIRM=1 SAVE=0", "WM_OFFSETS_RAPID CONFIRM=1", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0", "WM_BED_PID CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL TARGET=220 T=all CONFIRM=1 SAVE=0", "_WM_FIRST_RUN_CAL_DONE", "2 of 7", "7 of 7", "4 of 7: hot Z offsets skipped", none=("SAVE_CONFIG\n", "_WM_MATCH_RUN"))
+want("full calibration skips PID on watermark", run("_WM_FIRST_RUN_CAL_REST", control="watermark"), "skipped")
+want("full calibration window lists the extruder setup first", run("WM_FIRST_RUN_CAL"), "1) Extruder setup", "4) Hot Z offsets", "7) Hotend PID", "hang the extruders on the rear support")
+want("matching in a full calibration: all docks right goes straight on", run("_WM_MATCH_FINISH", full=1), "_WM_FIRST_RUN_CAL_REST", "VARIABLE=full VALUE=0", none=("prompt_show", "_WM_MATCH_APPLY"))
+want("matching alone: all docks right shows the result and does not go on", run("_WM_MATCH_FINISH", full=0), "nothing was changed", "prompt_show", none=("_WM_FIRST_RUN_CAL_REST",))
+want("matching in a full calibration: other ids stop and say to start again", run("_WM_MATCH_FINISH", full=1, actual=[1, 0, 2, 3]), "_WM_MATCH_APPLY", "start WM_FIRST_RUN_CAL again", "VARIABLE=full VALUE=0", none=("_WM_FIRST_RUN_CAL_REST",))
+want("matching in a full calibration: duplicate ids stop", run("_WM_MATCH_FINISH", full=1, actual=[0, 0, 2, 3]), "same CAN id", "did not go on", none=("_WM_FIRST_RUN_CAL_REST", "_WM_MATCH_APPLY"))
 want("matching stop clears the full calibration flag", run("_WM_MATCH_STOP", {"REASON": "x"}), "VARIABLE=full VALUE=0", "did not go on")
 want("Extruder Setup on its own clears the flag", run("WM_EXTRUDER_SETUP"), "VARIABLE=full VALUE=0", "Set Up|_WM_MATCH_RUN")
-want("full calibration end window saves only on click", run("_WM_FULL_CALIBRATION_DONE"), "Save and Restart|_WM_SAVE", "WM_PROBE_CALIBRATE")
+want("full calibration end window saves only on click", run("_WM_FIRST_RUN_CAL_DONE"), "Save and Restart|_WM_SAVE", "WM_PROBE_CALIBRATE")
+# ---- 2.8.0: hot Z stage in the first run calibration, Z offset tools, unload menu, safety check, chamber light
+def more(fname, folder="rpi-cfg"):
+    t = open(os.path.join(ROOT, folder, fname)).read()
+    return {m.group(1): m.group(2) for m in re.finditer(r'^\[(?:gcode_macro|delayed_gcode) (\S+)\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', t, re.M)}
+ZO = more("rpi_zoffset.cfg"); UN = more("rpi_unload.cfg"); SA = more("rpi_safety.cfg"); LI = more("rpi_light.cfg", "config")
+for group in (ZO, UN, SA, LI):
+    for n in group: env.from_string(group[n])
+want("rpi_zoffset.cfg has its macros", sorted(ZO), "WM_FULL_OFFSET_CAL", "WM_OFFSETS_Z_HOT", "WM_NOZZLE_GROWTH_CAL", "WM_Z_TRIM_MENU", "_WM_WAIT_TEMP", "_WM_WAIT_TEMP_STEP", "_WM_Z_TOUCH", none=("WM_Z_TRIM_SET",))
+want("rpi_unload.cfg has its macros", sorted(UN), "WM_UNLOAD_MENU", "_WM_UNLOAD_GO", "WM_UNLOAD_STOP", none=("\nWM_UNLOAD_GO",))
+def zrun(name, params=None, temp=25.0, warmup=1, extra=None):
+    w = {"z": [0.0] * 5, "g": [0.0] * 3, "temp": 140, "bed": 60, "samples": 5, "soak_s": 20, "max_drift": 0.02, "drip_s": 20, "wipes": 2, "retract_mm": 20, "warmup": warmup, "hot_ok": -1, "growth_ok": -1, "chain": 0}
+    printer = {"save_variables": {"variables": {"thr_number": 4, "current_extruder": 0, "wipe_position": [-13.0, 240.0]}}, "print_stats": {"state": "standby"},
+               "heaters": {"available_heaters": HEAT}, "gcode_macro _WM_ZHOT": w, "filament_switch_sensor filament0": {"filament_detected": False}}
+    for h in HEAT: printer[h] = {"target": 0.0, "temperature": temp}
+    printer.update(extra or {})
+    out = env.from_string(ZO[name]).render(printer=printer, params=params or {})
+    return [l.strip() for l in out.splitlines() if l.strip() and not l.strip().startswith("#")]
+want("first run calibration: hot Z stage right after the rapid offsets when rpi_zoffset.cfg is installed",
+     [l.strip() for l in env.from_string(macros["_WM_FIRST_RUN_CAL_REST"]).render(printer={"gcode_macro WM_OFFSETS_Z_HOT": {}, "configfile": {"settings": {"heater_bed": {"control": "pid"}}}}, params={}).splitlines() if l.strip() and not l.strip().startswith("#")],
+     "WM_OFFSETS_RAPID CONFIRM=1\nRESPOND MSG=\"First run calibration - 4 of 7: hot Z offsets\"\nWM_OFFSETS_Z_HOT CONFIRM=1\nRESPOND MSG=\"First run calibration - 5 of 7")
+t = zrun("_WM_Z_TOUCH", {"T": "0", "TEMP": "140", "SLOT": "0"})
+want("Z touch: one touch that is not counted, lift, then the counted touches", t, "PROBE SAMPLES=1\nM400\nG90\nG1 Z5 F600\nM400\nPROBE SAMPLES=5", "_WM_WAIT_TEMP SENSOR=extruder MINIMUM=138 MAXIMUM=142 NAME=T0 TARGET=140")
+want("Z touch: warmup 0 switches the extra touch off", zrun("_WM_Z_TOUCH", {"T": "0", "TEMP": "140", "SLOT": "0"}, warmup=0), "PROBE SAMPLES=5", none=("PROBE SAMPLES=1",))
+wt = zrun("_WM_WAIT_TEMP", {"SENSOR": "extruder", "MINIMUM": "138", "MAXIMUM": "142", "NAME": "T0", "TARGET": "140"})
+want("quiet wait: 360 steps of 5 s, then the real wait", [str(len(wt)), wt[0], wt[-1]], "361", "_WM_WAIT_TEMP_STEP SENSOR=extruder", "N=0", "TEMPERATURE_WAIT SENSOR=extruder MINIMUM=138.0 MAXIMUM=142.0")
+P = {"SENSOR": "extruder", "MINIMUM": "138", "MAXIMUM": "142", "NAME": "T0", "TARGET": "140"}
+want("quiet wait step: not there yet, a console line every 30 s", zrun("_WM_WAIT_TEMP_STEP", dict(P, N="6"), temp=201.4), 'RESPOND MSG="T0 at 201 C, waiting for 140 C"', "G4 P5000")
+want("quiet wait step: between the lines it only waits", zrun("_WM_WAIT_TEMP_STEP", dict(P, N="5"), temp=201.4), "G4 P5000", none=("RESPOND",))
+want("quiet wait step: at temperature it does nothing", zrun("_WM_WAIT_TEMP_STEP", dict(P, N="6"), temp=140.0), none=("G4", "RESPOND"))
+want("hot Z run: bed wait with console lines, T0 first and last", zrun("WM_OFFSETS_Z_HOT", {"CONFIRM": "1"}), "M140 S60\n_WM_WAIT_TEMP SENSOR=heater_bed MINIMUM=59 MAXIMUM=61 NAME=Bed TARGET=60\nM190 S60", "_WM_Z_TOUCH T=0 TEMP=140 SLOT=0 LIST=z", "_WM_Z_TOUCH T=0 TEMP=140 SLOT=4 LIST=z")
+for group, gname in ((ZO, "rpi_zoffset.cfg"), (UN, "rpi_unload.cfg"), (SA, "rpi_safety.cfg")):
+    for n, body in group.items():
+        for line in body.splitlines():
+            if "RESPOND" in line and 'MSG="' in line and "prompt_" not in line:
+                msg = line.split('MSG="', 1)[1]
+                if any(c in msg for c in ";#*"): bad.append("%s %s: a ; # or * inside a RESPOND message: %s" % (gname, n, line.strip()))
 want("window buttons close the screen window first", run("_WM_SAVE"), "action:prompt_end", "SAVE_CONFIG")
 want("cancel closes the window and says so", run("_WM_PROMPT_CLOSE", params={"MSG": "Cancelled"}), "action:prompt_end", "M118 Cancelled")
 want("the start path closes the window first", run("_WM_CAL_STOP"), "action:prompt_end", "TURN_OFF_HEATERS")
@@ -174,7 +210,7 @@ want("match: apply refuses while printing", run("_WM_MATCH_APPLY", {"ID0": "a"},
 want("match: stop switches off and writes nothing", run("_WM_MATCH_STOP", {"REASON": "x"}), "is_nozzle_setting VALUE=0", "Nothing was written", none=("RUN_SHELL_COMMAND", "SAVE_CONFIG"))
 want("nozzle change end: offers only Nozzle Type, no Extruder Setup", run("_WM_NOZZLE_CHANGE_END"), "Nozzle Type|_WM_NOZZLE_TYPE|primary", none=("WM_EXTRUDER_SETUP",))
 want("nozzle change windows do not mention the Extruder Setup", run("WM_NOZZLE_CHANGE") + run("_WM_NCHANGE_AFTER"), "record the new nozzle", none=("EXTRUDER_SETUP", "Extruder Setup"))
-want("WM_CAL_HELP lists the full calibration, extruder setup and the hidden helpers", run("WM_CAL_HELP"), "WM_EXTRUDER_SETUP", "first stage of WM_FULL_CALIBRATION", "_WM_CAL_STOP", "_WM_NOZZLE_CHANGE_END", "_WM_NOZZLE_TYPE")
+want("WM_CAL_HELP lists the full calibration, extruder setup and the hidden helpers", run("WM_CAL_HELP"), "WM_EXTRUDER_SETUP", "first stage of WM_FIRST_RUN_CAL", "_WM_CAL_STOP", "_WM_NOZZLE_CHANGE_END", "_WM_NOZZLE_TYPE")
 want("calibration refuses while Extruder Setup or a nozzle change is on", run("_WM_CAL_PRECHECK", sv={"is_nozzle_setting": 1}), '_WM_FAIL MSG="Extruder Setup or a nozzle change is still on')
 
 def closes_first(label, lines):   # the window must close BEFORE the error line runs (Klipper reads the whole macro first, so the error cannot be raised inside the macro text)

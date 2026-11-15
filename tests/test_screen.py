@@ -431,10 +431,10 @@ class Smoke(unittest.TestCase):
         p, screen = self.make("tabs")
         labels = []
         p._button = lambda icon, text, style, cb, *a: labels.append((text, a[1] if len(a) > 1 else None)) or p._gtk.Button()
-        p._sections = lambda: ["gcode_macro WM_FULL_CALIBRATION", "gcode_macro WM_BED_PID", "gcode_macro WM_NOZZLE_TEMP_CAL"]
+        p._sections = lambda: ["gcode_macro WM_FIRST_RUN_CAL", "gcode_macro WM_BED_PID", "gcode_macro WM_NOZZLE_TEMP_CAL"]
         p.show_utilities()
         names = [x[0] for x in labels]
-        self.assertIn("Full calibration", names); self.assertIn("Bed PID", names)
+        self.assertIn("First run calibration", names); self.assertIn("Bed PID", names)
         self.assertNotIn("Bed leveling", names)                 # macro missing on the Pi: not offered
         for gone in ("Offsets: fine (all)", "Offsets: rapid (all)", "Bed mesh"):
             self.assertNotIn(gone, names)
@@ -443,7 +443,7 @@ class Smoke(unittest.TestCase):
         del labels[:]
         p._sections = lambda: []                                # list unknown: show everything
         p.show_utilities()
-        self.assertEqual(sum(1 for n, _ in labels if n in ("Full calibration", "Bed leveling", "Probe calibrate (Z height)",
+        self.assertEqual(sum(1 for n, _ in labels if n in ("First run calibration", "Bed leveling", "Probe calibrate (Z height)",
             "Offsets: rapid", "Offsets: accurate", "Vibration compensation", "Bed PID", "Nozzle type", "Nozzle change", "Extruder setup")), 10)
         hub = [x[1] for x in p._hub_items()]
         self.assertNotIn("Z offset", hub); self.assertNotIn("Input shaper", hub)

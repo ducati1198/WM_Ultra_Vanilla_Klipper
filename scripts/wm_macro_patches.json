@@ -1,0 +1,107 @@
+[
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    M118 START_PRINT begin\n    {% if \"gcode_macro WM_CHAMBER_LIGHT\" in printer %}\n        WM_CHAMBER_LIGHT STATE=on\n    {% endif %}\n    {% set BED = params.BED|int %}",
+  "old": "    M118 START_PRINT begin\n    {% set BED = params.BED|int %}",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    M190 S{BED}\n    WIPE_NOZZLE                    # T0 is the Z reference of the whole print, wipe it once more right before the mesh\n    {% if adaptive_mesh_enable == True %}                              ",
+  "old": "    M190 S{BED}\n    {% if adaptive_mesh_enable == True %}                              ",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "\n\n\n[gcode_macro _WM_PAUSE_STATE]\ndescription: Remembers that PAUSE already ran for this pause. Running it clears a flag that is left over (WM_PRINT_END_WATCH runs it)\nvariable_active: 0\ngcode:\n    {% if active|int == 1 and printer.print_stats.state != \"paused\" %}\n        SET_GCODE_VARIABLE MACRO=_WM_PAUSE_STATE VARIABLE=active VALUE=0\n    {% endif %}\n\n[gcode_macro PAUSE]\nrename_existing: BASE_PAUSE\ngcode:",
+  "old": "\n\n\n[gcode_macro PAUSE]\nrename_existing: BASE_PAUSE\ngcode:",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 4,
+  "new": "gcode:\n    {% if printer[\"gcode_macro _WM_PAUSE_STATE\"].active|int == 1 and printer.print_stats.state == \"paused\" %}\n        RESPOND MSG=\"The print is already paused. PAUSE ignored\"\n    {% else %}\n    SET_GCODE_VARIABLE MACRO=_WM_PAUSE_STATE VARIABLE=active VALUE=1\n    RESPOND MSG=\"Print paused. Parking the tool head.\"",
+  "old": "gcode:\n    RESPOND MSG=\"Print paused. Parking the tool head.\"",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 5,
+  "new": "    \n    # keep the tool map of this print for RESUME (only once START_PRINT is done: it changes box_modify_t0 for a moment)\n    {% if printer[\"gcode_macro START_PRINT\"].print_body_ready %}\n        {% for i in range(4) %}\n            SAVE_VARIABLE VARIABLE=box_modify_t{i}_backup VALUE={printer.save_variables.variables[\"box_modify_t%d\" % i]|default(i)|int}\n        {% endfor %}\n    {% endif %}\n    # restore the identity mapping first, then turn heaters off, so that when remapped M104 Tx does not miss or wrongly switch off a physical head",
+  "old": "    \n    # restore the identity mapping first, then turn heaters off, so that when remapped M104 Tx does not miss or wrongly switch off a physical head",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 6,
+  "new": "    M106 P2 S0\n    SET_STEPPER_ENABLE STEPPER={printer.toolhead.extruder} ENABLE=0\n    {% endif %}\n\n",
+  "old": "    M106 P2 S0\n    SET_STEPPER_ENABLE STEPPER={printer.toolhead.extruder} ENABLE=0\n\n",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 7,
+  "new": "gcode:\n    {% if printer.print_stats.state != \"paused\" %}\n        RESPOND MSG=\"Nothing to resume. The print is not paused\"\n    {% else %}\n    RESPOND MSG=\"Resuming the print. Heating the bed and nozzles first.\"",
+  "old": "gcode:\n    RESPOND MSG=\"Resuming the print. Heating the bed and nozzles first.\"",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 8,
+  "new": "    M24\n    SET_GCODE_VARIABLE MACRO=_WM_PAUSE_STATE VARIABLE=active VALUE=0\n    {% if pr_ace %}",
+  "old": "    M24\n    {% if pr_ace %}",
+  "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 9,
+  "new": "    {% endif %}\n    RESPOND MSG=\"Print resumed\"\n    {% endif %}\n\n",
+  "old": "    {% endif %}\n    RESPOND MSG=\"Print resumed\"\n\n",
+  "version": "2.8.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 1,
+  "new": "        # { action_respond_info(\"SET GCODE OFFSET X:%6f Y:%6f Z:%6f\" % (offset_x, offset_y, offset_z)) }\n        {% set sv = printer.save_variables.variables %}\n        {% set trim = sv.wm_z_trim_all|default(0)|float + sv[\"wm_z_trim_t%d\" % tool]|default(0)|float %}\n        {% set ename = \"extruder\" if tool == 0 else \"extruder%d\" % tool %}\n        {% set target = printer[ename].target|float if ename in printer else 0 %}\n        {% set growth = sv.wm_nozzle_growth|default(0)|float %}\n        {% set ref = sv.wm_z_ref_temp|default(140)|float %}\n        {% set heat = growth * (target - ref) if (growth > 0 and target > ref) else 0 %}\n        SET_GCODE_OFFSET X={offset_x} Y={offset_y} Z={(offset_z + trim + heat)|round(5)} move=1\n    {% endif %}",
+  "old": "        # { action_respond_info(\"SET GCODE OFFSET X:%6f Y:%6f Z:%6f\" % (offset_x, offset_y, offset_z)) }\n        SET_GCODE_OFFSET X={offset_x} Y={offset_y} Z={offset_z} move=1\n    {% endif %}",
+  "version": "2.8.0"
+ },
+ {
+  "file": "offset_calibrate.cfg",
+  "n": 1,
+  "new": "    # G0 Z6.5 F2000 # UPDATE THIS WITH YOUR POSITION\n    \n\n[gcode_macro _APPLY_PRE_Z_OFFSET]",
+  "old": "    # G0 Z6.5 F2000 # UPDATE THIS WITH YOUR POSITION\n    \n\n[gcode_macro TEST_W4]\ngcode:\n    G28\n    G1 Z25\n    # CS_WEIGHT_SWITCH CHIP=2\n    probe samples=1\n\n[gcode_macro _APPLY_PRE_Z_OFFSET]",
+  "version": "2.8.0"
+ },
+ {
+  "file": "extruder0.cfg",
+  "n": 1,
+  "new": "runout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n        UPDATE_DELAYED_GCODE ID=delayed_pause0 DURATION=2.5\n    {% endif %}\n",
+  "old": "runout_gcode:\n    RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n    UPDATE_DELAYED_GCODE ID=delayed_pause0 DURATION=2.5\n",
+  "version": "2.8.0"
+ },
+ {
+  "file": "extruder1.cfg",
+  "n": 1,
+  "new": "runout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n        UPDATE_DELAYED_GCODE ID=delayed_pause1 DURATION=2.5\n    {% endif %}\n",
+  "old": "runout_gcode:\n    RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n    UPDATE_DELAYED_GCODE ID=delayed_pause1 DURATION=2.5\n",
+  "version": "2.8.0"
+ },
+ {
+  "file": "extruder2.cfg",
+  "n": 1,
+  "new": "runout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n        UPDATE_DELAYED_GCODE ID=delayed_pause2 DURATION=2.5\n    {% endif %}\n",
+  "old": "runout_gcode:\n    RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n    UPDATE_DELAYED_GCODE ID=delayed_pause2 DURATION=2.5\n",
+  "version": "2.8.0"
+ },
+ {
+  "file": "extruder3.cfg",
+  "n": 1,
+  "new": "runout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n        UPDATE_DELAYED_GCODE ID=delayed_pause3 DURATION=2.5\n    {% endif %}\n",
+  "old": "runout_gcode:\n    RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n    UPDATE_DELAYED_GCODE ID=delayed_pause3 DURATION=2.5\n",
+  "version": "2.8.0"
+ }
+]

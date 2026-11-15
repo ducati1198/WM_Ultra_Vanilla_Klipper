@@ -68,10 +68,10 @@ patch_ks_zcalibrate() {
     sed -i 's/float(self\.probe\["z_offset"\])/float(self.probe.get("z_offset", 0.0))/' "$f"
 }
 
-patch_ks_menu_light() {   # the main-menu Chamber light button toggles directly (menu item "method: wm_chamber_light")
+patch_ks_menu_light() {   # the main-menu Chamber light button toggles Moonraker's power device chamber_light (menu item "method: wm_chamber_light"); a file patched by an older version is brought up to date
     local f="$KS_DIR/panels/menu.py" py="${REPO_DIR:-.}/zr_tools/patch_menu_light.py"
     [ -f "$f" ] && [ -f "$py" ] || return 0
-    grep -q wm_chamber_light "$f" 2>/dev/null && return 0
+    grep -q "machine.device_power.post_device" "$f" 2>/dev/null && return 0
     [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
     python3 "$py" "$f" || warn_later "Could not patch KlipperScreen's menu for the Chamber light button."
 }
@@ -87,7 +87,7 @@ patch_ks_ws_dup() {   # KlipperScreen opened two Moonraker connections after a M
 patch_ks_job_status_light() {   # the Chamber light button on the print screen
     local f="$KS_DIR/panels/job_status.py" py="${REPO_DIR:-.}/zr_tools/patch_job_status_light.py"
     [ -f "$f" ] && [ -f "$py" ] || return 0
-    grep -q wm_chamber_light "$f" 2>/dev/null && return 0
+    grep -q "machine.device_power.post_device" "$f" 2>/dev/null && return 0
     [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
     python3 "$py" "$f" || { cp "$f.wm-orig" "$f"; warn_later "Could not add the Chamber light button to KlipperScreen's print screen."; }
 }
@@ -623,10 +623,10 @@ step_chamber_light() {   # root helper + one sudoers line for the Chamber light 
     printf '%s ALL=(root) NOPASSWD: %s on, %s off, %s toggle, %s status\n' "$WM_USER" "$CL_BIN" "$CL_BIN" "$CL_BIN" "$CL_BIN" | sudo tee /etc/sudoers.d/wm-chamber-light >/dev/null
     sudo chmod 440 /etc/sudoers.d/wm-chamber-light; sudo visudo -cf /etc/sudoers.d/wm-chamber-light >/dev/null || { sudo rm -f /etc/sudoers.d/wm-chamber-light; warn_later "The Chamber light button was not enabled (sudoers check failed)."; return 0; }
     printf '[Unit]\nDescription=Chamber light: restore last state\n[Service]\nType=oneshot\nExecStart=%s restore\n[Install]\nWantedBy=multi-user.target\n' "$CL_BIN" | sudo tee "$CL_UNIT" >/dev/null
-    sudo install -o root -g root -m 755 "$REPO_DIR/zr_tools/wm-chamber-light-http" "$CL_HTTP"   # the Fluidd panel's Chamber light button talks to this (port 8765)
-    printf '[Unit]\nDescription=Chamber light network service (Fluidd button)\nAfter=network-online.target\n[Service]\nExecStart=%s --conf %s/KlipperScreen.conf\nRestart=always\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n' "$CL_HTTP" "$CFG_DIR" | sudo tee "$CL_HTTP_UNIT" >/dev/null
+    sudo install -o root -g root -m 755 "$REPO_DIR/zr_tools/wm-chamber-light-http" "$CL_HTTP"   # Moonraker on the Pi switches the light through this (port 8765, power device chamber_light)
+    printf '[Unit]\nDescription=Chamber light network service (Moonraker power device chamber_light)\nAfter=network-online.target\n[Service]\nExecStart=%s --conf %s/KlipperScreen.conf\nRestart=always\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n' "$CL_HTTP" "$CFG_DIR" | sudo tee "$CL_HTTP_UNIT" >/dev/null
     sudo systemctl daemon-reload; sudo systemctl enable wm-chamber-light.service >/dev/null 2>&1; sudo systemctl enable --now wm-chamber-light-http.service >/dev/null 2>&1
-    print_success "Chamber light button installed (main page, next to ZR Tools; the Fluidd panel button uses port 8765)."
+    print_success "Chamber light button installed (main page, next to ZR Tools). It switches Moonraker's power device chamber_light: on the Pi run ./installer.sh --light once (an update does it too)."
 }
 
 # ---------------------------------------------------------------- rescue tool (window after 3 failed starts, USB flag at boot)

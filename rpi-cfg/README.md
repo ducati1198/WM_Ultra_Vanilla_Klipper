@@ -6,6 +6,10 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 |---|---|
 | [`rpi_calibration.cfg`](rpi_calibration.cfg) | The calibration items of the WonderMaker screen app (General > Maintenance) as macros you start from Fluidd |
 | [`rpi_nozzle.cfg`](rpi_nozzle.cfg) | The screen app's General > Nozzle Type and Extruder Setup pages as Fluidd window wizards (`WM_EXTRUDER_SETUP`, and `_WM_NOZZLE_TYPE`, hidden, which `WM_NOZZLE_CHANGE` offers) and `WM_NOZZLE_CHANGE`, which only the Pi has. Needs Klipper's gcode shell command extension, so the installer only adds it where that is installed |
+| [`rpi_zoffset.cfg`](rpi_zoffset.cfg) | Z offset tools: the guided `WM_FULL_OFFSET_CAL`, `WM_OFFSETS_Z_HOT` (Z of every tool at 140 C), `WM_NOZZLE_GROWTH_CAL` and the switch Nozzle Heat Growth, `WM_Z_TRIM` and the window `WM_Z_TRIM_MENU`. See the main README, 4.3 |
+| [`rpi_virtual_pins.cfg`](rpi_virtual_pins.cfg) | `[wm_virtual_pins]`: software pins (`wm_pin:name`) for on / off switches in Fluidd. Needs the driver `wm_virtual_pins.py` (in `factory/<model>/klipper/klippy/extras`, the installer copies it). Works with or without the ACE driver |
+| [`rpi_unload.cfg`](rpi_unload.cfg) | `WM_UNLOAD_MENU`: unload one tool or all tools from a window, with or without an ACE Pro. `WM_UNLOAD_STOP` drops the rest of the list |
+| [`rpi_safety.cfg`](rpi_safety.cfg) | Start-up check of two saved safety switches: the grip check (`if_check_extruder_status`) is put back on when an interrupted filament insert left it off; an open nozzle change (`is_nozzle_setting`) is reported |
 | [`rpi_tool_leds.cfg`](rpi_tool_leds.cfg) | The tool head LEDs: green while the tool head's filament sensor sees filament, red when it does not (checked every 2 seconds). The factory screen set these colours; on the Pi nothing did |
 | [`rpi_print_end.cfg`](rpi_print_end.cfg) | Runs `PRINT_END` once when a print finishes and the G-code did not call it (the slicer end G-code is the comment `;PRINT_END`; the original screen board ran it, the Pi has nothing that does). Raises Z, parks the head, heaters off, motors off. |
 
@@ -20,7 +24,7 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 | `WM_VIBRATION_COMP` | Vibration Compensation | `G28`, `SHAPER_CALIBRATE` (the `lis2dw` accelerometer on the EX_T board), `SAVE_CONFIG` |
 | `WM_BED_PID TARGET=60` | (no button in the app) | `PID_CALIBRATE HEATER=heater_bed` for the heated bed (40 to 110 C), `SAVE_CONFIG`. Needs `control: pid`, which the factory bed has |
 | `WM_NOZZLE_TEMP_CAL T=0 TARGET=220` | Nozzle Temperature Calibration | `PID_CALIBRATE` for hotend T (fan full, tool head at X150 Y150), `SAVE_CONFIG`. Refuses when that heater uses `control: watermark`: PID tuning does nothing then (`./installer.sh --pid-cfg` gives every hotend `control: pid`) |
-| `WM_FULL_CALIBRATION` | all calibrations in one go | opens a Fluidd window that explains what will run, how long it takes and what to check; Start Calibration then runs the extruder setup (stage 1: it picks up T0 to T3 and checks their CAN ids; if the ids must change it asks, restarts the firmware and you start the Full Calibration again), bed leveling, rapid tool offsets, vibration compensation, bed PID, hotend PID (only hotends with `control: pid`) with no more questions, and one Save and Restart window at the end. Z height is not included (it needs you at the printer); the end window points to `WM_PROBE_CALIBRATE` |
+| `WM_FIRST_RUN_CAL` (was `WM_FULL_CALIBRATION` until 2.7.10) | all calibrations in one go, 7 stages; stage 4 is the hot Z offsets (`WM_OFFSETS_Z_HOT`), right after the rapid offsets | opens a Fluidd window that explains what will run, how long it takes and what to check; Start Calibration then runs the extruder setup (stage 1: it picks up T0 to T3 and checks their CAN ids; if the ids must change it asks, restarts the firmware and you start the Full Calibration again), bed leveling, rapid tool offsets, vibration compensation, bed PID, hotend PID (only hotends with `control: pid`) with no more questions, and one Save and Restart window at the end. Z height is not included (it needs you at the printer); the end window points to `WM_PROBE_CALIBRATE` |
 | `_WM_CAL_STOP` (hidden) | | heaters and fan off (the Stop heaters button of the windows) |
 | `WM_CAL_HELP` | | lists the macros |
 
@@ -56,7 +60,7 @@ Klipper's `SAVE_CONFIG` stores a PID result in `printer.cfg`. It **refuses** whe
 
 ## `rpi_nozzle.cfg`: Nozzle Type and Extruder Setup
 
-These macros open a window in Fluidd and take you through it step by step, like `WM_FULL_CALIBRATION`. They refuse to start during a print.
+These macros open a window in Fluidd and take you through it step by step, like `WM_FIRST_RUN_CAL`. They refuse to start during a print.
 
 | Macro | Same as the app's | What it does |
 |---|---|---|
@@ -73,3 +77,7 @@ Things to know:
 - `WM_EXTRUDER_SETUP` is the app's page, and its Set Up is the app's matching, read from the app's code (`start_nozzle_setting`): per tool it asks for `Tn`, reads which dock sensor is empty, and takes the id stored for that dock. Differences: this one stops at the first tool that cannot be picked up (the app goes on), and asks before it writes (the app writes and restarts by itself). If something goes wrong half way it puts `is_nozzle_setting` back to 0 and writes nothing; a tool may still be on the carriage, so look at the printer first. The ids are written by `wm_canids.py` (same folder as `wm_nozzle.py`); by hand: `python3 ~/printer_data/wm-tools/wm_canids.py show` or `... apply ID0 ID1 ID2 ID3`.
 - You can also run the helper by hand: `python3 ~/printer_data/wm-tools/wm_nozzle.py show` or `... set 1 0.6 1` (tool 0 to 3, diameter, type).
 - `WM_NOZZLE_CHANGE` follows what the factory macros do (`_UNLOCK_TOOL`, `is_nozzle_setting`); the app has nothing like it. `WM_EXTRUDER_SETUP` follows the app's code and its instruction text.
+
+## Chamber light: `config/rpi_light.cfg`
+
+`WM_CHAMBER_LIGHT STATE=on|off|toggle` switches the Moonraker power device `chamber_light`. It is not in this folder because it only works when Moonraker has that device: `./installer.sh --light` writes the device into `moonraker.conf` and installs the file, once a screen board has announced its light service (`rpi_chamber_light.json`). `START_PRINT` turns the light on when the macro exists.

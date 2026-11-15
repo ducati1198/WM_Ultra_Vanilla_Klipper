@@ -1,0 +1,7 @@
+[Unit]
+Description=Keep one good copy of saved_variables.cfg (backup)
+
+[Service]
+Type=oneshot
+User=t13dp
+ExecStart=/home/t13dp/printer_data/scripts/wm_sv_guard.sh backup

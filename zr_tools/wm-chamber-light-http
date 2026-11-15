@@ -2,8 +2,9 @@
 """Chamber light network service (runs as root on the TM-T1 screen board).
 GET  /light         -> {"on": true|false}
 POST /light         body {"on": true|false}  or  POST /light/toggle
-It calls the root helper /usr/local/sbin/wm-chamber-light. The Fluidd panel on the Pi finds this service through
-rpi_chamber_light.json, which this service uploads to Moonraker (config folder) at start and then every 10 minutes.
+It calls the root helper /usr/local/sbin/wm-chamber-light. Moonraker on the Pi uses this service as its power device
+chamber_light (the Fluidd card, the touchscreen buttons and WM_CHAMBER_LIGHT all switch that device). The Pi's installer finds
+this service through rpi_chamber_light.json, which this service uploads to Moonraker (config folder) at start and then every 10 minutes.
 usage: wm-chamber-light-http [--port 8765] [--conf /home/t13dp/printer_data/config/KlipperScreen.conf]"""
 import argparse
 import json

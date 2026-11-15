@@ -34,6 +34,23 @@ check "no Fluidd zip kept in the repo" "[ ! -e $ROOT/fluidd ]"
 check "no Claude mention in repo files" "! grep -rIl -i 'claude' $ROOT --exclude-dir=.git --exclude=tests --exclude=run_tests.sh --exclude=*.patch --exclude=*.zip"
 check "no private addresses in repo files" "! grep -rIlE '10\.11\.88\.|192\.168\.1\.' $ROOT --exclude-dir=.git --exclude-dir=klipper --exclude-dir=moonraker --exclude=*.patch"
 check "both service files can be enabled at boot" "grep -q 'WantedBy=multi-user.target' $ROOT/config/klipper.service && grep -q 'WantedBy=multi-user.target' $ROOT/config/moonraker.service"
+check "klipper.service restores saved_variables.cfg before start and backs it up after stop" "grep -q 'ExecStartPre=-.*wm_sv_guard.sh restore' $ROOT/config/klipper.service && grep -q 'ExecStopPost=-.*wm_sv_guard.sh backup' $ROOT/config/klipper.service"
+check "wm-sv-guard timer and service files exist" "grep -q 'OnUnitActiveSec=10min' $ROOT/config/wm-sv-guard.timer && grep -q 'wm_sv_guard.sh backup' $ROOT/config/wm-sv-guard.service"
+
+echo "== saved_variables safeguard (wm_sv_guard.sh)"
+SG="$T/sg"; mkdir -p "$SG/printer_data/config" "$SG/printer_data/logs"
+mksv() { { echo "[Variables]"; echo "box_modify_t0 = 0"; echo "t0_position = (1.0, 2.0)"; for i in $(seq 1 60); do echo "filler_value_$i = $i"; done; } > "$1"; }
+sg() { HOME="$SG" bash "$ROOT/scripts/wm_sv_guard.sh" "$@"; }
+mksv "$SG/printer_data/config/saved_variables.cfg"
+sg backup; check "guard: backup of a healthy file makes the good copy" "cmp -s $SG/printer_data/config/saved_variables.cfg $SG/printer_data/config/saved_variables.cfg.wm-good"
+printf '[Variables]\nace_filament_pos = bowden\n' > "$SG/printer_data/config/saved_variables.cfg"
+sg backup; check "guard: an unhealthy file never replaces the good copy" "[ \$(stat -c %s $SG/printer_data/config/saved_variables.cfg.wm-good) -gt 1000 ]"
+sg restore; check "guard: restore puts the good copy back when the live file is tiny" "[ \$(stat -c %s $SG/printer_data/config/saved_variables.cfg) -gt 1000 ] && grep -q '^t0_position' $SG/printer_data/config/saved_variables.cfg"
+check "guard: the bad file is kept next to it" "ls $SG/printer_data/config/saved_variables.cfg.wm-bad-* >/dev/null"
+: > "$SG/printer_data/config/saved_variables.cfg"; sg restore; check "guard: restore also works for an empty file" "grep -q '^box_modify_t0 ' $SG/printer_data/config/saved_variables.cfg"
+before="\$(md5sum < $SG/printer_data/config/saved_variables.cfg)"; sg restore; check "guard: restore leaves a healthy file alone" "[ \"\$(md5sum < $SG/printer_data/config/saved_variables.cfg)\" = \"$before\" ]"
+check "guard: the log has the restore lines" "grep -q RESTORED $SG/printer_data/logs/wm_sv_guard.log"
+check "guard: a wrong argument is refused" "! sg nope"
 
 echo "== install from stage folder"
 mkstage "$T/stage"; H="$T/h1"; mkdir -p "$H"
@@ -400,6 +417,9 @@ check "dry run: nothing unpacked" "[ ! -d $H4/klipper ]"
 check "dry run: says would run" "grep -q 'would run' $T/dry.out"
 check "dry run: no sudo log" "[ ! -s $H4/.sudo.log ]"
 
+check "install: wm_sv_guard.sh copied and executable" "[ -x $H/printer_data/scripts/wm_sv_guard.sh ]"
+check "install: guard timer enabled and started" "grep -q 'systemctl enable wm-sv-guard.timer' $H/.sudo.log && grep -q 'systemctl start wm-sv-guard.timer' $H/.sudo.log"
+check "install: guard service files installed" "grep -q 'wm-sv-guard.service' $H/.sudo.log && grep -q 'wm-sv-guard.timer' $H/.sudo.log"
 echo "== check / enable / disable / uninstall"
 check "--check passes on installed home" "WM_HOME=$H WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --check"
 mkdir -p "$T/empty"; check "--check fails on empty home" "! WM_HOME=$T/empty WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --check"
@@ -408,6 +428,7 @@ inst "$H" --disable-klipper >/dev/null; check "--disable-klipper" "grep -q 'syst
 check "--enable-klipper asks first (default no)" "! grep -q 'systemctl enable klipper' $H/.sudo.log"
 printf 'y\n' | WM_HOME="$H" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --uninstall >/dev/null 2>&1
 check "uninstall removes service file" "grep -q 'rm -f /etc/systemd/system/klipper.service' $H/.sudo.log"
+check "uninstall stops and removes the saved_variables safeguard timer" "grep -q 'rm -f /etc/systemd/system/wm-sv-guard.timer' $H/.sudo.log"
 check "uninstall keeps user folders" "[ -d $H/klipper/klippy ] && [ -f $H/printer_data/config/printer.cfg ]"
 
 echo "== missing / broken stage"
@@ -711,6 +732,43 @@ rm -f "$G2/printer_data/wm-tools/wm_canids.py"
 check "match: doctor notices a missing wm_canids.py" "yes n | WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'wm_canids.py is missing or different'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
 check "match: --rpi-cfg puts wm_canids.py back" "cmp $ROOT/scripts/wm_canids.py $G2/printer_data/wm-tools/wm_canids.py"
+
+echo "== 2.8.0: Z offset tools, unload menu, safety check, virtual pins, chamber light, macro patches"
+CF2="$G2/printer_data/config"
+check "rpi-cfg 2.8.0: the four new files are installed and included once" "(for f in rpi_zoffset.cfg rpi_virtual_pins.cfg rpi_unload.cfg rpi_safety.cfg; do cmp $ROOT/rpi-cfg/\$f $CF2/\$f && [ \$(grep -c \"^\\[include \$f\\]\" $CF2/printer.cfg) = 1 ] || exit 1; done)"
+check "rpi-cfg 2.8.0: rpi_virtual_pins.cfg is included above rpi_zoffset.cfg (Klipper must read [wm_virtual_pins] first)" "[ \$(grep -n '^\\[include rpi_virtual_pins.cfg\\]' $CF2/printer.cfg | cut -d: -f1) -lt \$(grep -n '^\\[include rpi_zoffset.cfg\\]' $CF2/printer.cfg | cut -d: -f1) ]"
+check "rpi-cfg 2.8.0: the new includes sit before the SAVE_CONFIG block" "! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -qE 'include rpi_(zoffset|virtual_pins|unload|safety|light)'"
+check "virtual pins: the driver is in both factory folders, in their checksum lists, and in the installed Klipper" "(for m in ultra ultra-s; do grep -q 'klipper/klippy/extras/wm_virtual_pins.py' $ROOT/factory/\$m/SHA256SUMS && [ -f $ROOT/factory/\$m/klipper/klippy/extras/wm_virtual_pins.py ] || exit 1; done; [ ! -d $G2/klipper/klippy/extras ] || cmp $ROOT/factory/ultra-s/klipper/klippy/extras/wm_virtual_pins.py $G2/klipper/klippy/extras/wm_virtual_pins.py)"
+check "virtual pins: rpi_zoffset.cfg uses a wm_pin and rpi_virtual_pins.cfg defines the section" "grep -q '^pin: wm_pin:nozzle_heat_growth' $ROOT/rpi-cfg/rpi_zoffset.cfg && grep -q '^\\[wm_virtual_pins\\]' $ROOT/rpi-cfg/rpi_virtual_pins.cfg"
+check "first run calibration: the old name is gone from the macros, the screen panel and the docs of rpi-cfg" "! grep -rn 'WM_FULL_CALIBRATION' $ROOT/rpi-cfg/*.cfg $ROOT/zr_tools/*.py $ROOT/installer.sh"
+check "unload menu: the work macro is hidden, the menu and stop are not" "grep -q '^\\[gcode_macro _WM_UNLOAD_GO\\]' $ROOT/rpi-cfg/rpi_unload.cfg && grep -q '^\\[gcode_macro WM_UNLOAD_MENU\\]' $ROOT/rpi-cfg/rpi_unload.cfg && grep -q '^\\[gcode_macro WM_UNLOAD_STOP\\]' $ROOT/rpi-cfg/rpi_unload.cfg && ! grep -q '^\\[gcode_macro WM_UNLOAD_GO\\]' $ROOT/rpi-cfg/rpi_unload.cfg"
+check "factory macros (both models): trims and heat growth in _OFFSET_SET, pause guard, second wipe, light at print start, runout only while printing, TEST_W4 gone" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q 'wm_z_trim_all' \$d/change_macros.cfg && grep -q 'wm_nozzle_growth' \$d/change_macros.cfg && grep -q '^\\[gcode_macro _WM_PAUSE_STATE\\]' \$d/macros.cfg && grep -q 'Nothing to resume' \$d/macros.cfg && grep -q 'WIPE_NOZZLE  .*right before the mesh' \$d/macros.cfg && grep -q 'WM_CHAMBER_LIGHT STATE=on' \$d/macros.cfg && ! grep -q 'TEST_W4' \$d/offset_calibrate.cfg && for n in 0 1 2 3; do grep -q 'print_stats.state == \"printing\"' \$d/extruder\$n.cfg || exit 1; done || exit 1; done)"
+check "macro patches: the list is up to date with the factory files of this version" "[ ! -d $ROOT/.git ] || python3 $ROOT/tools/make_macro_patches.py 8b47b12 2.8.0 --check"
+MP="$T/mp"; rm -rf "$MP"; mkdir -p "$MP"; if [ -d "$ROOT/.git" ]; then for f in macros.cfg change_macros.cfg offset_calibrate.cfg extruder0.cfg extruder1.cfg extruder2.cfg extruder3.cfg; do git -C "$ROOT" show 8b47b12:factory/ultra-s/config/$f > "$MP/$f"; done
+check "macro patches: without --write nothing changes and the exit code says changes are needed" "cp -r $MP $MP.0; python3 -I $ROOT/scripts/wm_macro_patches.py $MP >/dev/null; [ \$? = 10 ] && diff -r $MP $MP.0"
+python3 -I "$ROOT/scripts/wm_macro_patches.py" "$MP" --write --stamp TST >/dev/null
+check "macro patches: the 2.7.10 files become the 2.8.0 files, with a copy of each changed file" "(for f in macros.cfg change_macros.cfg offset_calibrate.cfg extruder0.cfg extruder1.cfg extruder2.cfg extruder3.cfg; do cmp $MP/\$f $ROOT/factory/ultra-s/config/\$f && [ -f $MP/\$f.wm-before-macro-patches-TST ] || exit 1; done)"
+check "macro patches: a second run changes nothing" "python3 -I $ROOT/scripts/wm_macro_patches.py $MP --write --stamp TS2; [ \$? = 0 ] && ! ls $MP/*.wm-before-macro-patches-TS2 2>/dev/null"
+git -C "$ROOT" show 8b47b12:factory/ultra-s/config/change_macros.cfg | sed 's/Z={offset_z} move=1/Z={offset_z + 0.01} move=1/' > "$MP/change_macros.cfg"
+check "macro patches: lines you changed yourself are left alone and reported (exit 11)" "python3 -I $ROOT/scripts/wm_macro_patches.py $MP --write --stamp TS3 > $T/mp.out; [ \$? = 11 ] && grep -q 'not changed change_macros.cfg' $T/mp.out && grep -q 'offset_z + 0.01' $MP/change_macros.cfg"
+fi
+check "macro patches: the update runs the step, after the printer.cfg merge" "grep -q 'step_cfgmerge; step_macro_patches;' $ROOT/installer.sh"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li0.out" 2>&1 </dev/null
+check "chamber light: without a screen board nothing is set up" "grep -q 'No screen board has announced its chamber light yet' $T/li0.out && ! grep -q 'power chamber_light' $CF2/moonraker.conf && [ ! -f $CF2/rpi_light.cfg ]"
+echo '{"url": "http://10.0.0.9:8765"}' > "$CF2/rpi_chamber_light.json"
+check "chamber light: dry run changes nothing" "WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --light --dry-run >/dev/null 2>&1 </dev/null; ! grep -q 'power chamber_light' $CF2/moonraker.conf && [ ! -f $CF2/rpi_light.cfg ]"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li1.out" 2>&1 </dev/null
+check "chamber light: the power device is written for the board address, with a copy of moonraker.conf" "[ \$(grep -c 'http://10.0.0.9:8765/light' $CF2/moonraker.conf) = 3 ] && grep -q '^\\[power chamber_light\\]' $CF2/moonraker.conf && ls $CF2/moonraker.conf.wm-before-light-*"
+check "chamber light: rpi_light.cfg is installed and included once, before the SAVE_CONFIG block" "cmp $ROOT/config/rpi_light.cfg $CF2/rpi_light.cfg && [ \$(grep -c '^\\[include rpi_light.cfg\\]' $CF2/printer.cfg) = 1 ] && ! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -q 'include rpi_light'"
+NL1=$(ls "$CF2" | grep -c 'wm-before-light')
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li2.out" 2>&1 </dev/null
+check "chamber light: a second run changes nothing and makes no copies" "grep -q 'already has the chamber light' $T/li2.out && [ \$(ls $CF2 | grep -c 'wm-before-light') = $NL1 ] && [ \$(grep -c '^\\[include rpi_light.cfg\\]' $CF2/printer.cfg) = 1 ]"
+echo '{"url": "http://10.0.0.20:8765"}' > "$CF2/rpi_chamber_light.json"
+check "chamber light: the doctor notices a new board address" "WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 </dev/null | grep -q 'chamber light: moonraker.conf has no \\[power chamber_light\\] for the screen board at http://10.0.0.20:8765'"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light >/dev/null 2>&1 </dev/null
+check "chamber light: a new board address is corrected" "[ \$(grep -c 'http://10.0.0.20:8765/light' $CF2/moonraker.conf) = 3 ] && ! grep -q '10.0.0.9' $CF2/moonraker.conf"
+check "chamber light: --help lists --light, and the screen patches look for the Moonraker call" "bash $ROOT/installer.sh --help | grep -q -- '--light' && [ \$(grep -c 'machine.device_power.post_device' $ROOT/scripts/screen_board.sh) = 2 ]"
+rm -f "$CF2/rpi_chamber_light.json"
 CI="$T/ci"; mkdir -p "$CI"; for i in 0 1 2 3; do cp "$ROOT/factory/ultra-s/config/wm_zru_thr$i.cfg" "$CI/"; sed -i "s/^canbus_uuid:.*/canbus_uuid: ac000000000$((i+1))/" "$CI/wm_zru_thr$i.cfg"; done
 rm -rf "$T/ci0"; cp -r "$CI" "$T/ci0"
 check "canids script: show lists the four ids" "[ \$(python3 $ROOT/scripts/wm_canids.py --config $CI show | grep -c '^T[0-3] [0-9a-f]\\{12\\}\$') = 4 ]"

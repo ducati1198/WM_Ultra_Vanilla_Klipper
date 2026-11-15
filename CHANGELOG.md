@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.8.0
+
+Z offset tools with a guided calibration, an unload menu, pause guards, the chamber light through Moonraker, and the fixes found on the dev Pi since 2.7.10. Everything was used on a ZR Ultra-S unless a line says otherwise.
+
+**New**
+
+- **Z offset tools (`rpi-cfg/rpi_zoffset.cfg`, README 4.3).**
+  - `WM_OFFSETS_Z_HOT`: the Z offset of every tool measured the way a print takes its reference: bed 60 C, nozzle 140 C, wiped, touches at the bed centre, T0 first and last. Only Z is replaced. Nothing is saved when the two T0 results are more than 0.02 mm apart.
+  - `WM_NOZZLE_GROWTH_CAL`: one-time measurement of how much a nozzle grows with heat (touch at 250 C, 140 C, 250 C). The correction is applied at every tool change above 140 C. On / off switch **Nozzle Heat Growth** in Fluidd, Outputs.
+  - `WM_Z_TRIM` and the window `WM_Z_TRIM_MENU`: a saved first layer adjustment for all tools and per tool, kept across tool changes and restarts.
+  - `WM_FULL_OFFSET_CAL`: a window that runs the three steps one after the other (X and Y with `WM_OFFSETS_ACCURATE`, hot Z, heat growth) and explains the first layer test print and the trims.
+  - `_OFFSET_SET` (`change_macros.cfg`) adds the trims and the heat growth to the saved tool offset. All are 0 until you set them.
+  - `START_PRINT` wipes T0 once more right before the bed mesh.
+  - One touch that is not counted before the counted touches, and a console line every 30 s while a nozzle or the bed heats or cools (`_WM_WAIT_TEMP`). These two were only checked offline, not in a run on the printer.
+- **`first-layer-stl/`:** flat test squares, one per tool head with its number cut out, and a 5 patch bed test.
+- **`WM_FULL_CALIBRATION` is now `WM_FIRST_RUN_CAL`** (window title First Run Calibration, also on the touchscreen's Calibration page). It has 7 stages: the new stage 4 runs `WM_OFFSETS_Z_HOT` right after the rapid offsets, because those measure Z cold. The new stage was only checked offline.
+- **Unload menu `WM_UNLOAD_MENU` (`rpi-cfg/rpi_unload.cfg`):** one tool or all tools, with or without an ACE Pro, confirm window, saved temperature, empty tools skipped, refused during a print or pause. `WM_UNLOAD_STOP` drops the rest.
+- **Own virtual pin driver `wm_virtual_pins.py`** (`rpi-cfg/rpi_virtual_pins.cfg`, pins named `wm_pin:`), so Fluidd switches work with or without the ACE driver. Based on Pedro Lamas's virtual_pins (GPLv3).
+- **Chamber light through Moonraker.** The light is the power device `chamber_light` (`scripts/wm_light_conf.py` writes it into `moonraker.conf` from the address the screen board announces, and corrects it when the board gets a new address). New macro `WM_CHAMBER_LIGHT` (`config/rpi_light.cfg`), and a print turns the light on at its start. The two Light buttons of the touchscreen now switch that device instead of calling the root helper, so Fluidd and the screen always agree; a board patched by an older version is brought up to date by its Update. New command `./installer.sh --light`; an install, `--update` and the Doctor do it too. The light service and the root helper on the board stay.
+- **Start-up safety check (`rpi-cfg/rpi_safety.cfg`):** the grip check is switched on again when an interrupted filament insert left it off.
+- **One good copy of `saved_variables.cfg`** (2.7.11, never published on its own): see below.
+
+**Fixed**
+
+- **`PAUSE` twice, `RESUME` without a pause (`macros.cfg`, `rpi_print_end.cfg`).** A second `PAUSE` during a pause ran the whole pause again and lost the tool map of the print. It now does nothing and says so. `RESUME` outside a pause says "Nothing to resume". The tool map is kept for the resume.
+- **`ZR_RETRACT` skipped the tool pick-up when the tool was in its dock (`zr_tools.cfg`).** It compared the active extruder name, which stays the same after a tool is docked. Not yet tried on a printer without an ACE Pro.
+- **A filament runout outside a print no longer starts the pause countdown** (`extruder0.cfg` to `extruder3.cfg`).
+- **`TEST_W4` removed** (`offset_calibrate.cfg`), nothing used it.
+- `_WM_UNLOAD_GO` is hidden (it was `WM_UNLOAD_GO`); the menu runs it.
+
+**Update on a Pi that is already installed**
+
+- **New step "Fixes inside WonderMaker's macro files" (`scripts/wm_macro_patches.py`).** An update never replaced `macros.cfg`, `change_macros.cfg`, `offset_calibrate.cfg` and `extruder0-3.cfg`, so fixes inside them only reached new installs. The update now makes each fix as a small text change: old lines found are replaced, a fix that is already in is left, and lines you changed yourself are left alone and listed. A copy of every changed file is kept. The list is `scripts/wm_macro_patches.json`, built by `tools/make_macro_patches.py`.
+- The new `rpi-cfg` files are copied and included by the update. `rpi_virtual_pins.cfg` is included above `rpi_zoffset.cfg`, and the driver is copied first.
+- Update the screen board too (its Update button, or `./installer.sh --update-boards`): it gets the First run calibration button and the Light buttons that go through Moonraker. Update the Fluidd panel to 1.8.0 for its chamber light button.
+
+**Tests:** new checks for the macro patches, the chamber light (`moonraker.conf` section, both screen patches and their upgrade), the Z offset macros and the hot Z stage.
+
+
+## 2.7.11
+
+Safeguard for `saved_variables.cfg` against a power cut. Tested on the dev Pi.
+
+- **One good copy of `saved_variables.cfg` is kept and put back when the file comes up empty.** Klipper and the ACE driver rewrite that file by wiping it first; a power cut in that moment left it empty, and Klipper then started with no tool offsets, calibration or ACE data (and stopped with "Unable to save variable"). New `scripts/wm_sv_guard.sh` (installed to `~/printer_data/scripts`): `backup` saves the live file as `saved_variables.cfg.wm-good` only when it is healthy (over 1000 bytes with `t0_position` and `box_modify_t0`); `restore` puts the good copy back when the live file is not healthy and keeps the bad one as `.wm-bad-<time>`. `klipper.service` runs `restore` before Klipper starts and `backup` after it stops; the new `wm-sv-guard.timer` runs `backup` every 10 minutes. Log: `~/printer_data/logs/wm_sv_guard.log`. Installed by install, update and repair (`step_svguard`), removed by `--uninstall`.
+
 ## 2.7.10
 
 Cleanup from the 2026-11-14 code audit (both models). Nothing changes on a print; tested on the dev Pi.

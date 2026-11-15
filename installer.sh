@@ -17,7 +17,8 @@
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
-# ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FULL_CALIBRATION, ...) and their include line in printer.cfg
+# ./installer.sh --light               set up the chamber light as a Moonraker power device (Fluidd, touchscreen and WM_CHAMBER_LIGHT then agree); needs an installed screen board
+# ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FIRST_RUN_CAL, WM_FULL_OFFSET_CAL, WM_Z_TRIM_MENU, WM_UNLOAD_MENU, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
 # ./installer.sh --hw-test             read-only live test: USB bridge, can0, CAN devices, camera, services
 # ./installer.sh --doctor              find problems, explain them, offer a fix for each (asks first)
@@ -214,6 +215,7 @@ while [ $# -gt 0 ]; do
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --pi-sensors)   MODE=pisensors ;;   # board temperature sensors + the host MCU, once Klipper runs
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
+        --light)        MODE=light ;;     # the chamber light as a Moonraker power device (needs an installed screen board)
         --fix-all)      FIXALL=1 ;;
         --repair)       MODE=repair ;;
         --update)       MODE=update ;;
@@ -417,7 +419,9 @@ nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
 rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
-    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; echo "$b"; done
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; [ "$b" = rpi_virtual_pins.cfg ] && continue; echo "$b"; done
+    # rpi_virtual_pins.cfg comes last: step_rpicfg puts each new include line above the first one, so the file handled last is read first by Klipper, and [wm_virtual_pins] must be read before rpi_zoffset.cfg uses a wm_pin
+    [ -f "$SCRIPT_DIR/rpi-cfg/rpi_virtual_pins.cfg" ] && echo rpi_virtual_pins.cfg; return 0
 }
 # Names: the config files this installer puts on the Pi used to be called wm_*.cfg (and wm_chamber_light.json,
 # wm-ultra-install.conf). Since 2.6.0 they are rpi_*.cfg. A Pi that has the old names is renamed once (copies of everything
@@ -461,11 +465,15 @@ rpi_names_migrate() {
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
     print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
-    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/rpi_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FULL_CALIBRATION, ...). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
+    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/rpi_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FIRST_RUN_CAL, ...). The folder also holds the Z offset tools (rpi_zoffset.cfg: WM_FULL_OFFSET_CAL, WM_OFFSETS_Z_HOT, WM_Z_TRIM_MENU), the unload menu (rpi_unload.cfg: WM_UNLOAD_MENU) and a start-up safety check (rpi_safety.cfg). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f
     [ -n "$(rpicfg_list)" ] || { print_warning "the rpi-cfg folder is missing from this repository: calibration macros not installed"; return 0; }
     if [ "$DRY" = 1 ] || [ ! -f "$cfg" ]; then echo -e "  ${DIM}would copy rpi-cfg/*.cfg into the config folder and add an [include] line for each to printer.cfg${NC}"; return 0; fi
+    # rpi_virtual_pins.cfg needs the driver wm_virtual_pins.py in Klipper's extras, or Klipper would not start: an update copies it here, before the include line is written
+    local vp="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_virtual_pins.py" ex="$HOME_DIR/klipper/klippy/extras"
+    if [ -f "$vp" ] && [ -d "$ex" ] && ! cmp -s "$vp" "$ex/wm_virtual_pins.py"; then cp "$vp" "$ex/wm_virtual_pins.py" && print_info "driver wm_virtual_pins.py copied into Klipper's extras (the switch Nozzle Heat Growth needs it)"; fi
     for f in $(rpicfg_list); do
+        if { [ "$f" = rpi_virtual_pins.cfg ] || [ "$f" = rpi_zoffset.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
         if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
         fi
@@ -483,6 +491,55 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     done
 }
 moonraker_py() { echo "$SCRIPT_DIR/scripts/wm_moonraker_conf.py"; }
+light_py() { echo "$SCRIPT_DIR/scripts/wm_light_conf.py"; }
+light_url() { [ -f "$(light_py)" ] && python3 -I "$(light_py)" url "$HOME_DIR/printer_data/config/rpi_chamber_light.json" 2>/dev/null; }
+step_light() {   # ./installer.sh --light, and in every install and update: the chamber light as a Moonraker power device
+    print_header "Chamber light"
+    why "The chamber light hangs on the screen board. As the Moonraker power device chamber_light it is switched by the Fluidd Toolheads card, by the Light buttons on the touchscreen and by the macro WM_CHAMBER_LIGHT, and all three always show the same state. A print turns it on at its start. The board tells the Pi its address by itself (rpi_chamber_light.json), so this step only works once a screen board is installed and has started."
+    local cd="$HOME_DIR/printer_data/config" conf="$HOME_DIR/printer_data/config/moonraker.conf" cfg="$HOME_DIR/printer_data/config/printer.cfg" url rc
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [power chamber_light] to moonraker.conf and rpi_light.cfg (WM_CHAMBER_LIGHT) to printer.cfg when a screen board has announced its light service${NC}"; return 0; fi
+    url="$(light_url)"
+    if [ -z "$url" ]; then print_info "No screen board has announced its chamber light yet (rpi_chamber_light.json is not in the config folder): nothing to set up. After the screen board is installed run ./installer.sh --light"; return 0; fi
+    [ -f "$conf" ] && [ -f "$cfg" ] && [ -f "$SCRIPT_DIR/config/rpi_light.cfg" ] || { print_info "moonraker.conf, printer.cfg or config/rpi_light.cfg is missing: chamber light not set up"; return 0; }
+    python3 -I "$(light_py)" conf "$conf" "$url"; rc=$?
+    case "$rc" in
+        10) cp -p "$conf" "$conf.wm-before-light-$STAMP"
+            python3 -I "$(light_py)" conf "$conf" "$url" --write; print_success "moonraker.conf: [power chamber_light] set to $url (copy: moonraker.conf.wm-before-light-$STAMP)"; MOONRAKER_CHANGED=1 ;;
+        12) print_warning "moonraker.conf has a [power chamber_light] section of your own: left as it is"; ;;
+        0)  print_success "moonraker.conf already has the chamber light ($url)" ;;
+        *)  print_warning "could not check moonraker.conf for the chamber light"; return 0 ;;
+    esac
+    if [ -f "$cd/rpi_light.cfg" ] && ! cmp -s "$SCRIPT_DIR/config/rpi_light.cfg" "$cd/rpi_light.cfg"; then cp "$cd/rpi_light.cfg" "$cd/rpi_light.cfg.wm-before-light-$STAMP"; fi
+    cp "$SCRIPT_DIR/config/rpi_light.cfg" "$cd/rpi_light.cfg"
+    if rpicfg_included rpi_light.cfg; then print_success "rpi_light.cfg (WM_CHAMBER_LIGHT) is installed"
+    else
+        cp "$cfg" "$cfg.wm-before-light-$STAMP"
+        if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include rpi_light.cfg]\n&/" "$cfg"; else sed -i "1i [include rpi_light.cfg]" "$cfg"; fi
+        print_success "rpi_light.cfg (WM_CHAMBER_LIGHT) is installed and included in printer.cfg (copy: printer.cfg.wm-before-light-$STAMP)"
+    fi
+}
+do_light() {   # ./installer.sh --light
+    [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
+    guard_not_printing
+    step_light
+    [ "$DRY" = 1 ] || { [ "$MOONRAKER_CHANGED" = 1 ] && [ "$TESTING" != 1 ] && SUDO systemctl restart moonraker; restart_klipper_after; }
+}
+macro_patches_py() { echo "$SCRIPT_DIR/scripts/wm_macro_patches.py"; }
+step_macro_patches() {   # --update: the fixes of this version inside WonderMaker's macro files (macros.cfg, change_macros.cfg, ...) on a Pi that is already installed
+    print_header "Fixes inside WonderMaker's macro files"
+    why "A new install gets the macro files of this repository. An update never replaced them, because they may hold your own edits, so fixes inside macros.cfg, change_macros.cfg, offset_calibrate.cfg and extruder0-3.cfg stayed behind. This step makes each fix as a small text change: where the old lines are still there they are replaced, where the fix is already in nothing happens, and lines you changed yourself are left alone and listed. A copy of every changed file is kept."
+    local cd="$HOME_DIR/printer_data/config" out rc
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would apply this version's fixes to macros.cfg, change_macros.cfg, offset_calibrate.cfg and extruder0-3.cfg${NC}"; return 0; fi
+    [ -f "$(macro_patches_py)" ] && [ -f "$SCRIPT_DIR/scripts/wm_macro_patches.json" ] && [ -d "$cd" ] || { print_info "nothing to compare"; return 0; }
+    out="$(python3 -I "$(macro_patches_py)" "$cd" --write --stamp "$STAMP" 2>&1)"; rc=$?
+    [ -n "$out" ] && echo "$out" | sed 's/^/        /'
+    case "$rc" in
+        0)  print_success "WonderMaker's macro files already have every fix of this version" ;;
+        10) print_success "WonderMaker's macro files updated (copies: <file>.wm-before-macro-patches-$STAMP)" ;;
+        11) warn_later "Some fixes were not made in WonderMaker's macro files because those lines are different on this Pi (listed in the update output). Compare with factory/$(model_now)/config in $REPO_DIR." ;;
+        *)  print_warning "could not check WonderMaker's macro files" ;;
+    esac
+}
 step_moonraker_tune() {   # moonraker.conf sections (file_manager, machine, ...), no timelapse paths that only repeat the defaults, and the filament_type fix in Moonraker's metadata.py (Fluidd's Jobs page stays on "Loading items" without it)
     print_header "Step 4f: Moonraker settings"
     why "Adds the [file_manager], [machine], [database] and [secrets] sections Fluidd needs, and removes the timelapse paths that only repeat Moonraker's defaults. Your own values are never changed; a copy of each changed file is kept."
@@ -505,6 +562,7 @@ do_rpicfg() {   # ./installer.sh --rpi-cfg
     # rpi_nozzle.cfg needs Klipper's gcode shell command extension: put it in first (an install or update does that in its own step)
     [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ ! -d "$HOME_DIR/klipper/klippy/extras" ] || [ "$WANT_SHELLCMD" != 1 ] || step_shellcmd
     step_rpicfg
+    step_light
     step_moonraker_tune
     [ "$DRY" = 1 ] || { [ "$MOONRAKER_CHANGED" = 1 ] && [ "$TESTING" != 1 ] && SUDO systemctl restart moonraker; restart_klipper_after; print_info "In Fluidd run WM_CAL_HELP to list the calibration macros."; }
 }
@@ -660,12 +718,27 @@ step_modules() {
     [ "$bad" = 0 ] || warn_later "Some WonderMaker modules did not import. Klipper may stop with an error about them. Check: cd ~/klipper/klippy && ~/klippy-env/bin/python -c 'import sys; sys.path.insert(0, \".\"); import extras.<module>'"
 }
 
+step_svguard() {   # one good copy of saved_variables.cfg: a power cut can leave it empty (Klipper wipes the file before it writes it), and Klipper then starts with no offsets or calibration
+    local sd="$HOME_DIR/printer_data/scripts" old=/etc/systemd/system/klipper.service.d/wm-sv-guard.conf
+    [ -f "$SCRIPT_DIR/scripts/wm_sv_guard.sh" ] || { print_warning "scripts/wm_sv_guard.sh is missing from this repository: the saved_variables safeguard is not installed"; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm_sv_guard.sh and the wm-sv-guard timer (one good copy of saved_variables.cfg, checked every 10 minutes)${NC}"; return 0; fi
+    mkdir -p "$sd"; install -m 755 "$SCRIPT_DIR/scripts/wm_sv_guard.sh" "$sd/wm_sv_guard.sh"
+    SUDO install -m 644 "$SCRIPT_DIR/config/wm-sv-guard.service" /etc/systemd/system/wm-sv-guard.service
+    SUDO install -m 644 "$SCRIPT_DIR/config/wm-sv-guard.timer"   /etc/systemd/system/wm-sv-guard.timer
+    record "FILE /etc/systemd/system/wm-sv-guard.service"; record "FILE /etc/systemd/system/wm-sv-guard.timer"
+    [ -f "$old" ] && SUDO rm -f "$old"   # a hand-made drop-in with the same two lines the service file has now
+    SUDO systemctl daemon-reload
+    SUDO systemctl enable wm-sv-guard.timer
+    SUDO systemctl start wm-sv-guard.timer
+    [ "$TESTING" = 1 ] || "$sd/wm_sv_guard.sh" backup
+}
 step_services_files() {
     SUDO install -m 644 "$SCRIPT_DIR/config/moonraker.service" /etc/systemd/system/moonraker.service
     SUDO install -m 644 "$SCRIPT_DIR/config/klipper.service"   /etc/systemd/system/klipper.service
     record "FILE /etc/systemd/system/moonraker.service"; record "FILE /etc/systemd/system/klipper.service"
     SUDO systemctl daemon-reload
     SUDO systemctl enable moonraker
+    step_svguard
 }
 polkit_rule_present() {   # rules.d is root/polkitd-only (mode 700), so a plain test as the user cannot see the file
     SUDO test -f /etc/polkit-1/rules.d/moonraker.rules || SUDO test -f /usr/share/polkit-1/rules.d/moonraker.rules || SUDO test -f /etc/polkit-1/localauthority/50-local.d/10-moonraker.pkla
@@ -2269,7 +2342,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_wm_modules; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_patches; step_pidcfg; step_wm_modules; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -2666,7 +2739,7 @@ do_doctor() {
         grep -q 'zru-s.cfg' < <(validate_config 2>&1) && offer_fix "set printer.cfg for the $(model_now)" step_model
     fi
     local rf; for rf in $(rpicfg_list); do
-        if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's calibration macros file $rf is missing" "WM_BED_LEVELING, WM_FULL_CALIBRATION and the other WM_ macros do not exist. It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
+        if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's calibration macros file $rf is missing" "WM_BED_LEVELING, WM_FIRST_RUN_CAL and the other WM_ macros do not exist. It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
         elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf" "The WM_ calibration macros are not loaded."; offer_fix "add the include line for $rf" step_rpicfg
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
         else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
@@ -2677,6 +2750,15 @@ do_doctor() {
             else doc_bad "wm_canids.py is missing or different in ~/printer_data/wm-tools" "WM_EXTRUDER_SETUP could not write the CAN ids."; offer_fix "copy wm_canids.py again" step_rpicfg; fi
         fi
     done
+    local lurl; lurl="$(light_url)"
+    if [ -n "$lurl" ] && [ -f "$HOME_DIR/printer_data/config/moonraker.conf" ]; then
+        python3 -I "$(light_py)" conf "$HOME_DIR/printer_data/config/moonraker.conf" "$lurl"; case "$?" in
+            0) if rpicfg_included rpi_light.cfg; then doc_ok "chamber light: Moonraker power device chamber_light at $lurl, WM_CHAMBER_LIGHT installed"
+               else doc_bad "chamber light: rpi_light.cfg (WM_CHAMBER_LIGHT) is not included in printer.cfg" "A print does not turn the light on at its start."; offer_fix "install rpi_light.cfg" step_light; fi ;;
+            10) doc_bad "chamber light: moonraker.conf has no [power chamber_light] for the screen board at $lurl (missing, or the board got a new address)" "The Light buttons in Fluidd and on the touchscreen do nothing."; offer_fix "write [power chamber_light] for $lurl" step_light ;;
+            12) doc_ok "chamber light: moonraker.conf has a [power chamber_light] section of your own" ;;
+        esac
+    fi
     if [ -f "$(cfgmerge_py)" ] && [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] && [ -f "$(cfgmerge_new_dir)/printer.cfg" ]; then
         if [ -f "$(cfgmerge_base_dir)/printer.cfg" ]; then doc_ok "the WonderMaker printer.cfg this Pi was set up from is recorded (the starting point for merging a newer version)"
         else doc_bad "the WonderMaker printer.cfg this Pi was set up from is not recorded" "Without it a newer WonderMaker version cannot be merged into your printer.cfg (3-way). Fixing records this repository's factory file as the starting point."; offer_fix "record the factory printer.cfg as the starting point" cfgmerge_record; fi
@@ -2848,6 +2930,7 @@ uninstall_system_files() {
     SUDO systemctl stop klipper; SUDO systemctl stop moonraker
     SUDO systemctl disable klipper; SUDO systemctl disable moonraker
     [ -f /etc/systemd/system/klipper-mcu.service ] && { SUDO systemctl stop klipper-mcu; SUDO systemctl disable klipper-mcu; }   # the host MCU this installer built
+    [ -f /etc/systemd/system/wm-sv-guard.timer ] && { SUDO systemctl stop wm-sv-guard.timer; SUDO systemctl disable wm-sv-guard.timer; }   # the saved_variables.cfg safeguard
     [ -f /etc/systemd/system/wm-pi-update.path ] && { SUDO systemctl stop wm-pi-update.path; SUDO systemctl disable wm-pi-update.path; }   # Fluidd's Update button helper
     [ -f /etc/systemd/system/wm-panel-update.path ] && { SUDO systemctl stop wm-panel-update.path; SUDO systemctl disable wm-panel-update.path; }   # the same for the Fluidd panel
     local k v
@@ -3537,6 +3620,7 @@ case "$MODE" in
     zrtools)    do_zr_tools; exit $? ;;
     pisensors)  guard_not_printing; step_pi_sensors; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     rpicfg)     do_rpicfg; exit $? ;;
+    light)      do_light; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     webcamsetup) do_webcam_setup; exit $? ;;
     pidcfg)     do_pidcfg; exit $? ;;
     importset)  do_import_settings; exit $? ;;
@@ -3580,7 +3664,7 @@ guard_not_printing
 rpi_names_migrate
 save_answers
 PROG_STEPS=14
-step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
+step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
 step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_fluidd_categories

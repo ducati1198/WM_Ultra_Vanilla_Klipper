@@ -1218,7 +1218,7 @@ class Panel(ViewsMixin, ScreenPanel):
         # (Fluidd and here), so they are sent straight away.
         items = [("home", "Home all", "G28", "Home all axes?")]
         items += [x for x in (
-            ("settings", "Full calibration", "WM_FULL_CALIBRATION", None),
+            ("settings", "First run calibration", "WM_FIRST_RUN_CAL", None),
             ("bed-level", "Bed leveling", "WM_BED_LEVELING", None),
             ("z-farther", "Probe calibrate (Z height)", "WM_PROBE_CALIBRATE", None),
             ("fine-tune", "Offsets: rapid", "WM_OFFSETS_RAPID", None),

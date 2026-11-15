@@ -23,7 +23,7 @@ Details:
 1. [Disclaimer](#disclaimer-use-at-your-own-risk) · [What you get](#what-you-get)
 2. [Hardware](#2-hardware)
 3. [Install](#3-install) (including [the installer menu](#the-installer-menu) and the [command table](#34-command-table))
-4. [When the main board is connected](#4-when-the-main-board-is-connected) (including the [CAN ids of the other boards](#41-can-ids-of-the-other-boards) and the [slicer setup: OrcaSlicer and the Machine G-code](#42-slicer-use-orcaslicer-and-set-the-machine-g-code))
+4. [When the main board is connected](#4-when-the-main-board-is-connected) (including the [CAN ids of the other boards](#41-can-ids-of-the-other-boards), the [Z offset and first layer calibration](#43-z-offset-and-first-layer-calibration) and the [slicer setup: OrcaSlicer and the Machine G-code](#42-slicer-use-orcaslicer-and-set-the-machine-g-code))
 5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools) (including the [OrcaSlicer plugin](#install-the-orcaslicer-plugin-optional-works-without-an-ace-pro))
 6. [KlipperScreen on the Raspberry Pi (touchscreen)](#6-klipperscreen-on-the-raspberry-pi-touchscreen)
 7. [KlipperScreen on the WonderMaker screen board (optional)](#7-klipperscreen-on-the-wondermaker-screen-board-optional)
@@ -106,7 +106,7 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 ## Vanilla Klipper: what is different
 
 - **Klipper and Moonraker are the upstream ones**, not WonderMaker's modified copies, and they are pinned in this repository (Klipper v0.13.0-827-g29d4ec2d6, Moonraker v0.11.0-4-gb559b9a). Upstream is what WonderMaker's code was forked from, so the printer's own modules are added to it (the 5 compiled ones, unchanged, and the Python ones).
-- **A clean start.** The files in this repository carry no bed mesh, PID results, input shaper, probe offset or tool offsets: a new install calibrates itself (`WM_BED_LEVELING`, `WM_FULL_CALIBRATION`, the Z offset of each tool; see the macros in `rpi-cfg/rpi_calibration.cfg`). The probe `z_offset` in `printer.cfg` starts at `0`.
+- **A clean start.** The files in this repository carry no bed mesh, PID results, input shaper, probe offset or tool offsets: a new install calibrates itself (`WM_BED_LEVELING`, `WM_FIRST_RUN_CAL`, the Z offset of each tool with `WM_FULL_OFFSET_CAL`; see the macros in `rpi-cfg/rpi_calibration.cfg`). The probe `z_offset` in `printer.cfg` starts at `0`.
 - **MCU firmware is WonderMaker's.** The boards keep their firmware (the installer never flashes anything). Upstream Klipper would print "deprecated code" warnings for it (Fluidd would show them); `wm_mcu_tweaks` hides those two (set `hide_mcu_deprecated: False` under `[wm_mcu_tweaks]` to show them). They are harmless: the printer works.
 - **Fan guard:** `rpi_fan_guard.cfg` replaces WonderMaker's patched fan check with plain Klipper macros: if the part cooling fan (and, on the Ultra-S, the auxiliary fan) is on but reports 0 RPM for 30 seconds, it shows an error and pauses the print. On an Ultra, `[include zru-s.cfg]` is commented out and the guard only watches the part fan. It never checks the fans in `zru-s.cfg` (chamber fans, air filter). Set `variable_enabled: 0` to switch it off.
 - **Python:** Klipper runs in Python 3.9 (`uv` installs it next to Bookworm's 3.11); Moonraker runs in Bookworm's 3.11.
@@ -304,7 +304,8 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --can-ids` | asks the boards on the CAN bus for their ids and shows which ids in the config answer (main board, hub, extruder board, T0-T3, load cell). A board whose id does not answer is offered the unknown id on the bus (a copy of the file is saved first); with several unknown ids it asks which one. Klipper is stopped for the scan and started again. `./installer.sh --can-ids set T2 ac8b57e80210` sets one id by hand. The same check runs at first start, in the Doctor and in Fix everything. |
 | `./installer.sh --pid-cfg` | checks that the PID settings of the hotends and the bed are in `printer.cfg`, where Klipper's `SAVE_CONFIG` can store a PID result, and fixes them. The chamber heater is left as `zru-s.cfg` has it (see `chamber_test/README.md`). A copy of every changed file is kept as `<file>.wm-before-pidcfg-<time>`. The install, `--update` and the Doctor do this too |
 | `./installer.sh --pi-sensors` | once Klipper is running: adds the chip temperature of every printer board and connects Klipper to the host MCU (`[mcu rpi]`, the Klipper-Mcu service). Klipper restarts; if it does not come back the change is undone. Details: [docs/HOST_MCU.md](docs/HOST_MCU.md). Also done at the end of an install and an update. |
-| `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_FULL_CALIBRATION`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
+| `./installer.sh --light` | sets up the chamber light as the Moonraker power device `chamber_light` (the Fluidd card, the touchscreen buttons and `WM_CHAMBER_LIGHT` then always agree, and a print turns the light on at its start). Needs an installed screen board; an install and `--update` do it too |
+| `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_FIRST_RUN_CAL`, the Z offset tools `WM_FULL_OFFSET_CAL` and `WM_Z_TRIM_MENU`, the unload menu `WM_UNLOAD_MENU`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
 | `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, the Fluidd panel and the screen boards added with `--board`, and says how to update |
 | `./installer.sh --update-all` | pulls the installer and the Fluidd panel, runs `--update --yes`, then updates the screen boards (not during a print) |
@@ -386,6 +387,56 @@ If you leave the line out, Orca adds its own `M191 S<chamber>` to the file, and 
 What `M191` does while it waits: the part fan (50 %) and the auxiliary fan (100 %) circulate the air, the nozzle on the carriage is held at 150 C, the bed is heated, and the chamber heater goes to the target. It waits until the chamber is within 1 C of the target, then switches the fans and the nozzle off. `START_PRINT` sets its own temperatures afterwards. The limit is 65 C; a higher chamber value stops with an error, and `S0` does nothing.
 
 Settings (in `macros.cfg`, macro `M191`): `max_chamber` 65, `part_fan_speed` 0.5, `aux_fan_speed` 1.0, `extruder_preheat_temp` 150 (0 = off), `bed_assist_temp` 100 (0 = off, used only when the slicer sends no `BED_TEMP=`).
+
+### 4.3 Z offset and first layer calibration
+
+Tested on a ZR Ultra-S (hot Z, heat growth, trims and the guided run). `WM_FULL_OFFSET_CAL` opens a window that takes you through it, one step after the other. All of these are in the Fluidd macro category **Offset Calibration**.
+
+**How the printer sets its Z height**
+
+- **Every print:** `START_PRINT` heats T0 to 140 C, homes, wipes T0 (once more right before the mesh), and probes the bed mesh with T0. The nozzle itself touches the bed. Z zero for the print is where T0's nozzle touches the bed at 140 C.
+- **Every tool change:** the printer applies the saved Z offset of the tool it picked up. T0 is the reference and is always 0.
+- On top of the saved offset it adds a saved fine adjustment (trim) and, when switched on, a correction for how much the nozzle grows when it is hot.
+
+**Before you start:** a clean bed and clean nozzle tips (a blob of plastic reads as a longer nozzle), filament loaded in every tool head for step 1, all tool heads in their docks, nozzle heaters off. The bed may be warm.
+
+| Step | Macro | What happens | Time |
+|---|---|---|---|
+| 1. X and Y offsets, clean nozzles | `WM_OFFSETS_ACCURATE` | each nozzle is purged at 220 C and wiped, you remove the purged plastic, every tool is measured on the nozzle gauge | about 25 min |
+| 2. Z offset of every tool, hot | `WM_OFFSETS_Z_HOT` | bed 60 C, each tool at 140 C, wiped, one touch that is not counted and then 5 counted touches at the bed centre, T0 first and again last as a check. Only the Z numbers are replaced | about 10 min |
+| 3. Nozzle heat growth, one time | `WM_NOZZLE_GROWTH_CAL` | T0 touches at 250 C, at 140 C and at 250 C again. The growth per degree is saved and the correction switches on | about 12 min |
+| After | first layer test print, then `WM_Z_TRIM_MENU` | print one square per tool head (STL files in [`first-layer-stl/`](first-layer-stl)), look at each square and correct with the trim window | |
+
+- Nothing is saved, and the console says why, when the two T0 touches of step 2 (or the two hot touches of step 3) are more than 0.02 mm apart, a touch is missing, or a result is outside its limits. Clean the nozzles and run it again.
+- While a nozzle or the bed heats or cools, the console writes a line every 30 s, for example `T0 at 201 C, waiting for 140 C`.
+- The switch **Nozzle Heat Growth** (Fluidd, Outputs) turns the correction on and off; the measured value is kept. `WM_NOZZLE_GROWTH` shows the value.
+- `WM_FIRST_RUN_CAL` (the one click calibration after an install) runs step 2 by itself, right after its rapid offsets.
+
+**The trim window (`WM_Z_TRIM_MENU`)**
+
+- One trim for all tools and one per tool head. Plus is further from the bed, minus is closer. Buttons from 0.01 to 0.1 mm, limit 0.3 mm either way.
+- How to read a square: a closed smooth surface where the lines just touch is good. Rough, see-through or with ridges between the lines is too close: use a plus trim. Lines that do not touch each other and lift easily is too far: use a minus trim.
+- Use the trim for all tools when every square is off the same way, and a tool trim when one square differs from the others.
+- Trims are saved on the printer and stay across tool changes and restarts. Fluidd's own Z adjust is reset at the next tool change.
+- In the console: `WM_Z_TRIM` shows the values, `WM_Z_TRIM T=1 Z=-0.02` sets one.
+
+**When to do it again**
+
+| What changed | Do again |
+|---|---|
+| A nozzle was changed, or a tool head was taken apart | steps 1 and 2, then the test print |
+| A crash, or one tool prints too high or too low | step 2, then the test print |
+| A different hotend or nozzle type | step 3, then the test print |
+| Only the first layer feel is off | the test print and the trims |
+
+Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `saved_variables.cfg`: `t1_offset` to `t3_offset` (third number is Z), `wm_z_trim_all`, `wm_z_trim_t0` to `wm_z_trim_t3`, `wm_nozzle_growth`, `wm_nozzle_growth_meas`, `wm_z_ref_temp`. Files: `rpi_zoffset.cfg`, `rpi_virtual_pins.cfg`, the driver `wm_virtual_pins.py`, and `_OFFSET_SET` in `change_macros.cfg`.
+
+### 4.4 Unload menu, pause guard and chamber light
+
+- **`WM_UNLOAD_MENU`** (Fluidd and the touchscreen): pick one tool or all tools, confirm, and the filament is unloaded at the tool's saved temperature. With an ACE Pro it uses `ACE_WM_UNLOAD`, without one `ZR_RETRACT`. Tools go one after the other, a tool with nothing loaded is skipped, and it refuses while a print runs or is paused. `WM_UNLOAD_STOP` drops the rest of the list.
+- **Pause and resume guards:** a second `PAUSE` while the print is already paused does nothing and says so, `RESUME` outside a pause says "Nothing to resume", and the tool map of the print is kept for the resume.
+- **Start-up safety check:** if an interrupted filament insert left the grip check off, it is switched on again 8 s after Klipper starts, with a message.
+- **Chamber light:** with a WonderMaker screen board the light is the Moonraker power device `chamber_light`. The Fluidd Toolheads card, the Light buttons on the touchscreen and `WM_CHAMBER_LIGHT STATE=on|off|toggle` all switch it and always show the same state. A print turns it on at its start. Set up by `./installer.sh --light` (an install and `--update` do it too, once the screen board has started).
 
 ## 5. Fluidd (web panel and ZR Tools)
 
@@ -748,7 +799,8 @@ installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: upstream Klipper and Moonraker (+ WonderMaker's modules), settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run Klipper on a Pi with no printer, see README-DEVBOX.md
-rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_calibration.cfg (calibration macros) and rpi_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and rpi_tool_leds.cfg (tool head LEDs: green filament, red none); installed by the installer
+first-layer-stl/        flat test squares for the first layer check after WM_FULL_OFFSET_CAL (one per tool head, and a 5 patch bed test)
+rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_zoffset.cfg (Z offset tools), rpi_unload.cfg (unload menu), rpi_safety.cfg, rpi_virtual_pins.cfg, rpi_calibration.cfg (calibration macros) and rpi_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and rpi_tool_leds.cfg (tool head LEDs: green filament, red none); installed by the installer
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                stage_from_repo.sh, wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins

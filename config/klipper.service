@@ -9,7 +9,10 @@ User=t13dp
 RemainAfterExit=no
 WorkingDirectory=/home/t13dp/klipper
 EnvironmentFile=/home/t13dp/printer_data/systemd/klipper.env
+# saved_variables.cfg: put the good copy back when a power cut left it empty (before Klipper reads it), keep a fresh copy after a stop
+ExecStartPre=-/home/t13dp/printer_data/scripts/wm_sv_guard.sh restore
 ExecStart=/home/t13dp/klippy-env/bin/python $KLIPPER_ARGS
+ExecStopPost=-/home/t13dp/printer_data/scripts/wm_sv_guard.sh backup
 Restart=always
 RestartSec=10
 
