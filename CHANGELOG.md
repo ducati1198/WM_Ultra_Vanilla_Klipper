@@ -14,7 +14,7 @@ Z offset tools with a guided calibration, an unload menu, pause guards, the cham
   - `_OFFSET_SET` (`change_macros.cfg`) adds the trims and the heat growth to the saved tool offset. All are 0 until you set them.
   - `START_PRINT` wipes T0 once more right before the bed mesh.
   - One touch that is not counted before the counted touches, and a console line every 30 s while a nozzle or the bed heats or cools (`_WM_WAIT_TEMP`). These two were only checked offline, not in a run on the printer.
-- **`first-layer-stl/`:** flat test squares, one per tool head with its number cut out, and a 5 patch bed test.
+- **`first-layer-stl/`:** flat test squares, one per tool head with its number cut out, and a 5 patch bed test. Also `Trim_Test_80x80.3mf`, a ready-made OrcaSlicer project: four squares of 80 x 80 mm, 0.2 mm high, one per tool head (square 1 = T0 to square 4 = T3), PLA 220 C, bed 55 C. Open, slice, print, then correct with `WM_Z_TRIM_MENU`.
 - **`WM_FULL_CALIBRATION` is now `WM_FIRST_RUN_CAL`** (window title First Run Calibration, also on the touchscreen's Calibration page). It has 7 stages: the new stage 4 runs `WM_OFFSETS_Z_HOT` right after the rapid offsets, because those measure Z cold. The new stage was only checked offline.
 - **Unload menu `WM_UNLOAD_MENU` (`rpi-cfg/rpi_unload.cfg`):** one tool or all tools, with or without an ACE Pro, confirm window, saved temperature, empty tools skipped, refused during a print or pause. `WM_UNLOAD_STOP` drops the rest.
 - **Own virtual pin driver `wm_virtual_pins.py`** (`rpi-cfg/rpi_virtual_pins.cfg`, pins named `wm_pin:`), so Fluidd switches work with or without the ACE driver. Based on Pedro Lamas's virtual_pins (GPLv3).

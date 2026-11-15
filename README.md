@@ -405,7 +405,7 @@ Tested on a ZR Ultra-S (hot Z, heat growth, trims and the guided run). `WM_FULL_
 | 1. X and Y offsets, clean nozzles | `WM_OFFSETS_ACCURATE` | each nozzle is purged at 220 C and wiped, you remove the purged plastic, every tool is measured on the nozzle gauge | about 25 min |
 | 2. Z offset of every tool, hot | `WM_OFFSETS_Z_HOT` | bed 60 C, each tool at 140 C, wiped, one touch that is not counted and then 5 counted touches at the bed centre, T0 first and again last as a check. Only the Z numbers are replaced | about 10 min |
 | 3. Nozzle heat growth, one time | `WM_NOZZLE_GROWTH_CAL` | T0 touches at 250 C, at 140 C and at 250 C again. The growth per degree is saved and the correction switches on | about 12 min |
-| After | first layer test print, then `WM_Z_TRIM_MENU` | print one square per tool head (STL files in [`first-layer-stl/`](first-layer-stl)), look at each square and correct with the trim window | |
+| After | first layer test print, then `WM_Z_TRIM_MENU` | print one square per tool head (ready-made OrcaSlicer project `Trim_Test_80x80.3mf` and STL files in [`first-layer-stl/`](first-layer-stl)), look at each square and correct with the trim window | |
 
 - Nothing is saved, and the console says why, when the two T0 touches of step 2 (or the two hot touches of step 3) are more than 0.02 mm apart, a touch is missing, or a result is outside its limits. Clean the nozzles and run it again.
 - While a nozzle or the bed heats or cools, the console writes a line every 30 s, for example `T0 at 201 C, waiting for 140 C`.
