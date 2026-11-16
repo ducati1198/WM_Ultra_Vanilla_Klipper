@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.13.0
+
+The hub sensors are tangle sensors, and the touchscreen comes back by itself. Goes with wm-ultra-fluidd-acepro-panel 1.12.0.
+
+- **The four hub sensors (`path_0`..`path_3`) are filament tangle sensors, not filament sensors** (`hub.cfg`, both models, and through the macro patches on a Pi that is already installed). They fire when the filament is pulled tight: a tangle on the spool, or a finished spool whose end is fixed to the spool. They still pause the print; the message now says so ("Filament tangle on T0 (tool 1): the filament is pulled tight. The print is paused. Free the filament, then resume.") instead of "Filament runout on path 0". Each one also tells the endless spool of the Fluidd panel which toolhead tangled (`_WM_ENDLESS_TANGLE`, only when that macro is installed), so an identical toolhead can take over.
+- **A nozzle that has to heat during a print waits at the wipe position** (`rpi-cfg/rpi_base.cfg`: `_WM_HEAT_AT_WIPE`, `_WM_HEAT_BACK`, called by `M109` in `macros.cfg` and `_WAIT_TOOL_TEMPERATURE` in `change_macros.cfg`, both models, and through the macro patches). Before, it heated wherever it stood: at the park position after a pause, and after a tool change **on the part**, because the printer returns to the print position and lowers Z before it waits for the temperature. Now the nozzle on the carriage lifts 2 mm, goes to the wipe position, heats there and goes back to the spot it left, so what drips while heating falls at the wipe area. Only in a print (its start and a pause too), only when the nozzle is more than 5 C under its target, only with X Y Z homed; a toolhead heating in its dock does not move, and loading filament outside a print is unchanged.
+- **Touchscreen: KlipperScreen keeps trying to reach the Pi** (screen board, `screen.py` through `patch_ks_wm.py`). It stopped after 4 failed tries and stayed on "Connecting to ..." until somebody tapped Retry, also when the Pi was back a minute later (seen twice after a Wi-Fi hang of the Pi). Now it starts a new round of tries 30 seconds after it stopped, again and again, until the Pi answers.
+
 ## 2.12.0
 
 For the endless spool of the Fluidd panel (wm-ultra-fluidd-acepro-panel 1.11.0), and a clearer Doctor.

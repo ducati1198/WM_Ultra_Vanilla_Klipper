@@ -95,6 +95,14 @@
   {
    "new": "        self.state.klippy_retry_count = 0\n        self.log_notification(\"Printer Initialized\", 1)\n\n    def _wm_resync_sensors(self):\n        try:\n            sensors = {x: None for x in self.printer.get_filament_sensors()}\n            if sensors:\n                self._ws.api.query_objects(sensors, self._wm_resync_sensors_done)\n        except Exception:\n            logging.exception(\"WM: sensor resync\")\n        return False\n\n    def _wm_resync_sensors_done(self, data, method, params):\n        try:\n            if \"error\" in data:\n                return\n            status = data[\"result\"][\"status\"]\n            self.printer.process_update(status)\n            self.process_update(\"notify_status_update\", status)\n            logging.info(\"WM: filament sensors read again after start\")\n        except Exception:\n            logging.exception(\"WM: sensor resync result\")\n\n    def init_tempstore(self):",
    "old": "        self.state.klippy_retry_count = 0\n        self.log_notification(\"Printer Initialized\", 1)\n\n    def init_tempstore(self):"
+  },
+  {
+   "old": "            logging.info(\"Stopping Retries\")\n            self.state.connecting = False\n            self.printer_initializing(message, go_to_splash)\n            return\n",
+   "new": "            logging.info(\"Stopping Retries\")\n            self.state.connecting = False\n            self.printer_initializing(message, go_to_splash)\n            # WonderMaker: do not give up for good. The Pi can be off the network for minutes (Wi-Fi hang, reboot):\n            # try again every 30 s until it answers, as if Retry was tapped.\n            if \"printer_select\" not in self._cur_panels and not getattr(self, \"_wm_retry_timer\", None):\n                self._wm_retry_timer = GLib.timeout_add_seconds(30, self._wm_retry_later)\n            return\n"
+  },
+  {
+   "old": "        self._init_printer(message, go_to_splash)\n\n    def state_disconnected(self):\n        logging.debug(\"### Going to disconnected\")\n",
+   "new": "        self._init_printer(message, go_to_splash)\n\n    def _wm_retry_later(self):\n        # WonderMaker: 30 s after KlipperScreen stopped retrying, start a new round of tries (see reconnect)\n        self._wm_retry_timer = None\n        if self.state.initialized or self.state.connecting or \"printer_select\" in self._cur_panels:\n            return False\n        logging.info(\"WonderMaker: connecting again by itself\")\n        self.state.reinit_count = 0\n        self.state.klippy_retry_count = 0\n        self._init_printer(_(\"Connecting to %s\") % self.state.printer_name)\n        return False\n\n    def state_disconnected(self):\n        logging.debug(\"### Going to disconnected\")\n"
   }
  ],
  "main_menu": [

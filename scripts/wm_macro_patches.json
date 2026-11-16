@@ -271,5 +271,61 @@
   "new": "    SAVE_VARIABLE VARIABLE=box_modify_t3 VALUE=3\n    # the saved copies too (RESUME reads them): after an endless spool swap they still pointed the tool at the spare head\n    {% for i in range(4) %}\n        SAVE_VARIABLE VARIABLE=box_modify_t{i}_backup VALUE={i}\n    {% endfor %}\n    SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False",
   "old": "    SAVE_VARIABLE VARIABLE=box_modify_t3 VALUE=3\n    SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False",
   "version": "2.12.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    {% if s > 0 %}\n        {% if \"gcode_macro _WM_HEAT_AT_WIPE\" in printer %}\n            _WM_HEAT_AT_WIPE T={t} S={s}       # in a print: the nozzle on the carriage heats at the wipe position (rpi_base.cfg)\n        {% endif %}\n        TEMPERATURE_WAIT SENSOR={heater} MINIMUM={s-2.5} MAXIMUM={s+2.5}",
+  "old": "    {% if s > 0 %}\n        TEMPERATURE_WAIT SENSOR={heater} MINIMUM={s-2.5} MAXIMUM={s+2.5}",
+  "version": "2.13.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "        TEMPERATURE_WAIT SENSOR={heater} MINIMUM={s-2.5} MAXIMUM={s+2.5}\n        {% if \"gcode_macro _WM_HEAT_BACK\" in printer %}\n            _WM_HEAT_BACK\n        {% endif %}\n    {% endif %}",
+  "old": "        TEMPERATURE_WAIT SENSOR={heater} MINIMUM={s-2.5} MAXIMUM={s+2.5}\n    {% endif %}",
+  "version": "2.13.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 1,
+  "new": "        {% if temp > 0 %}\n            {% if \"gcode_macro _WM_HEAT_AT_WIPE\" in printer %}\n                _WM_HEAT_AT_WIPE T={0 if extruder == \"extruder\" else extruder|replace(\"extruder\", \"\")|int} S={temp}\n            {% endif %}\n            TEMPERATURE_WAIT SENSOR={extruder} MINIMUM={temp-2.5} MAXIMUM={temp+2.5}",
+  "old": "        {% if temp > 0 %}\n            TEMPERATURE_WAIT SENSOR={extruder} MINIMUM={temp-2.5} MAXIMUM={temp+2.5}",
+  "version": "2.13.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 2,
+  "new": "            TEMPERATURE_WAIT SENSOR={extruder} MINIMUM={temp-2.5} MAXIMUM={temp+2.5}\n            {% if \"gcode_macro _WM_HEAT_BACK\" in printer %}\n                _WM_HEAT_BACK\n            {% endif %}\n        {% endif %}",
+  "old": "            TEMPERATURE_WAIT SENSOR={extruder} MINIMUM={temp-2.5} MAXIMUM={temp+2.5}\n        {% endif %}",
+  "version": "2.13.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 1,
+  "new": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament tangle on T0 (tool 1): the filament is pulled tight. The print is paused. Free the filament, then resume.\"\n    {% endif %}\n    {% if \"gcode_macro _WM_ENDLESS_TANGLE\" in printer %}\n        _WM_ENDLESS_TANGLE T=0\n    {% endif %}",
+  "old": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament runout on path 0 (tool 1). The print is paused.\"\n    {% endif %}",
+  "version": "2.13.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 2,
+  "new": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament tangle on T1 (tool 2): the filament is pulled tight. The print is paused. Free the filament, then resume.\"\n    {% endif %}\n    {% if \"gcode_macro _WM_ENDLESS_TANGLE\" in printer %}\n        _WM_ENDLESS_TANGLE T=1\n    {% endif %}",
+  "old": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament runout on path 1 (tool 2). The print is paused.\"\n    {% endif %}",
+  "version": "2.13.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 3,
+  "new": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament tangle on T2 (tool 3): the filament is pulled tight. The print is paused. Free the filament, then resume.\"\n    {% endif %}\n    {% if \"gcode_macro _WM_ENDLESS_TANGLE\" in printer %}\n        _WM_ENDLESS_TANGLE T=2\n    {% endif %}",
+  "old": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament runout on path 2 (tool 3). The print is paused.\"\n    {% endif %}",
+  "version": "2.13.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 4,
+  "new": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament tangle on T3 (tool 4): the filament is pulled tight. The print is paused. Free the filament, then resume.\"\n    {% endif %}\n    {% if \"gcode_macro _WM_ENDLESS_TANGLE\" in printer %}\n        _WM_ENDLESS_TANGLE T=3\n    {% endif %}",
+  "old": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament runout on path 3 (tool 4). The print is paused.\"\n    {% endif %}",
+  "version": "2.13.0"
  }
 ]

@@ -122,7 +122,7 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 | Fluidd shows "PolKit warnings detected" | Open the menu (or run `./installer.sh --repair`): it installs PackageKit and Moonraker's PolicyKit rule. `--doctor` also fixes it |
 | Screen board: KlipperScreen will not start | A rescue window opens by itself after 3 failed starts. No screen? USB stick with an empty file `WM-FACTORY`, reboot (section 7). |
 | Fluidd and SSH lost the printer, but the printer itself seems fine (on Wi-Fi) | The Pi's Wi-Fi can hang while the Pi keeps running. Wait about 3 minutes: the Wi-Fi watchdog restarts the Wi-Fi by itself. Still gone: switch the Pi off and on. See [Troubleshooting](#9-troubleshooting). |
-| Touchscreen stays on "Connecting to ..." after the Pi was gone | KlipperScreen stops retrying after a few tries: tap **Retry** on the screen, or restart it from the screen board menu. |
+| Touchscreen stays on "Connecting to ..." after the Pi was gone | Since 2.13.0 it tries again by itself every 30 seconds until the Pi answers. On an older screen board version: tap **Retry**, or update the board. |
 | Not sure what is wrong | `./installer.sh --doctor`: it explains each problem and offers a fix. |
 | Asking someone for help | `./installer.sh --support-bundle` and send the `.tgz`. |
 
@@ -526,11 +526,11 @@ Full dashboard without an ACE Pro:
 
 The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) adds the Toolheads card and the **Choose toolheads** window at print start, shown only when a colour or material does not match. The card has:
 
-- the four toolheads (status, colour, material, temperature) and under each the lights of its **Hub**, **Head** (filament in the toolhead) and **Dock** sensors; below them the carriage's **Tool lock** and **Lock motor home** lights;
+- the four toolheads (status, colour, material, temperature) and under each the lights of its **Tangle** (the sensor at the hub: it fires when the filament is pulled tight), **Head** (filament in the toolhead) and **Dock** sensors; below them the carriage's **Tool lock** and **Lock motor home** lights;
 - an **Unload Menu** button (the window to unload one toolhead or all of them; locked while a print runs);
 - chamber (temperature and target), air filter, chamber light, doors;
 - with an ACE Pro: the ACE status line, dryer with presets, **Auto load**;
-- the **Endless spool** section (panel 1.11.0): on/off, **Swap automatically**, a circle of the four toolheads and who takes over for whom when one runs out (same material and colour, sets of 2 to 4);
+- the **Endless spool** section (panel 1.12.0): on/off, **Swap automatically**, **Swap on a tangle**, the ACE spools (filament or empty), a circle of the four toolheads and who takes over for whom when one runs out or tangles (same material and colour, sets of 2 to 4); a **Fixed** button under a toolhead that tangled;
 - switches: **ACE Pro**, **Bed warp wait** (section 4.8), **Nozzle heat growth** (section 4.3), each shown only when the printer has it;
 - **Tool changes** in total and per toolhead, with the print time of each toolhead on the carriage;
 - a **Touchscreen** line: the screen board's version, an "update" chip when a newer version is on GitHub, its CPU and free memory (sent by the board every minute);
@@ -896,7 +896,8 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Klipper "Duplicate canbus_uuid" | The files in this repository have empty uuids for the toolheads and load cell; the installer fills unique placeholders (`b00000000000`...). Run `./installer.sh --repair` if you see it. Then set the real uuids with `scripts/read_write_can_id.sh`. |
 | Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of section 7). |
 | Screen board: KlipperScreen says it cannot connect | Open **Pi address** on the screen and enter the Pi's IP; check the Pi is on and trusts the board in `moonraker.conf`. |
-| Screen board: stuck on "Connecting to ..." after the Pi was off the network | KlipperScreen tries a few times, then stops. Tap **Retry**, or restart KlipperScreen (screen board menu, or `sudo systemctl restart KlipperScreen` over SSH). |
+| A nozzle drips on the part while it heats (after a tool change, a pause or a spool swap) | Since 2.13.0 a nozzle on the carriage that has to heat more than 5 C during a print lifts 2 mm, goes to the wipe position, heats there and comes back to the same spot. A toolhead heating in its dock does not move. |
+| Screen board: stuck on "Connecting to ..." after the Pi was off the network | KlipperScreen tries 4 times, then stops. Since 2.13.0 it starts a new round of tries every 30 seconds by itself (the same as tapping **Retry**), so it comes back when the Pi does. Before 2.13.0: tap **Retry**, or restart KlipperScreen (`sudo systemctl restart KlipperScreen` over SSH). |
 | Pi gone from the network (no Fluidd, no SSH, ping fails) but the printer still runs | On a Pi on Wi-Fi the Wi-Fi chip can hang (seen on a Pi 400: `brcmfmac ... CMD53 sg block write failed -110` in the kernel log) while the Pi, Klipper and Moonraker keep running. The installer turns Wi-Fi power saving off and installs **wm-wifi-watchdog** (`./installer.sh --wifi`): every 30 s it pings the router; after 3 misses it turns the Wi-Fi off and on, 2 minutes later it reloads the Wi-Fi driver. It never reboots the Pi and never touches Klipper. So wait about 3 minutes before you power cycle. What it did: `journalctl -t wm-wifi-watchdog`. A network cable is the most reliable fix. |
 | Screen board: black or wrong screen | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` from SSH, or `--screen-driver fbdev` when installing. With no network: the rescue window (opens after 3 failed starts) or a USB stick with an empty file `WM-FACTORY` (section 7). |
 

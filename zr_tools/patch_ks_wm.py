@@ -12,7 +12,8 @@
   prompts     ks_includes/widgets/prompts.py   every text line of a window is shown (not only the last one), and a window
                                           closes at once when a button or X is pressed (before, it waited for a busy Klipper)
   screen      screen.py                   the filament sensors are read again 8 s after the start (they showed off after a
-                                          Klipper restart)
+                                          Klipper restart); and 30 s after KlipperScreen stopped retrying to reach
+                                          the Pi it starts a new round of tries by itself (2.13.0)
   main_menu   panels/main_menu.py         no temperature graph on the main menu (2.11.0: the graph drew up to 1200 points per line
   temperature panels/temperature.py       and no graph on the Temperature page   in Python without a GPU and took a whole core of
                                           the screen board; the temperatures stay as numbers)

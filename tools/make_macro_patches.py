@@ -12,7 +12,7 @@ import difflib, json, os, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "scripts", "wm_macro_patches.json")
-FILES = ["macros.cfg", "change_macros.cfg", "offset_calibrate.cfg", "extruder0.cfg", "extruder1.cfg", "extruder2.cfg", "extruder3.cfg"]
+FILES = ["macros.cfg", "change_macros.cfg", "offset_calibrate.cfg", "extruder0.cfg", "extruder1.cfg", "extruder2.cfg", "extruder3.cfg", "hub.cfg"]
 
 
 def hunks(old, new):
