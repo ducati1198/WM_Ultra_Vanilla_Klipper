@@ -750,7 +750,7 @@ check "virtual pins: rpi_calibration.cfg uses a wm_pin and rpi_base.cfg defines 
 check "first run calibration: the old name is gone from the macros, the screen panel and the docs of rpi-cfg" "! grep -rn 'WM_FULL_CALIBRATION' $ROOT/rpi-cfg/*.cfg $ROOT/zr_tools/*.py $ROOT/installer.sh"
 check "unload menu: the work macro is hidden, the menu and stop are not" "grep -q '^\\[gcode_macro _WM_UNLOAD_GO\\]' $ROOT/rpi-cfg/rpi_base.cfg && grep -q '^\\[gcode_macro WM_UNLOAD_MENU\\]' $ROOT/rpi-cfg/rpi_base.cfg && grep -q '^\\[gcode_macro WM_UNLOAD_STOP\\]' $ROOT/rpi-cfg/rpi_base.cfg && ! grep -q '^\\[gcode_macro WM_UNLOAD_GO\\]' $ROOT/rpi-cfg/rpi_base.cfg"
 check "factory macros (both models): trims and heat growth in _OFFSET_SET, pause guard, second wipe, light at print start, runout only while printing, TEST_W4 gone" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q 'wm_z_trim_t%d' \$d/change_macros.cfg && ! grep -q 'wm_z_trim_all' \$d/change_macros.cfg && grep -q 'wm_nozzle_growth' \$d/change_macros.cfg && grep -q '^\\[gcode_macro _WM_PAUSE_STATE\\]' \$d/macros.cfg && grep -q 'Nothing to resume' \$d/macros.cfg && grep -q 'WIPE_NOZZLE  .*right before the mesh' \$d/macros.cfg && grep -q 'WM_CHAMBER_LIGHT STATE=on' \$d/macros.cfg && ! grep -q 'TEST_W4' \$d/offset_calibrate.cfg && for n in 0 1 2 3; do grep -q 'print_stats.state == \"printing\"' \$d/extruder\$n.cfg || exit 1; done || exit 1; done)"
-check "macro patches: the list is up to date with the factory files of this version" "[ ! -d $ROOT/.git ] || python3 $ROOT/tools/make_macro_patches.py ebbfc6f 2.9.0 --check"
+check "macro patches: the list is up to date with the factory files of this version" "[ ! -d $ROOT/.git ] || python3 $ROOT/tools/make_macro_patches.py 72d16a2 2.11.0 --check"
 MP="$T/mp"; rm -rf "$MP"; mkdir -p "$MP"; if [ -d "$ROOT/.git" ]; then for f in macros.cfg change_macros.cfg offset_calibrate.cfg extruder0.cfg extruder1.cfg extruder2.cfg extruder3.cfg; do git -C "$ROOT" show 8b47b12:factory/ultra-s/config/$f > "$MP/$f"; done
 check "macro patches: without --write nothing changes and the exit code says changes are needed" "cp -r $MP $MP.0; python3 -I $ROOT/scripts/wm_macro_patches.py $MP >/dev/null; [ \$? = 10 ] && diff -r $MP $MP.0"
 python3 -I "$ROOT/scripts/wm_macro_patches.py" "$MP" --write --stamp TST >/dev/null
@@ -773,9 +773,15 @@ check "speed test Save script: refuses values out of range and changes nothing" 
 check "removing the shell command extension also takes rpi_auto_speed.cfg out" "grep -q 'for own in rpi_nozzle.cfg rpi_auto_speed.cfg' $ROOT/installer.sh"
 check "factory extruder files (both models): the load mark for the head sensor queue, only when its macro exists" "(for m in ultra ultra-s; do for n in 0 1 2 3; do grep -q \"_WM_HEAD_MARK T=\$n\" $ROOT/factory/\$m/config/extruder\$n.cfg && grep -q 'gcode_macro _WM_HEAD_MARK\" in printer' $ROOT/factory/\$m/config/extruder\$n.cfg || exit 1; done; done)"
 check "factory printer.cfg (both models, all variants): X/Y homing 80; rpi_homing.cfg: z_rise skipped in a print, G28 X Z homes, idle timeout spares a paused print" "(for f in $ROOT/factory/*/config/printer.cfg $ROOT/factory/*/config-variants/printer?.cfg; do [ \$(grep -c '^homing_speed:80' \$f) = 2 ] || exit 1; done) && H=$ROOT/rpi-cfg/rpi_homing.cfg && grep -q 'a print has its own Z clearance' \$H && grep -q 'set hz = params.Z is defined' \$H && grep -q 'Idle timeout during a pause' \$H"
-check "factory macros (both models): live Z adjust per tool in _OFFSET_SET, one Z trim per tool, dead macros gone, bed warp wait not in START_PRINT" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q '_WM_LIVEZ' \$d/change_macros.cfg && ! grep -q 'wm_z_trim_all' \$d/change_macros.cfg && ! grep -qE '_SAVE_SPEED|_RESTORE_SPEED|_OFFSET_RESET' \$d/change_macros.cfg && ! grep -qE '_START_PROBE|_RGB_CLOSE' \$d/macros.cfg && ! grep -q '_BED_SOAK' \$d/macros.cfg && ! grep -q _GANTRY_TRIGGER \$d/load_cell.cfg || exit 1; done)"
-check "screen 2.9.0: the KlipperScreen changes are applied at install and update, and wm_sensors.py is copied" "[ \$(grep -c 'patch_ks_wm' $ROOT/scripts/screen_board.sh) -ge 3 ] && grep -q 'wm_sensors.py' $ROOT/scripts/screen_board.sh && python3 -c \"import json; d=json.load(open('$ROOT/zr_tools/ks_wm_patches.json')); assert set(d) == {'extrude', 'job_status', 'fine_tune', 'prompts', 'screen'}\""
-check "screen 2.9.0: the ZR Tools page has the new calibration buttons, not the bed warp wait" "grep -q 'WM_LIVE_Z_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'WM_OFFSETS_Z_HOT' $ROOT/zr_tools/zr_tools.py && ! grep -q 'WM_BED_SOAK' $ROOT/zr_tools/zr_tools.py && grep -q 'wm_sensors' $ROOT/zr_tools/zr_views.py"
+check "factory macros (both models): live Z adjust per tool in _OFFSET_SET, one Z trim per tool, dead macros gone; START_PRINT has the guarded bed warp lines and ADAPTIVE as a number" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q '_WM_LIVEZ' \$d/change_macros.cfg && ! grep -q 'wm_z_trim_all' \$d/change_macros.cfg && ! grep -qE '_SAVE_SPEED|_RESTORE_SPEED|_OFFSET_RESET' \$d/change_macros.cfg && ! grep -qE '_START_PROBE|_RGB_CLOSE' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK_MARK\" in printer' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK\" in printer' \$d/macros.cfg && grep -q 'params.ADAPTIVE|int == 1' \$d/macros.cfg && ! grep -q _GANTRY_TRIGGER \$d/load_cell.cfg || exit 1; done)"
+check "screen 2.9.0: the KlipperScreen changes are applied at install and update, and wm_sensors.py is copied" "[ \$(grep -c 'patch_ks_wm' $ROOT/scripts/screen_board.sh) -ge 3 ] && grep -q 'wm_sensors.py' $ROOT/scripts/screen_board.sh && python3 -c \"import json; d=json.load(open('$ROOT/zr_tools/ks_wm_patches.json')); assert set(d) == {'extrude', 'job_status', 'fine_tune', 'prompts', 'screen', 'main_menu', 'temperature'}\""
+mkdir -p "$T/ksg"; printf 'class P:\n    def update_graph_visibility(self, force_hide=False):\n        if self.left_panel is None:\n            return\n' > "$T/ksg/main_menu.py"; printf 'class P:\n    def update_graph_visibility(self, force_hide=False):\n        count = 0\n' > "$T/ksg/temperature.py"
+check "screen 2.11.0: no temperature graph on the main menu and the Temperature page (changed once, a second run changes nothing)" "python3 $ROOT/zr_tools/patch_ks_wm.py main_menu $T/ksg/main_menu.py; [ \$? = 10 ] && python3 $ROOT/zr_tools/patch_ks_wm.py temperature $T/ksg/temperature.py; [ \$? = 10 ] && [ \$(grep -c '^        force_hide = True' $T/ksg/main_menu.py $T/ksg/temperature.py | grep -c ':1') = 2 ] && python3 $ROOT/zr_tools/patch_ks_wm.py main_menu $T/ksg/main_menu.py && python3 $ROOT/zr_tools/patch_ks_wm.py temperature $T/ksg/temperature.py && grep -q 'main_menu:panels/main_menu.py temperature:panels/temperature.py' $ROOT/scripts/screen_board.sh"
+check "screen 2.11.0: a KlipperScreen stop is a clean stop (start script traps SIGTERM, exit 0), ordered after the rescue window, old boards fixed at the update, every restart goes through ks_restart" "grep -q \"trap 'kill -TERM\" $ROOT/scripts/screen_board.sh && grep -q 'RESCUE_AFTER=\" wm-screen-rescue.service\"' $ROOT/scripts/screen_board.sh && grep -q '^    ks_stop_fix\$' $ROOT/scripts/screen_board.sh && grep -q 'SuccessExitStatus=1' $ROOT/scripts/screen_board.sh && [ \$(grep -c 'systemctl restart KlipperScreen' $ROOT/scripts/screen_board.sh) = 1 ]"
+check "bed warp wait 2.11.0: the rules (cold bed, warm bed, switch off, unheated bed, measured and scaled waits) render right" "python3 -I $ROOT/tests/bed_soak_render.py | tail -1 | grep -q 'failed: 0'"
+check "bed warp wait 2.11.0: rpi_bed_soak.cfg is installed and included once, below rpi_base.cfg (its switch is a wm_pin), above SAVE_CONFIG" "cmp $ROOT/rpi-cfg/rpi_bed_soak.cfg $CF2/rpi_bed_soak.cfg && [ \$(grep -c '^\[include rpi_bed_soak.cfg\]' $CF2/printer.cfg) = 1 ] && [ \$(grep -n '^\[include rpi_base.cfg\]' $CF2/printer.cfg | cut -d: -f1) -lt \$(grep -n '^\[include rpi_bed_soak.cfg\]' $CF2/printer.cfg | cut -d: -f1) ] && ! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -q 'include rpi_bed_soak'"
+check "bed warp wait 2.11.0: an update brings the START_PRINT lines and ADAPTIVE fix into a 2.10.0 macros.cfg, and a second run changes nothing" "rm -rf $T/mp && mkdir -p $T/mp && ( cd $ROOT && git show 72d16a2:factory/ultra-s/config/macros.cfg ) > $T/mp/macros.cfg 2>/dev/null || cp $ROOT/factory/ultra-s/config/macros.cfg $T/mp/macros.cfg; python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp --write --stamp t >/dev/null; cmp $T/mp/macros.cfg $ROOT/factory/ultra-s/config/macros.cfg && python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp >/dev/null"
+check "screen 2.11.0: the ZR Tools page has the calibration buttons and the Bed warp wait button" "grep -q 'WM_LIVE_Z_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'WM_OFFSETS_Z_HOT' $ROOT/zr_tools/zr_tools.py && grep -q 'Bed warp wait.*WM_BED_SOAK_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'wm_sensors' $ROOT/zr_tools/zr_views.py"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li0.out" 2>&1 </dev/null
 check "chamber light: without a screen board nothing is set up" "grep -q 'No screen board has announced its chamber light yet' $T/li0.out && ! grep -q 'power chamber_light' $CF2/moonraker.conf && ! python3 $ROOT/scripts/wm_rpi_pi.py has $CF2 light"
 echo '{"url": "http://10.0.0.9:8765"}' > "$CF2/rpi_chamber_light.json"
@@ -1362,6 +1368,30 @@ check "install notices missing factory files, restores them and goes on" "WM_ASS
 check "menu: Update now on an empty Pi explains instead of failing" "rm -rf $T/ue; mkdir -p $T/ue; M '2\n2\n\n0\n0\n' $T/ue --menu | grep -q 'Nothing is installed on this Pi yet' "
 check "--update on an empty Pi says what to do" "WM_HOME=$T/ue WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --update </dev/null 2>&1 | grep -q 'nothing is installed by this installer yet'"
 
+echo "== Wi-Fi power saving off and the Wi-Fi watchdog (B-041)"
+WF="$T/wifi"; mkdir -p "$WF/printer_data/config"
+wifi() { WM_TEST_WIFI_DEV="$1" WM_TEST_NM="$2" WM_HOME="$WF" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --wifi 2>&1 </dev/null; }
+rm -f "$WF/.sudo.log"; OUTW="$(wifi wlan0 1)"
+check "Wi-Fi with NetworkManager: power saving off on the active connection, watchdog installed, a copy of the connection kept" "grep -q 'wifi powersave off (testwifi, was default)' $WF/.sudo.log && grep -q 'wifi watchdog installed' $WF/.sudo.log && echo \"\$OUTW\" | grep -q 'Wi-Fi power saving off' && ls -d $WF/wm-rpi-backup/wifi-*"
+rm -f "$WF/.sudo.log"
+check "Wi-Fi: a second run changes nothing" "wifi wlan0 1 | grep -q 'power saving is off and the Wi-Fi watchdog runs' && [ ! -f $WF/.sudo.log ]"
+check "Wi-Fi: a Pi on a cable is left alone" "rm -f $WF/.wifi_powersave; wifi eth0 1 | grep -q 'not Wi-Fi: nothing to do' && [ ! -f $WF/.sudo.log ]"
+check "Wi-Fi without NetworkManager: nothing installed, it says why" "wifi wlan0 0 | grep -q 'needs NetworkManager' && [ ! -f $WF/.sudo.log ]"
+check "Wi-Fi: install and update run the step, uninstall stops the watchdog, the doctor checks it" "grep -q 'step_netmgr; step_wifi;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; fi' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-wifi-watchdog' $ROOT/installer.sh && grep -q 'offer_fix \"turn Wi-Fi power saving off' $ROOT/installer.sh"
+check "Wi-Fi watchdog: never reboots, never touches Klipper, restarts the Wi-Fi then reloads brcmfmac" "bash -n $ROOT/scripts/wm-wifi-watchdog && ! grep -vE '^\s*#' $ROOT/scripts/wm-wifi-watchdog | grep -qE '(^|[ ;])(reboot|shutdown)( |$)|systemctl (reboot|restart klipper)' && grep -q 'nmcli radio wifi off' $ROOT/scripts/wm-wifi-watchdog && grep -q 'modprobe -r brcmfmac' $ROOT/scripts/wm-wifi-watchdog && grep -q 'ExecStart=/usr/local/sbin/wm-wifi-watchdog' $ROOT/config/wm-wifi-watchdog.service"
+
+echo "== touchscreen board status for the Fluidd Toolheads card"
+check "screen board service: GET /status with version, latest, CPU, memory; uploaded every 60 s as wm_screen_status.json" "python3 -I - $ROOT/zr_tools/wm-chamber-light-http <<'PY'
+import importlib.machinery, importlib.util, sys
+l = importlib.machinery.SourceFileLoader('w', sys.argv[1]); sp = importlib.util.spec_from_loader('w', l); m = importlib.util.module_from_spec(sp); l.exec_module(m)
+m.STATE['latest_at'] = 9e18; m.STATE['latest'] = '9.9.9'
+st = m.status()
+assert set(st) >= {'version', 'latest', 'cpu', 'screen_cpu', 'mem_free_mb', 'uptime_s', 'klipperscreen'}, st
+assert st['latest'] == '9.9.9' and st['mem_free_mb'] > 0
+src = open(sys.argv[1]).read()
+assert 'wm_screen_status.json' in src and 'def status_loop' in src and 'self.path.rstrip(\"/\") == \"/status\"' in src
+PY"
+
 echo "== progress bars"
 PB="$T/pb"; rm -rf "$PB"; mkdir -p "$PB"
 OUT="$(inst "$PB" --from-github --model ultra-s)"
@@ -1483,6 +1513,19 @@ check "pid check is clean again (hotends and bed)" "python3 $ROOT/scripts/wm_pid
 check "the hotend fix saved printer.cfg first" "ls $P3/printer.cfg.wm-before-pidcfg-* >/dev/null && grep -q '^#control: pid' $P3/printer.cfg.wm-before-pidcfg-*"
 check "the Ultra (no zru-s.cfg include, no chamber) is not touched" "R=$T/g4; rm -rf \$R; mkdir -p \$R/printer_data; cp -r $ROOT/factory/ultra/config \$R/printer_data/config; ! grep -q 'heater_generic chamber' \$R/printer_data/config/printer.cfg && ! grep -q '^\\[include zru-s.cfg\\]' \$R/printer_data/config/printer.cfg"
 check "chamber_test: the README and the old script are kept, and the old script still finds the chamber conflict" "[ -s $ROOT/chamber_test/README.md ] && R=$T/g6; rm -rf \$R; mkdir -p \$R; cp -r $ROOT/factory/ultra-s/config \$R/config; python3 $ROOT/chamber_test/wm_pidcfg_with_chamber.py check \$R/config | grep -q 'CONFLICT zru-s.cfg \\[heater_generic chamber\\] control pid_Kp pid_Ki pid_Kd'"
+# ---- 2.11.0: the main board fan is renamed motherboard_fan -> MCU_fan (Fluidd shows "MCU Fan")
+check "fan rename: every factory printer.cfg has [controller_fan MCU_fan] and no motherboard_fan" "(for f in $ROOT/factory/*/config/printer.cfg $ROOT/factory/*/config-variants/printer?.cfg; do grep -q '^\[controller_fan MCU_fan\]' \$f && ! grep -q 'motherboard_fan' \$f || exit 1; done)"
+check "fan rename at update: an untouched or a changed fan section is renamed (own values kept), never there twice" "python3 -I - $ROOT/scripts/wm_cfgmerge.py <<'PY'
+import importlib.util, sys
+sp = importlib.util.spec_from_file_location('m', sys.argv[1]); m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+base = '[printer]\nmax_velocity: 300\n\n[controller_fan motherboard_fan]\npin:PA8\nmax_power:0.5\n'
+rel = base.replace('motherboard_fan', 'MCU_fan')
+for live in (base, base.replace('max_power:0.5', 'max_power:0.7')):
+    mm = m.merge(base, rel, live); out = m.render(mm, [])
+    assert out.count('[controller_fan') == 1 and '[controller_fan MCU_fan]' in out and 'motherboard_fan' not in out, out
+    assert ('max_power:0.7' in out) == ('max_power:0.7' in live), out
+PY"
+
 # ---- WonderMaker's printer.cfg changes merged into the Pi's printer.cfg (scripts/wm_cfgmerge.py, installer step 4e, --cfg-merge)
 check "doctor says when the WonderMaker printer.cfg starting point is not recorded" "grep -q 'problem.*printer.cfg this Pi was set up from is not recorded' $T/dr1.out"
 RP="$T/repo5"; rm -rf "$RP"; mkdir -p "$RP/factory/ultra-s/config" "$RP/scripts" "$RP/rpi-cfg"; cp "$ROOT/installer.sh" "$ROOT/VERSION" "$RP/"; cp "$ROOT"/scripts/* "$RP/scripts/"; cp "$ROOT"/rpi-cfg/* "$RP/rpi-cfg/"

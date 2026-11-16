@@ -12,6 +12,8 @@ Rules, always:
   - canbus_uuid / serial / canbus_interface keep the Pi's values
   - a setting only WonderMaker changed is taken; a setting only the Pi changed is kept
   - a setting both changed to different values is a conflict: you choose, one by one (mine / theirs)
+  - a section this repository renamed (RENAMES below) is renamed on all three sides first, so the Pi's own values in it stay
+    and it is never there twice (two sections on the same pin would stop Klipper)
 
   wm_cfgmerge.py plan   BASE REL LIVE                    what would change (nothing is written). Exit 0 = nothing to do, 10 = clean changes, 11 = conflicts
   wm_cfgmerge.py apply  BASE REL LIVE [--all mine|theirs] [--choices m,t,...] [--stamp S]
@@ -143,7 +145,20 @@ def merge_cfg(base, rel, live, choices=()):
     return "\n".join(lines) + "\n", conflicts, notes
 
 
+# Sections renamed by this repository: old name -> new name (2.11.0: the main board fan is shown as "MCU Fan" in Fluidd).
+RENAMES = {"controller_fan motherboard_fan": "controller_fan MCU_fan"}
+
+
+def apply_renames(text, rel):
+    """Rename an old section header when REL has the new name and not the old one (only the [header] line changes)."""
+    for old, new in RENAMES.items():
+        if re.search(r"^\[%s\]" % re.escape(new), rel, re.M) and not re.search(r"^\[%s\]" % re.escape(old), rel, re.M):
+            text = re.sub(r"^\[%s\]([ \t]*)$" % re.escape(old), "[%s]\\1" % new, text, flags=re.M)
+    return text
+
+
 def merge(base, rel, live):
+    base, live = apply_renames(base, rel), apply_renames(live, rel)
     b, _ = split_autosave(base); r, _ = split_autosave(rel); l, auto = split_autosave(live)
     return {"base": b, "rel": r, "live": l, "auto": auto}
 

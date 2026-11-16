@@ -17,6 +17,7 @@
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
+# ./installer.sh --wifi                Pi on Wi-Fi (NetworkManager): Wi-Fi power saving off and a watchdog that restarts the Wi-Fi when the router stops answering
 # ./installer.sh --light               set up the chamber light as a Moonraker power device (Fluidd, touchscreen and WM_CHAMBER_LIGHT then agree); needs an installed screen board
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FIRST_RUN_CAL, WM_FULL_OFFSET_CAL, WM_Z_TRIM_MENU, WM_UNLOAD_MENU, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
@@ -214,7 +215,8 @@ while [ $# -gt 0 ]; do
         --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
         --import-settings) MODE=importset; IMPORT_HOST="${2:-}"; [ $# -gt 1 ] && shift ;;
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
-        --pi-sensors)   MODE=pisensors ;;   # board temperature sensors + the host MCU, once Klipper runs
+        --pi-sensors)   MODE=pisensors ;;
+        --wifi)         MODE=wifi ;;         # Wi-Fi power saving off and the Wi-Fi watchdog (only when the Pi is on Wi-Fi with NetworkManager)   # board temperature sensors + the host MCU, once Klipper runs
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --light)        MODE=light ;;     # the chamber light as a Moonraker power device (needs an installed screen board)
         --fix-all)      FIXALL=1 ;;
@@ -499,7 +501,7 @@ rpipi_step() {   # rpi_pi.cfg: old separate files become parts, the Pi temperatu
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
     print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
-    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/rpi_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FIRST_RUN_CAL, ...). The same file holds the Z offset tools (WM_FULL_OFFSET_CAL, WM_OFFSETS_Z_HOT, WM_Z_TRIM_MENU); rpi_base.cfg holds the small helpers (switch pins, unload menu WM_UNLOAD_MENU, start-up safety check, head sensor load queue, live Z), rpi_homing.cfg the homing and idle timeout, and rpi_pi.cfg (written here) the Pi side: host MCU, temperatures, chamber light. They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
+    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/rpi_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FIRST_RUN_CAL, ...). The same file holds the Z offset tools (WM_FULL_OFFSET_CAL, WM_OFFSETS_Z_HOT, WM_Z_TRIM_MENU); rpi_base.cfg holds the small helpers (switch pins, unload menu WM_UNLOAD_MENU, start-up safety check, head sensor load queue, live Z), rpi_homing.cfg the homing and idle timeout, rpi_bed_soak.cfg the bed warp wait before the bed mesh (switch Bed_Warp_Stabilisation, on by default) and its measurement, and rpi_pi.cfg (written here) the Pi side: host MCU, temperatures, chamber light. They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f
     [ -n "$(rpicfg_list)" ] || { print_warning "the rpi-cfg folder is missing from this repository: calibration macros not installed"; return 0; }
     if [ "$DRY" = 1 ] || [ ! -f "$cfg" ]; then echo -e "  ${DIM}would copy rpi-cfg/*.cfg into the config folder and add an [include] line for each to printer.cfg${NC}"; return 0; fi
@@ -515,7 +517,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         done
     fi
     for f in $(rpicfg_list); do
-        if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
+        if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ] || [ "$f" = rpi_bed_soak.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_auto_speed.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
         if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
@@ -1121,6 +1123,65 @@ step_netmgr() {
     SUDO systemctl enable NetworkManager
     warn_later "NetworkManager is installed and starts at the next reboot (sudo reboot). Until then nothing changed. If the network does not come back: cable, or sudo nmtui, or ./installer.sh --remove network-manager from the screen's keyboard."
     print_success "NetworkManager installed and enabled. It takes over at the next reboot."
+}
+
+# Wi-Fi (B-041): the Pi 400's Wi-Fi chip can hang while the Pi keeps running (no Fluidd, no SSH, the touchscreen loses it).
+# Only on a Pi whose network is Wi-Fi through NetworkManager: power saving off on that connection, and a small watchdog
+# that restarts the Wi-Fi (then reloads its driver) when the router stops answering. It never reboots and never touches
+# Klipper. A Pi on a cable is left alone.
+WIFI_WD_BIN=/usr/local/sbin/wm-wifi-watchdog; WIFI_WD_UNIT=/etc/systemd/system/wm-wifi-watchdog.service
+wifi_dev() {   # the interface of the default route, when it is Wi-Fi
+    local d
+    if [ "$TESTING" = 1 ]; then d="${WM_TEST_WIFI_DEV:-}"; else d="$(ip route 2>/dev/null | awk '/^default/ {for (i=1;i<NF;i++) if ($i=="dev") {print $(i+1); exit}}')"; fi
+    case "$d" in wl*) echo "$d" ;; esac
+}
+wifi_con() {   # the NetworkManager connection on that interface
+    [ "$TESTING" = 1 ] && { echo "${WM_TEST_WIFI_CON:-testwifi}"; return 0; }
+    nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: -v d="$1" '$2==d {print $1; exit}'
+}
+wifi_powersave() {   # 2 = off (disable), 3 = on, 0 = default (on)
+    [ "$TESTING" = 1 ] && { cat "$HOME_DIR/.wifi_powersave" 2>/dev/null || echo default; return 0; }
+    nmcli -g 802-11-wireless.powersave connection show "$1" 2>/dev/null
+}
+wifi_ok() {   # 0 when there is nothing to do (no Wi-Fi, or both parts in place)
+    local dev con; dev="$(wifi_dev)"; [ -n "$dev" ] && nm_active || return 0
+    con="$(wifi_con "$dev")"; [ -n "$con" ] || return 0
+    [ "$(wifi_powersave "$con")" = disable ] || return 1
+    if [ "$TESTING" = 1 ]; then cmp -s "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$HOME_DIR/.wifiwd/wm-wifi-watchdog"; return; fi
+    cmp -s "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$WIFI_WD_BIN" && cmp -s "$SCRIPT_DIR/config/wm-wifi-watchdog.service" "$WIFI_WD_UNIT" || return 1
+    [ "$(service_state wm-wifi-watchdog)" = active ] || return 1
+    return 0
+}
+step_wifi() {   # every install and update, and ./installer.sh --wifi
+    local dev con ps bk
+    dev="$(wifi_dev)"
+    [ -n "$dev" ] || return 0                                   # cable (or no network): nothing to do
+    if ! nm_active; then print_info "The Pi is on Wi-Fi without NetworkManager: the Wi-Fi watchdog needs NetworkManager, so it is not installed."; return 0; fi
+    con="$(wifi_con "$dev")"
+    [ -n "$con" ] || { print_info "No active NetworkManager connection on $dev: the Wi-Fi was left as it is."; return 0; }
+    wifi_ok && { print_success "Wi-Fi: power saving is off and the Wi-Fi watchdog runs"; return 0; }
+    print_header "Wi-Fi: power saving off and a watchdog"
+    why "The Pi's Wi-Fi chip can hang while the Pi itself keeps running: Fluidd, SSH and the touchscreen lose the printer until a power cycle. With power saving off this is rarer, and the watchdog restarts the Wi-Fi by itself (it never reboots the Pi and never touches Klipper). A network cable is still the most reliable."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would turn Wi-Fi power saving off on \"$con\" and install the wm-wifi-watchdog service${NC}"; return 0; fi
+    ps="$(wifi_powersave "$con")"
+    if [ "$ps" != disable ]; then
+        bk="$BACKUP_ROOT/wifi-$STAMP"; mkdir -p "$bk"
+        if [ "$TESTING" = 1 ]; then echo "[test] wifi powersave off ($con, was $ps)" >> "$HOME_DIR/.sudo.log"; echo disable > "$HOME_DIR/.wifi_powersave"
+        else
+            SUDO cp -p "/etc/NetworkManager/system-connections/$con.nmconnection" "$bk/" 2>/dev/null
+            echo "$con $ps" > "$bk/powersave-before"
+            SUDO nmcli connection modify "$con" 802-11-wireless.powersave 2 || { warn_later "Wi-Fi power saving could not be turned off on $con."; }
+        fi
+        print_success "Wi-Fi power saving off on \"$con\" (was $ps). It takes effect at the next reconnect or reboot. Copy: $bk"
+    fi
+    if [ "$TESTING" = 1 ]; then mkdir -p "$HOME_DIR/.wifiwd"; cp "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$HOME_DIR/.wifiwd/"; echo "[test] wifi watchdog installed" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    SUDO install -o root -g root -m 755 "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$WIFI_WD_BIN"
+    SUDO install -o root -g root -m 644 "$SCRIPT_DIR/config/wm-wifi-watchdog.service" "$WIFI_WD_UNIT"
+    record "FILE $WIFI_WD_BIN"; record "FILE $WIFI_WD_UNIT"
+    SUDO systemctl daemon-reload
+    SUDO systemctl enable wm-wifi-watchdog
+    SUDO systemctl restart wm-wifi-watchdog
+    print_success "Wi-Fi watchdog installed and running (journalctl -t wm-wifi-watchdog shows what it did)"
 }
 
 # ---------------------------------------------------------------------------
@@ -2395,7 +2456,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_patches; step_pidcfg; step_wm_modules; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_patches; step_pidcfg; step_wm_modules; step_wifi; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -2844,6 +2905,10 @@ do_doctor() {
     if rpicfg_included rpi_homing.cfg && grep -qE '^\[(homing_override|idle_timeout|gcode_macro z_rise)\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; then
         doc_bad "printer.cfg still has its own homing / idle timeout sections, and rpi_homing.cfg has them too" "Since 2.10.0 they live in rpi_homing.cfg; the ones in printer.cfg win. Run ./installer.sh --cfg-merge to take them out of printer.cfg (it asks first)."
     fi
+    if [ -n "$(wifi_dev)" ] && nm_active; then
+        if wifi_ok; then doc_ok "Wi-Fi: power saving off and the Wi-Fi watchdog runs (journalctl -t wm-wifi-watchdog)"
+        else doc_bad "Wi-Fi: power saving is on or the Wi-Fi watchdog is not running" "The Pi's Wi-Fi chip can hang while the Pi keeps running; then Fluidd and SSH lose it until a power cycle."; offer_fix "turn Wi-Fi power saving off and install the Wi-Fi watchdog" step_wifi; fi
+    fi
     local lurl; lurl="$(light_url)"
     if [ -n "$lurl" ] && [ -f "$HOME_DIR/printer_data/config/moonraker.conf" ]; then
         python3 -I "$(light_py)" conf "$HOME_DIR/printer_data/config/moonraker.conf" "$lurl"; case "$?" in
@@ -3027,6 +3092,7 @@ uninstall_system_files() {
     [ -f /etc/systemd/system/wm-sv-guard.timer ] && { SUDO systemctl stop wm-sv-guard.timer; SUDO systemctl disable wm-sv-guard.timer; }   # the saved_variables.cfg safeguard
     [ -f /etc/systemd/system/wm-pi-update.path ] && { SUDO systemctl stop wm-pi-update.path; SUDO systemctl disable wm-pi-update.path; }   # Fluidd's Update button helper
     [ -f /etc/systemd/system/wm-panel-update.path ] && { SUDO systemctl stop wm-panel-update.path; SUDO systemctl disable wm-panel-update.path; }   # the same for the Fluidd panel
+    [ -f /etc/systemd/system/wm-wifi-watchdog.service ] && { SUDO systemctl stop wm-wifi-watchdog; SUDO systemctl disable wm-wifi-watchdog; }   # the Wi-Fi watchdog (Wi-Fi power saving stays off: a NetworkManager setting of your connection)
     local k v
     while read -r k v; do
         case "$k" in
@@ -3716,6 +3782,7 @@ case "$MODE" in
     hwtest)     do_hw_test; exit 0 ;;
     zrtools)    do_zr_tools; exit $? ;;
     pisensors)  guard_not_printing; step_pi_sensors; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
+    wifi)       step_wifi; [ -n "$(wifi_dev)" ] || print_info "The Pi's network is not Wi-Fi: nothing to do."; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     rpicfg)     do_rpicfg; exit $? ;;
     light)      do_light; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     webcamsetup) do_webcam_setup; exit $? ;;
@@ -3762,7 +3829,7 @@ rpi_names_migrate
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
+step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_wifi; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_fluidd_categories
 restart_klipper_after

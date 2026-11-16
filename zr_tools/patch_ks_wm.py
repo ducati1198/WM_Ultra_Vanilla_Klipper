@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WonderMaker changes to KlipperScreen's own files (2.9.0). The changes are listed in ks_wm_patches.json next to this script.
 
-  patch_ks_wm.py KEY FILE        KEY = extrude | job_status | fine_tune | prompts | screen
+  patch_ks_wm.py KEY FILE        KEY = extrude | job_status | fine_tune | prompts | screen | main_menu | temperature
 
   extrude     panels/extrude.py           the sensor strip shows T<n> head, T<n> hub and Tool lock of the tool on the carriage,
                                           and a button "All sensors" opens the Sensors page (panels/wm_sensors.py)
@@ -13,6 +13,9 @@
                                           closes at once when a button or X is pressed (before, it waited for a busy Klipper)
   screen      screen.py                   the filament sensors are read again 8 s after the start (they showed off after a
                                           Klipper restart)
+  main_menu   panels/main_menu.py         no temperature graph on the main menu (2.11.0: the graph drew up to 1200 points per line
+  temperature panels/temperature.py       and no graph on the Temperature page   in Python without a GPU and took a whole core of
+                                          the screen board; the temperatures stay as numbers)
 
 Each change is "old lines -> new lines": old lines found once -> replaced; new lines already there -> nothing to do; else the
 file is left as it was (KlipperScreen of another version, or your own edit) and the exit code is 11.

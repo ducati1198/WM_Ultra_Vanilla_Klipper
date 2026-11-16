@@ -1229,6 +1229,7 @@ class Panel(ViewsMixin, ScreenPanel):
             ("z-farther", "Live Z adjust", "WM_LIVE_Z_MENU", None),
             ("heat-up", "Nozzle heat growth", "WM_NOZZLE_GROWTH_CAL", None),
             ("bed-level", "Bed screws", "WM_SCREWS_CAL", None),
+            ("bed-level", "Bed warp wait", "WM_BED_SOAK_MENU", None),
             ("speed+", "Vibration compensation", "WM_VIBRATION_COMP", None),
             ("heat-up", "Bed PID", "WM_BED_PID", None),
             ("heat-up", f"Nozzle temperature T{at}", f"WM_NOZZLE_TEMP_CAL T={at}", None),

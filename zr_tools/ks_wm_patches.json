@@ -96,5 +96,17 @@
    "new": "        self.state.klippy_retry_count = 0\n        self.log_notification(\"Printer Initialized\", 1)\n\n    def _wm_resync_sensors(self):\n        try:\n            sensors = {x: None for x in self.printer.get_filament_sensors()}\n            if sensors:\n                self._ws.api.query_objects(sensors, self._wm_resync_sensors_done)\n        except Exception:\n            logging.exception(\"WM: sensor resync\")\n        return False\n\n    def _wm_resync_sensors_done(self, data, method, params):\n        try:\n            if \"error\" in data:\n                return\n            status = data[\"result\"][\"status\"]\n            self.printer.process_update(status)\n            self.process_update(\"notify_status_update\", status)\n            logging.info(\"WM: filament sensors read again after start\")\n        except Exception:\n            logging.exception(\"WM: sensor resync result\")\n\n    def init_tempstore(self):",
    "old": "        self.state.klippy_retry_count = 0\n        self.log_notification(\"Printer Initialized\", 1)\n\n    def init_tempstore(self):"
   }
+ ],
+ "main_menu": [
+  {
+   "old": "    def update_graph_visibility(self, force_hide=False):\n        if self.left_panel is None:\n",
+   "new": "    def update_graph_visibility(self, force_hide=False):\n        # WM: never show the temperature graph on the main menu (too heavy for this board)\n        force_hide = True\n        if self.left_panel is None:\n"
+  }
+ ],
+ "temperature": [
+  {
+   "old": "    def update_graph_visibility(self, force_hide=False):\n        count = 0\n",
+   "new": "    def update_graph_visibility(self, force_hide=False):\n        # WM: never show the temperature graph on the Temperature page (too heavy for this board)\n        force_hide = True\n        count = 0\n"
+  }
  ]
 }

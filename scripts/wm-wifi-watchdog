@@ -1,0 +1,38 @@
+#!/bin/bash
+# B-041: the Pi 400 Wi-Fi chip (brcmfmac over SDIO) can hang: the Pi keeps running, Klipper keeps running, but the Pi is
+# off the network (no Fluidd, no SSH, the touchscreen loses it) until a power cycle.
+# Every 30 s ping the router. 3 misses in a row: Wi-Fi off and on. Still no answer 2 min later: reload the Wi-Fi driver.
+# Still none 10 min later: start over. Never reboots the Pi, never touches Klipper.
+# Each step is written to the system journal (journalctl -t wm-wifi-watchdog) and, when it exists, to the black box log.
+# Installed by WM_Ultra_Vanilla_Klipper (installer.sh, step "Wi-Fi") as /usr/local/sbin/wm-wifi-watchdog.
+LOG=/var/log/wm-blackbox/blackbox.log
+note() {
+    logger -t wm-wifi-watchdog "$*"
+    [ -d "$(dirname "$LOG")" ] && { echo "$(date '+%F %T') WIFI-WATCHDOG $*" >> "$LOG"; sync "$LOG" 2>/dev/null; }
+    return 0
+}
+gw() { ip route | awk '/^default/ {print $3; exit}'; }
+GW="$(gw)"
+miss=0; step=0; last=0
+note "started, router ${GW:-not known yet}"
+while true; do
+    g="$(gw)"; [ -n "$g" ] && GW="$g"
+    if [ -n "$GW" ] && ping -c 1 -W 3 "$GW" >/dev/null 2>&1; then
+        [ "$miss" -ge 3 ] && note "router answers again after $miss misses"
+        miss=0; step=0
+    elif [ -n "$GW" ]; then
+        miss=$((miss+1))
+        now=$(date +%s)
+        if [ "$miss" -ge 3 ] && [ "$step" = 0 ]; then
+            note "router $GW not answering 3 times: Wi-Fi off and on"
+            nmcli radio wifi off; sleep 5; nmcli radio wifi on; step=1; last=$now
+        elif [ "$step" = 1 ] && [ $((now-last)) -ge 120 ]; then
+            note "still no router 2 min after the Wi-Fi restart: reloading the Wi-Fi driver brcmfmac"
+            modprobe -r brcmfmac; sleep 3; modprobe brcmfmac; step=2; last=$now
+        elif [ "$step" = 2 ] && [ $((now-last)) -ge 600 ]; then
+            note "still no router 10 min after the driver reload: trying again (Wi-Fi off and on)"
+            step=0
+        fi
+    fi
+    sleep 30
+done

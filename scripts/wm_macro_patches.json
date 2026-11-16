@@ -229,5 +229,26 @@
   "new": "    {% set printer_state = printer.print_stats.state %}\n    {% if \"gcode_macro _WM_HEAD_MARK\" in printer %}\n        _WM_HEAD_MARK T=3             # tells the head sensor watcher that Klipper started this load (rpi_head_sensors.cfg)\n    {% endif %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
   "old": "    {% set printer_state = printer.print_stats.state %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
   "version": "2.9.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    SET_VELOCITY_LIMIT ACCEL={printer.configfile.settings.printer.max_accel}\n    {% if \"gcode_macro _WM_BED_SOAK_MARK\" in printer %}\n        _WM_BED_SOAK_MARK              # bed temperature at the start, for the bed warp wait (rpi_bed_soak.cfg)\n    {% endif %}\n    SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={BED}",
+  "old": "    SET_VELOCITY_LIMIT ACCEL={printer.configfile.settings.printer.max_accel}\n    SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={BED}",
+  "version": "2.11.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    M190 S{BED}\n    {% if \"gcode_macro _WM_BED_SOAK\" in printer %}\n        _WM_BED_SOAK BED={BED}         # bed warp wait: the plate stops bending before the wipe and the mesh (switch Bed_Warp_Stabilisation)\n    {% endif %}\n    WIPE_NOZZLE                    # T0 is the Z reference of the whole print, wipe it once more right before the mesh",
+  "old": "    M190 S{BED}\n    WIPE_NOZZLE                    # T0 is the Z reference of the whole print, wipe it once more right before the mesh",
+  "version": "2.11.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "            M118 START_PRINT adaptive_mesh\n        {% elif params.ADAPTIVE is defined and params.ADAPTIVE|int == 1 %} #use klipper adaptive_mesh\n            {% if params.ADAPTIVE_MARGIN is defined %}",
+  "old": "            M118 START_PRINT adaptive_mesh\n        {% elif params.ADAPTIVE is defined and params.ADAPTIVE == 1 %} #use klipper adaptive_mesh\n            {% if params.ADAPTIVE_MARGIN is defined %}",
+  "version": "2.11.0"
  }
 ]

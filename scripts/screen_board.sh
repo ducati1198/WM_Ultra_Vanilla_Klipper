@@ -94,10 +94,10 @@ patch_ks_job_status_light() {   # the Chamber light button on the print screen
     python3 "$py" "$f" || { cp "$f.wm-orig" "$f"; warn_later "Could not add the Chamber light button to KlipperScreen's print screen."; }
 }
 
-patch_ks_wm() {   # 2.9.0: sensor strip and Sensors page, live Z adjust on the print and Fine Tuning screens, windows show every line and close at once, sensors read again after the start (zr_tools/patch_ks_wm.py, list ks_wm_patches.json)
+patch_ks_wm() {   # 2.9.0 (graphs off 2.11.0): sensor strip and Sensors page, live Z adjust on the print and Fine Tuning screens, windows show every line and close at once, sensors read again after the start (zr_tools/patch_ks_wm.py, list ks_wm_patches.json)
     local d="${REPO_DIR:-.}/zr_tools" key f rc
     [ -f "$d/patch_ks_wm.py" ] && [ -f "$d/ks_wm_patches.json" ] || return 0
-    for key in extrude:panels/extrude.py job_status:panels/job_status.py fine_tune:panels/fine_tune.py prompts:ks_includes/widgets/prompts.py screen:screen.py; do
+    for key in extrude:panels/extrude.py job_status:panels/job_status.py fine_tune:panels/fine_tune.py prompts:ks_includes/widgets/prompts.py screen:screen.py main_menu:panels/main_menu.py temperature:panels/temperature.py; do
         f="$KS_DIR/${key#*:}"
         [ -f "$f" ] || continue
         [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
@@ -530,10 +530,51 @@ E
 # The board's kernel has no virtual console (/dev/tty0), so stock KlipperScreen cannot start. Verified on the board (Nov 3, 2026):
 # X starts when it runs on its OWN seat (-seat seat1, no VT needed) with the display, framebuffer and touch assigned to that seat.
 KS_START=/usr/local/sbin/wm-ks-start; KS_CLIENT=/usr/local/sbin/wm-ks-client; XINPUT=/etc/X11/wm-ks-input.conf; TOUCH_RULE=/etc/udev/rules.d/72-wm-touch-seat1.rules
+write_ks_start() {   # /usr/local/sbin/wm-ks-start: X + KlipperScreen. A stop must end with exit 0 (F-059, see the comment in the file)
+    sudo tee "$KS_START" >/dev/null <<E
+#!/bin/bash
+# A stop (SIGTERM from systemctl stop or restart) is not a crash. xinit answers SIGTERM with exit code 1, which made systemd
+# mark KlipperScreen failed and open the rescue window (OnFailure). So xinit runs in the background, and on SIGTERM this
+# script ends it, waits, and exits 0. When xinit ends by itself (a real crash), its own exit code is kept.
+/usr/bin/xinit $KS_CLIENT -- /usr/lib/xorg/Xorg :0 -seat seat1 -novtswitch -sharevts -nolisten tcp -noreset -config $XINPUT &
+XI=\$!
+trap 'kill -TERM "\$XI" 2>/dev/null; wait "\$XI"; exit 0' TERM INT
+wait "\$XI"
+E
+    sudo chmod 755 "$KS_START"
+}
+ks_stop_fix() {   # 2.11.0 (F-059): boards installed before: a KlipperScreen stop or restart counted as a crash and opened the rescue window
+    local svc=/etc/systemd/system/KlipperScreen.service
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would make a KlipperScreen stop a clean stop ($KS_START, $svc)${NC}"; return 0; }
+    [ "$TESTING" = 1 ] && { echo "[test] ks stop fix" >> "$HOME_DIR/.sudo.log"; return 0; }
+    [ -f "$KS_START" ] && [ -f "$svc" ] || return 0
+    local ch=0
+    if ! grep -q 'trap ' "$KS_START"; then sudo cp -p "$KS_START" "$KS_START.wm-before-stopfix-$STAMP"; write_ks_start; ch=1; fi
+    if grep -q '^OnFailure=wm-screen-rescue.service' "$svc" && ! grep -q '^After=.*wm-screen-rescue.service' "$svc"; then
+        sudo cp -p "$svc" "$svc.wm-before-stopfix-$STAMP"; sudo sed -i '0,/^After=/s/^After=.*/& wm-screen-rescue.service/' "$svc"; ch=1
+    fi
+    if [ "$ch" = 1 ]; then
+        # the KlipperScreen running now was started by the old start script, so its next stop would still end with code 1 (and an
+        # update started by an older script restarts it with a plain restart): until the next reboot code 1 counts as a clean stop
+        sudo mkdir -p /run/systemd/system/KlipperScreen.service.d
+        printf '[Service]\nSuccessExitStatus=1\n' | sudo tee /run/systemd/system/KlipperScreen.service.d/wm-stopfix.conf >/dev/null
+    fi
+    [ "$ch" = 1 ] && { sudo systemctl daemon-reload; print_success "A KlipperScreen restart no longer opens the rescue window (copies: *.wm-before-stopfix-$STAMP)"; }
+    return 0
+}
+ks_restart() {   # restart KlipperScreen; when the running one was started by an old start script its stop still counts as a crash
+    # (the restart is cancelled and the rescue window opens): then clear the failed state and start it again
+    SUDO systemctl restart KlipperScreen 2>/dev/null
+    { [ "$TESTING" = 1 ] || [ "$DRY" = 1 ]; } && return 0
+    if ! systemctl is-active --quiet KlipperScreen; then sleep 1; SUDO systemctl reset-failed KlipperScreen 2>/dev/null; SUDO systemctl start KlipperScreen; fi
+    return 0
+}
 write_service() {
     local svc=/etc/systemd/system/KlipperScreen.service
     # 3 failed starts within 2 minutes: stop retrying and open the rescue window (wm-screen-rescue.service)
     local RESCUE_UNIT_LINES=""; [ "$RESCUE" = 1 ] && RESCUE_UNIT_LINES=$'StartLimitIntervalSec=120\nStartLimitBurst=3\nOnFailure=wm-screen-rescue.service'
+    # ordered after the rescue window, so systemd stops the rescue window's own X server before KlipperScreen starts its own
+    local RESCUE_AFTER=""; [ "$RESCUE" = 1 ] && RESCUE_AFTER=" wm-screen-rescue.service"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would write $svc, $KS_START, $KS_CLIENT, $XINPUT (X on its own seat, no tty0 needed)${NC}"
     elif [ "$TESTING" = 1 ]; then echo "[test] write service (seat1, no tty0)" >> "$HOME_DIR/.sudo.log"
     else
@@ -550,15 +591,12 @@ E
 # KlipperScreen itself runs as $WM_USER; the X server (started by xinit) runs as root on seat1
 exec runuser -u $WM_USER -- env HOME=$HOME_DIR DISPLAY=:0 $KS_ENV/bin/python $KS_DIR/screen.py
 E
-        sudo tee "$KS_START" >/dev/null <<E
-#!/bin/bash
-exec /usr/bin/xinit $KS_CLIENT -- /usr/lib/xorg/Xorg :0 -seat seat1 -novtswitch -sharevts -nolisten tcp -noreset -config $XINPUT
-E
-        sudo chmod 755 "$KS_CLIENT" "$KS_START"
+        write_ks_start
+        sudo chmod 755 "$KS_CLIENT"
         sudo tee "$svc" >/dev/null <<E
 [Unit]
 Description=KlipperScreen on the WonderMaker screen board (own X seat, no virtual console)
-After=systemd-udevd.service systemd-logind.service network-online.target
+After=systemd-udevd.service systemd-logind.service network-online.target$RESCUE_AFTER
 $RESCUE_UNIT_LINES
 
 [Service]
@@ -609,12 +647,12 @@ ks_running() {
 }
 step_start() {
     print_header "Starting KlipperScreen"
-    SUDO systemctl enable KlipperScreen; SUDO systemctl restart KlipperScreen
+    SUDO systemctl enable KlipperScreen; ks_restart
     [ "$DRY" = 1 ] && return 0
     if ks_running; then print_success "KlipperScreen is running ($DRIVER driver)"; return 0; fi
     if [ "$DRIVER" = modesetting ]; then
         print_warning "KlipperScreen did not start with the modesetting driver. Switching to the plain framebuffer (fbdev) driver..."
-        DRIVER=fbdev; use_fbdev; SUDO systemctl restart KlipperScreen
+        DRIVER=fbdev; use_fbdev; ks_restart
         ks_running && { print_success "KlipperScreen is running with the fbdev driver."; return 0; }
     fi
     warn_later "KlipperScreen did not start. Look at: journalctl -u KlipperScreen -n 50 and ~/.local/share/xorg/Xorg.0.log. To go back: bash $BK/screen_board.sh --factory-restore"
@@ -835,7 +873,7 @@ do_setpi() {   # change the Pi address of an installed KlipperScreen
     valid_host "$PI_HOST" || die_with_fix "'$PI_HOST' is not a valid address." "bash scripts/screen_board.sh --set-pi 192.0.2.10"
     local f="$CFG_DIR/KlipperScreen.conf"; [ -f "$f" ] || die_with_fix "KlipperScreen is not installed here." "run the installer first."
     run sed -i -E "s/^moonraker_host:.*/moonraker_host: $PI_HOST/" "$f"
-    SUDO systemctl restart KlipperScreen
+    ks_restart
     print_success "KlipperScreen now connects to $PI_HOST"
 }
 
@@ -880,7 +918,7 @@ do_setdriver() {   # switch the graphics driver of an installed KlipperScreen wi
         [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
         [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
     fi
-    SUDO systemctl restart KlipperScreen
+    ks_restart
     print_success "Graphics driver is now $DRIVER. If the screen stays black, switch back: bash scripts/screen_board.sh --set-driver $([ "$DRIVER" = fbdev ] && echo modesetting || echo fbdev)"
 }
 guard_printing() { [ "$FORCE" = 1 ] || ! printing_now || die_with_fix "a print is running on this board." "wait for it to finish, or add --force."; }
@@ -915,7 +953,7 @@ do_restore_board() {
     ask_yn "Restore $(basename "$f")? A safety copy of the current settings is made first." y || { echo "Nothing changed."; return 0; }
     STAMP="$STAMP-safety" do_backup_board >/dev/null 2>&1 || true
     tar xzf "$f" -C "$HOME_DIR" || die_with_fix "could not unpack the backup." "the file may be damaged."
-    SUDO systemctl restart KlipperScreen
+    ks_restart
     print_success "Settings restored from $(basename "$f")"
 }
 fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from GitHub (no git needed)
@@ -971,6 +1009,7 @@ do_post_update() {   # optional argument: the folder that holds the newest files
     case "$(basename "$idir")" in WM_Ultra_Vanilla_Klipper*) echo "$idir" > "$BK/installer_dir" ;; esac
     step_sudo_nopasswd
     step_restore_button
+    ks_stop_fix
     print_success "Done. The Update and Factory mode buttons have their permission, and the version is $(cat "$BK/version" 2>/dev/null)."
 }
 do_update_board() {
@@ -1054,7 +1093,7 @@ PYE
         case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) chown -R "$WM_USER": "$REPO_DIR" 2>/dev/null ;; esac
     fi
     progress_bar 55 100 "Update step 4 of 6: restarting KlipperScreen"
-    SUDO systemctl restart KlipperScreen
+    ks_restart
     progress_bar 70 100 "Update step 5 of 6: restarting Klipper on the Pi"
     restart_pi_klipper
     progress_bar 100 100 "Update finished"
@@ -1071,7 +1110,7 @@ do_doctor_board() {
         local i; for i in $(seq 1 30); do svc_active KlipperScreen && return 0; sleep 2; done; return 1
     }
     start_ks() {
-        SUDO systemctl restart KlipperScreen; print_info "Waiting for KlipperScreen to start (up to 60 s) ..."
+        ks_restart; print_info "Waiting for KlipperScreen to start (up to 60 s) ..."
         wait_ks && return 0
         echo -e "  ${DIM}Last lines of its log:${NC}"; [ "$TESTING" = 1 ] || journalctl -u KlipperScreen -n 8 --no-pager 2>/dev/null | cut -c1-150 | sed 's/^/    /'
         return 1
@@ -1135,7 +1174,7 @@ do_log_board() {
     echo "--- KlipperScreen (journal)"; journalctl -u KlipperScreen -n 25 --no-pager 2>/dev/null || sudo journalctl -u KlipperScreen -n 25 --no-pager 2>/dev/null
     echo "--- X server"; tail -n 15 "$HOME_DIR/.local/share/xorg/Xorg.0.log" 2>/dev/null
 }
-do_restartks() { need_ks; SUDO systemctl restart KlipperScreen; print_success "KlipperScreen restarted."; }
+do_restartks() { need_ks; ks_restart; print_success "KlipperScreen restarted."; }
 do_system_board() {
     print_header "Network and system (screen board)"
     echo "  Host name:  $(hostname)"

@@ -1,0 +1,12 @@
+[Unit]
+Description=WonderMaker Pi Wi-Fi watchdog: restarts the Wi-Fi when the router stops answering, never reboots
+After=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/wm-wifi-watchdog
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
