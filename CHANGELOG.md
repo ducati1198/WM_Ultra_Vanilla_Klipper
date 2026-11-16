@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.12.0
+
+For the endless spool of the Fluidd panel (wm-ultra-fluidd-acepro-panel 1.11.0), and a clearer Doctor.
+
+- **The saved tool mapping is reset when a print ends or is cancelled** (`PRINT_END`, `CANCEL_PRINT` in `macros.cfg`, both models, and through the macro patches on a Pi that is already installed). They already put `box_modify_t0`..`t3` back to 0 1 2 3; the saved copies `box_modify_tN_backup`, which `RESUME` reads, kept their last values. After an endless spool swap (tool 0 printed by toolhead 1) a pause during the heating of the next print, followed by a resume, would have given tool 0 the wrong toolhead.
+- **`RESUME` purges 20 mm** at the wipe position before the print continues (WonderMaker: 10 mm). This is every resume, also the one after an endless spool swap, where it is the only purge.
+- **Doctor: each Pi config file is named by what it does.** A missing or not included `rpi_homing.cfg` was reported as "calibration macros ... WM_BED_LEVELING". Now every file of `rpi-cfg/` has its own name and its own consequence; for `rpi_homing.cfg`: G28 without the 5 mm bed drop, and tool changes, the nozzle wipe and ACE loads stop with "Unknown command z_rise".
+- Checked, nothing to fix: `z_rise` is defined once (`rpi_homing.cfg`), loaded, and found by all 19 callers; the factory `printer.cfg` files have none on purpose.
+
 ## 2.11.0
 
 Bed warp wait before the bed mesh, `ADAPTIVE=1` as a number, the Wi-Fi hang, and a lighter touchscreen. Goes with wm-ultra-fluidd-acepro-panel 1.10.0. Tested on a ZR Ultra-S and a TM-T1 screen board.

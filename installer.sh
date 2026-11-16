@@ -498,6 +498,24 @@ rpipi_step() {   # rpi_pi.cfg: old separate files become parts, the Pi temperatu
     fi
     rpipi_include
 }
+rpicfg_role() {   # $1 = rpi-cfg file, $2 = name | effect: what the file is, and what goes wrong while it is missing or not included (Doctor texts)
+    case "$1:$2" in
+        rpi_calibration.cfg:name) echo "calibration macros" ;;
+        rpi_calibration.cfg:effect) echo "WM_BED_LEVELING, WM_FIRST_RUN_CAL and the other WM_ calibration macros do not exist" ;;
+        rpi_homing.cfg:name) echo "homing and Z drop" ;;
+        rpi_homing.cfg:effect) echo "G28 homes without the 5 mm bed drop and the Pi's homing order, the idle timeout spares no paused print, and tool changes, the nozzle wipe and ACE loads stop with Unknown command z_rise" ;;
+        rpi_base.cfg:name) echo "base helpers" ;;
+        rpi_base.cfg:effect) echo "the switch pins, the start-up safety check, the unload menu, the head sensor load queue and live Z per tool do not exist, and the other rpi_ files that use them fail" ;;
+        rpi_bed_soak.cfg:name) echo "bed warp wait" ;;
+        rpi_bed_soak.cfg:effect) echo "START_PRINT does not wait for the bed to settle before the bed mesh, and Measure Bed Warp does not exist" ;;
+        rpi_nozzle.cfg:name) echo "nozzle type and extruder setup" ;;
+        rpi_nozzle.cfg:effect) echo "the Nozzle Type and Extruder Setup macros do not exist" ;;
+        rpi_auto_speed.cfg:name) echo "speed test" ;;
+        rpi_auto_speed.cfg:effect) echo "the X/Y speed test (Speed Test, Speed Check) does not exist" ;;
+        *:name) echo "Pi config" ;;
+        *) echo "the macros in it do not exist" ;;
+    esac
+}
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
     print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
@@ -2888,10 +2906,10 @@ do_doctor() {
         grep -q 'zru-s.cfg' < <(validate_config 2>&1) && offer_fix "set printer.cfg for the $(model_now)" step_model
     fi
     local rf; for rf in $(rpicfg_list); do
-        if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's calibration macros file $rf is missing" "WM_BED_LEVELING, WM_FIRST_RUN_CAL and the other WM_ macros do not exist. It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
-        elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf" "The WM_ calibration macros are not loaded."; offer_fix "add the include line for $rf" step_rpicfg
+        if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's $(rpicfg_role "$rf" name) file $rf is missing" "$(rpicfg_role "$rf" effect). It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
+        elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf ($(rpicfg_role "$rf" name))" "Klipper does not load it: $(rpicfg_role "$rf" effect)."; offer_fix "add the include line for $rf" step_rpicfg
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
-        else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
+        else doc_ok "$(rpicfg_role "$rf" name) $rf (included in printer.cfg, same as rpi-cfg)"; fi
         if [ "$rf" = rpi_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
             if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind _WM_NOZZLE_TYPE) is in place"
             else doc_bad "wm_nozzle.py is missing or different in ~/printer_data/wm-tools" "_WM_NOZZLE_TYPE could not write the nozzle diameter."; offer_fix "copy wm_nozzle.py again" step_rpicfg; fi

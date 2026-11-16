@@ -250,5 +250,26 @@
   "new": "            M118 START_PRINT adaptive_mesh\n        {% elif params.ADAPTIVE is defined and params.ADAPTIVE|int == 1 %} #use klipper adaptive_mesh\n            {% if params.ADAPTIVE_MARGIN is defined %}",
   "old": "            M118 START_PRINT adaptive_mesh\n        {% elif params.ADAPTIVE is defined and params.ADAPTIVE == 1 %} #use klipper adaptive_mesh\n            {% if params.ADAPTIVE_MARGIN is defined %}",
   "version": "2.11.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    SAVE_VARIABLE VARIABLE=box_modify_t2 VALUE=2\n    SAVE_VARIABLE VARIABLE=box_modify_t3 VALUE=3\n    # the saved copies too (RESUME reads them): after an endless spool swap they still pointed the tool at the spare head\n    {% for i in range(4) %}\n        SAVE_VARIABLE VARIABLE=box_modify_t{i}_backup VALUE={i}\n    {% endfor %}\n    \n",
+  "old": "    SAVE_VARIABLE VARIABLE=box_modify_t2 VALUE=2\n    SAVE_VARIABLE VARIABLE=box_modify_t3 VALUE=3\n    \n",
+  "version": "2.12.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    M400\n    E_axis_move L=20 S=300    # purge before the print continues (factory 10 mm)\n    M400",
+  "old": "    M400\n    E_axis_move L=10 S=300\n    M400",
+  "version": "2.12.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "    SAVE_VARIABLE VARIABLE=box_modify_t3 VALUE=3\n    # the saved copies too (RESUME reads them): after an endless spool swap they still pointed the tool at the spare head\n    {% for i in range(4) %}\n        SAVE_VARIABLE VARIABLE=box_modify_t{i}_backup VALUE={i}\n    {% endfor %}\n    SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False",
+  "old": "    SAVE_VARIABLE VARIABLE=box_modify_t3 VALUE=3\n    SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False",
+  "version": "2.12.0"
  }
 ]

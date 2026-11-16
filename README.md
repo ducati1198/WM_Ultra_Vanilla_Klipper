@@ -530,7 +530,8 @@ The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati11
 - an **Unload Menu** button (the window to unload one toolhead or all of them; locked while a print runs);
 - chamber (temperature and target), air filter, chamber light, doors;
 - with an ACE Pro: the ACE status line, dryer with presets, **Auto load**;
-- switches: **Endless spool**, **ACE Pro**, **Bed warp wait** (section 4.8), **Nozzle heat growth** (section 4.3), each shown only when the printer has it;
+- the **Endless spool** section (panel 1.11.0): on/off, **Swap automatically**, a circle of the four toolheads and who takes over for whom when one runs out (same material and colour, sets of 2 to 4);
+- switches: **ACE Pro**, **Bed warp wait** (section 4.8), **Nozzle heat growth** (section 4.3), each shown only when the printer has it;
 - **Tool changes** in total and per toolhead, with the print time of each toolhead on the carriage;
 - a **Touchscreen** line: the screen board's version, an "update" chip when a newer version is on GitHub, its CPU and free memory (sent by the board every minute);
 - **Print with colours**.
