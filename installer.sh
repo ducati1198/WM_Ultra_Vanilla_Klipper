@@ -420,9 +420,9 @@ nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
 rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
-    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_auto_speed.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; [ "$b" = rpi_virtual_pins.cfg ] && continue; echo "$b"; done
-    # rpi_virtual_pins.cfg comes last: step_rpicfg puts each new include line above the first one, so the file handled last is read first by Klipper, and [wm_virtual_pins] must be read before rpi_zoffset.cfg uses a wm_pin
-    [ -f "$SCRIPT_DIR/rpi-cfg/rpi_virtual_pins.cfg" ] && echo rpi_virtual_pins.cfg; return 0
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_auto_speed.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_base.cfg ] && continue; echo "$b"; done
+    # rpi_base.cfg comes last: step_rpicfg puts each new include line above the first one, so the file handled last is read first by Klipper, and its [wm_virtual_pins] must be read before rpi_calibration.cfg uses a wm_pin
+    [ -f "$SCRIPT_DIR/rpi-cfg/rpi_base.cfg" ] && echo rpi_base.cfg; return 0
 }
 # Names: the config files this installer puts on the Pi used to be called wm_*.cfg (and wm_chamber_light.json,
 # wm-ultra-install.conf). Since 2.6.0 they are rpi_*.cfg. A Pi that has the old names is renamed once (copies of everything
@@ -463,14 +463,48 @@ rpi_names_migrate() {
     print_info "$n config file(s) renamed from wm_ to rpi_. Copies of the old files: $bak"
     print_info "Klipper reads the new names at its next restart; the screen board uploads rpi_chamber_light.json after its own update."
 }
+# rpi_pi.cfg is written by scripts/wm_rpi_pi.py from the parts this Pi uses (host MCU, Pi temperature, board temperatures, chamber light)
+rpipi_py() { echo "$SCRIPT_DIR/scripts/wm_rpi_pi.py"; }
+rpipi_has() { python3 -I "$(rpipi_py)" has "$HOME_DIR/printer_data/config" "$1" >/dev/null 2>&1; }
+rpipi_include() {   # [include rpi_pi.cfg] above the other includes (a copy of printer.cfg first); nothing when it is there already
+    local cfg="$HOME_DIR/printer_data/config/printer.cfg"
+    [ -f "$HOME_DIR/printer_data/config/rpi_pi.cfg" ] && [ -f "$cfg" ] || return 0
+    rpicfg_included rpi_pi.cfg && return 0
+    cp "$cfg" "$cfg.wm-before-rpipi-$STAMP"
+    if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include rpi_pi.cfg]\n&/" "$cfg"; else sed -i "1i [include rpi_pi.cfg]" "$cfg"; fi
+    print_success "rpi_pi.cfg is included in printer.cfg (copy of the old one: printer.cfg.wm-before-rpipi-$STAMP)"
+}
+RPI_JOINED_OLD=(rpi_virtual_pins.cfg rpi_safety.cfg rpi_print_end.cfg rpi_tool_leds.cfg rpi_head_sensors.cfg rpi_unload.cfg rpi_zoffset.cfg)
+rpi_join_migrate() {   # 2.10.0: the old separate files are in rpi_base.cfg and rpi_calibration.cfg now; their include lines go, the files are kept in ~/wm-backups/rpi-join-<time>
+    local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f bk="$HOME_DIR/wm-backups/rpi-join-$STAMP" n=0
+    for f in "${RPI_JOINED_OLD[@]}"; do [ -e "$cd/$f" ] || rpicfg_included "$f" || continue; n=$((n+1)); done
+    [ "$n" -gt 0 ] || return 0
+    mkdir -p "$bk"; cp -p "$cfg" "$bk/printer.cfg"
+    for f in "${RPI_JOINED_OLD[@]}"; do
+        rpicfg_included "$f" && cfg_include_remove "$f"
+        [ -e "$cd/$f" ] && mv "$cd/$f" "$bk/$f"
+    done
+    print_info "The Pi's small files are joined since 2.10.0: rpi_base.cfg and rpi_calibration.cfg replace ${RPI_JOINED_OLD[*]}. Their include lines left printer.cfg; the old files (and printer.cfg before) are kept in $bk"
+}
+rpipi_step() {   # rpi_pi.cfg: old separate files become parts, the Pi temperature part, the include line
+    local cd="$HOME_DIR/printer_data/config" ex="$HOME_DIR/klipper/klippy/extras" out rc
+    [ -f "$(rpipi_py)" ] || return 0
+    out="$(python3 -I "$(rpipi_py)" migrate "$cd" "$HOME_DIR/wm-backups/rpi-pi-$STAMP" 2>&1)"; rc=$?
+    [ "$rc" = 10 ] && { echo "$out" | sed 's/^/        /'; print_info "rpi_pi.cfg now holds the host MCU, the temperatures and the chamber light (old files kept in ~/wm-backups/rpi-pi-$STAMP)"; }
+    if [ ! -d "$ex" ] || [ -f "$ex/temperature_host.py" ]; then   # the Pi temperature needs Klipper's temperature_host
+        python3 -I "$(rpipi_py)" set "$cd" pi-temp "$SCRIPT_DIR/config/rpi_pi_temp.cfg" || print_warning "rpi_pi.cfg: the Pi temperature part could not be written"
+    fi
+    rpipi_include
+}
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
     print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
-    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/rpi_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FIRST_RUN_CAL, ...). The folder also holds the Z offset tools (rpi_zoffset.cfg: WM_FULL_OFFSET_CAL, WM_OFFSETS_Z_HOT, WM_Z_TRIM_MENU), the unload menu (rpi_unload.cfg: WM_UNLOAD_MENU) and a start-up safety check (rpi_safety.cfg). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
+    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/rpi_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FIRST_RUN_CAL, ...). The same file holds the Z offset tools (WM_FULL_OFFSET_CAL, WM_OFFSETS_Z_HOT, WM_Z_TRIM_MENU); rpi_base.cfg holds the small helpers (switch pins, unload menu WM_UNLOAD_MENU, start-up safety check, head sensor load queue, live Z), rpi_homing.cfg the homing and idle timeout, and rpi_pi.cfg (written here) the Pi side: host MCU, temperatures, chamber light. They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f
     [ -n "$(rpicfg_list)" ] || { print_warning "the rpi-cfg folder is missing from this repository: calibration macros not installed"; return 0; }
     if [ "$DRY" = 1 ] || [ ! -f "$cfg" ]; then echo -e "  ${DIM}would copy rpi-cfg/*.cfg into the config folder and add an [include] line for each to printer.cfg${NC}"; return 0; fi
-    # rpi_virtual_pins.cfg needs the driver wm_virtual_pins.py in Klipper's extras, or Klipper would not start: an update copies it here, before the include line is written
+    rpi_join_migrate
+    # rpi_base.cfg ([wm_virtual_pins]) needs the driver wm_virtual_pins.py in Klipper's extras, or Klipper would not start: an update copies it here, before the include line is written
     local vp="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_virtual_pins.py" ex="$HOME_DIR/klipper/klippy/extras"
     if [ -f "$vp" ] && [ -d "$ex" ] && ! cmp -s "$vp" "$ex/wm_virtual_pins.py"; then cp "$vp" "$ex/wm_virtual_pins.py" && print_info "driver wm_virtual_pins.py copied into Klipper's extras (the switch Nozzle Heat Growth needs it)"; fi
     # rpi_auto_speed.cfg needs the speed test module (klipper_auto_speed by Anonoei, MIT, with this repository's changes): same reason
@@ -481,7 +515,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         done
     fi
     for f in $(rpicfg_list); do
-        if { [ "$f" = rpi_virtual_pins.cfg ] || [ "$f" = rpi_zoffset.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
+        if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_auto_speed.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
         if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
@@ -497,10 +531,13 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         if rpicfg_included "$f"; then print_success "$f is installed (printer.cfg already includes it)"
         else
             cp "$cfg" "$cfg.wm-before-rpicfg-$STAMP"
-            if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include $f]\n&/" "$cfg"; else sed -i "1i [include $f]" "$cfg"; fi
+            if [ "$f" != rpi_base.cfg ] && grep -q '^\[include rpi_base.cfg\]' "$cfg"; then
+                sed -i "0,/^\[include rpi_base.cfg\]/s//&\n[include $f]/" "$cfg"   # below rpi_base.cfg: its [wm_virtual_pins] must be read before any wm_pin
+            elif grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include $f]\n&/" "$cfg"; else sed -i "1i [include $f]" "$cfg"; fi
             print_success "$f is installed and included in printer.cfg (copy of the old one: printer.cfg.wm-before-rpicfg-$STAMP)"
         fi
     done
+    rpipi_step
 }
 moonraker_py() { echo "$SCRIPT_DIR/scripts/wm_moonraker_conf.py"; }
 light_py() { echo "$SCRIPT_DIR/scripts/wm_light_conf.py"; }
@@ -509,7 +546,7 @@ step_light() {   # ./installer.sh --light, and in every install and update: the 
     print_header "Chamber light"
     why "The chamber light hangs on the screen board. As the Moonraker power device chamber_light it is switched by the Fluidd Toolheads card, by the Light buttons on the touchscreen and by the macro WM_CHAMBER_LIGHT, and all three always show the same state. A print turns it on at its start. The board tells the Pi its address by itself (rpi_chamber_light.json), so this step only works once a screen board is installed and has started."
     local cd="$HOME_DIR/printer_data/config" conf="$HOME_DIR/printer_data/config/moonraker.conf" cfg="$HOME_DIR/printer_data/config/printer.cfg" url rc
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [power chamber_light] to moonraker.conf and rpi_light.cfg (WM_CHAMBER_LIGHT) to printer.cfg when a screen board has announced its light service${NC}"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [power chamber_light] to moonraker.conf and WM_CHAMBER_LIGHT (rpi_pi.cfg) when a screen board has announced its light service${NC}"; return 0; fi
     url="$(light_url)"
     if [ -z "$url" ]; then print_info "No screen board has announced its chamber light yet (rpi_chamber_light.json is not in the config folder): nothing to set up. After the screen board is installed run ./installer.sh --light"; return 0; fi
     [ -f "$conf" ] && [ -f "$cfg" ] && [ -f "$SCRIPT_DIR/config/rpi_light.cfg" ] || { print_info "moonraker.conf, printer.cfg or config/rpi_light.cfg is missing: chamber light not set up"; return 0; }
@@ -521,13 +558,11 @@ step_light() {   # ./installer.sh --light, and in every install and update: the 
         0)  print_success "moonraker.conf already has the chamber light ($url)" ;;
         *)  print_warning "could not check moonraker.conf for the chamber light"; return 0 ;;
     esac
-    if [ -f "$cd/rpi_light.cfg" ] && ! cmp -s "$SCRIPT_DIR/config/rpi_light.cfg" "$cd/rpi_light.cfg"; then cp "$cd/rpi_light.cfg" "$cd/rpi_light.cfg.wm-before-light-$STAMP"; fi
-    cp "$SCRIPT_DIR/config/rpi_light.cfg" "$cd/rpi_light.cfg"
-    if rpicfg_included rpi_light.cfg; then print_success "rpi_light.cfg (WM_CHAMBER_LIGHT) is installed"
-    else
-        cp "$cfg" "$cfg.wm-before-light-$STAMP"
-        if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include rpi_light.cfg]\n&/" "$cfg"; else sed -i "1i [include rpi_light.cfg]" "$cfg"; fi
-        print_success "rpi_light.cfg (WM_CHAMBER_LIGHT) is installed and included in printer.cfg (copy: printer.cfg.wm-before-light-$STAMP)"
+    # WM_CHAMBER_LIGHT is the part "light" of rpi_pi.cfg (until 2.9.0 the file rpi_light.cfg, which the migration moves in)
+    if [ -f "$(rpipi_py)" ]; then
+        python3 -I "$(rpipi_py)" migrate "$cd" "$HOME_DIR/wm-backups/rpi-pi-$STAMP" | sed 's/^/        /'
+        if rpipi_has light && rpicfg_included rpi_pi.cfg; then python3 -I "$(rpipi_py)" set "$cd" light "$SCRIPT_DIR/config/rpi_light.cfg"; print_success "WM_CHAMBER_LIGHT is installed (rpi_pi.cfg)"
+        else python3 -I "$(rpipi_py)" set "$cd" light "$SCRIPT_DIR/config/rpi_light.cfg" && rpipi_include && print_success "WM_CHAMBER_LIGHT is installed (rpi_pi.cfg, part light)"; fi
     fi
     board_offer_add
 }
@@ -938,22 +973,26 @@ PYEOF
     print_info "Moved the [include] line(s) that were under the SAVE_CONFIG block back above it (copy: printer.cfg.wm-before-include-fix-$STAMP)"
 }
 cfg_include_remove() { sed -i -E "/^[[:space:]]*\[include[[:space:]]+${1//./\\.}[[:space:]]*\][[:space:]]*$/d" "$HOME_DIR/printer_data/config/printer.cfg"; }
-pisens_add() {   # file label : the file is already in the config folder; include it, restart Klipper, undo everything if Klipper does not become ready. Returns 0 = in use, 1 = undone
-    local f="$1" label="$2" cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" ok=0
-    cp "$cfg" "$cfg.wm-before-${f%.cfg}-$STAMP"
-    cfg_include_last "$f"
+pisens_add() {   # part label : the part's text is in CONFIG/.wm-part-<part>; put it into rpi_pi.cfg, include rpi_pi.cfg, restart Klipper, undo everything if Klipper does not become ready. Returns 0 = in use, 1 = undone
+    local part="$1" label="$2" cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" ok=0 src
+    src="$cd/.wm-part-$part"
+    cp "$cfg" "$cfg.wm-before-$part-$STAMP"
+    [ -f "$cd/rpi_pi.cfg" ] && cp "$cd/rpi_pi.cfg" "$cd/rpi_pi.cfg.wm-before-$part-$STAMP"
+    python3 -I "$(rpipi_py)" set "$cd" "$part" "$src"; rm -f "$src"
+    rpicfg_included rpi_pi.cfg || { if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include rpi_pi.cfg]\n&/" "$cfg"; else sed -i "1i [include rpi_pi.cfg]" "$cfg"; fi; }
     if [ "$(service_state klipper)" != active ] && [ "$TESTING" != 1 ]; then   # install: Klipper is started last, once, with everything in place
-        print_success "$label: added to printer.cfg. Klipper loads it when it starts (copy of the old printer.cfg: printer.cfg.wm-before-${f%.cfg}-$STAMP)"; return 0
+        print_success "$label: added to rpi_pi.cfg. Klipper loads it when it starts (copy of the old printer.cfg: printer.cfg.wm-before-$part-$STAMP)"; return 0
     fi
     SUDO systemctl restart klipper
     if [ "$TESTING" = 1 ]; then [ "${WM_TEST_KLIPPER_AFTER:-ready}" = ready ] && ok=1
     else wait_klipper_ready && ok=1; fi
-    if [ "$ok" = 1 ]; then print_success "$label: Klipper restarted and is ready (copy of the old printer.cfg: printer.cfg.wm-before-${f%.cfg}-$STAMP)"; return 0; fi
+    if [ "$ok" = 1 ]; then print_success "$label: Klipper restarted and is ready (copy of the old printer.cfg: printer.cfg.wm-before-$part-$STAMP)"; return 0; fi
     print_warning "$label: Klipper did not become ready (${WAIT_ST:-error}). Taking it out again."
-    cp "$cfg.wm-before-${f%.cfg}-$STAMP" "$cfg"; mv -f "$cd/$f" "$cd/$f.wm-failed-$STAMP"
+    cp "$cfg.wm-before-$part-$STAMP" "$cfg"
+    if [ -f "$cd/rpi_pi.cfg.wm-before-$part-$STAMP" ]; then cp "$cd/rpi_pi.cfg.wm-before-$part-$STAMP" "$cd/rpi_pi.cfg"; else python3 -I "$(rpipi_py)" del "$cd" "$part"; fi
     SUDO systemctl restart klipper
     if [ "$TESTING" != 1 ]; then wait_klipper_ready && print_success "Klipper is ready again without it." || print_warning "Klipper is still '${WAIT_ST:-not answering}'. Look at the message in Fluidd, or: ./installer.sh --doctor"; fi
-    warn_later "$label was not added: Klipper did not start with it. The file is kept as $f.wm-failed-$STAMP in the config folder; the reason is in ~/printer_data/logs/klippy.log."
+    warn_later "$label was not added: Klipper did not start with it. rpi_pi.cfg and printer.cfg are back as they were; the reason is in ~/printer_data/logs/klippy.log."
     return 1
 }
 pi_sensors_in_flow() { [ "$TESTING" != 1 ] || [ "${WM_TEST_PI_SENSORS_FLOW:-0}" = 1 ] && PISENS_INSTALL=1 step_pi_sensors; return 0; }   # (the install tests count Klipper restarts, so under test it only runs when a test asks for it)
@@ -966,16 +1005,17 @@ step_pi_sensors() {   # ./installer.sh --pi-sensors, and at the end of an instal
     case "$(print_state)" in printing|paused) print_info "A print is running: the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after the print."; return 0 ;; esac
     print_header "Board temperatures and the host MCU"
     why "Shows the chip temperature of every board in Fluidd, and connects Klipper to the host MCU service (sensors wired to the Pi's own pins). During the install Klipper is not running yet: the files are only added and Klipper loads them at its first start. On a Pi where Klipper runs, Klipper restarts after each and it is undone again if Klipper does not come back."
-    if rpicfg_included rpi_mcu_temps.cfg; then print_success "board temperature sensors are already in use"
+    [ -f "$(rpipi_py)" ] && python3 -I "$(rpipi_py)" migrate "$cd" "$HOME_DIR/wm-backups/rpi-pi-$STAMP" | sed 's/^/        /'
+    if rpipi_has board-temps && rpicfg_included rpi_pi.cfg; then print_success "board temperature sensors are already in use"
     elif content="$(pisens_mcutemps_content)"; then
-        printf '%s\n' "$content" > "$cd/rpi_mcu_temps.cfg"; pisens_add rpi_mcu_temps.cfg "Board temperature sensors" || true
+        printf '%s\n' "$content" > "$cd/.wm-part-board-temps"; pisens_add board-temps "Board temperature sensors" || true
     else print_info "No [mcu] boards found in the config: board temperature sensors skipped."; fi
-    if rpicfg_included rpi_mcu.cfg; then print_success "host MCU ([mcu rpi]) is already in use"
+    if rpipi_has host-mcu && rpicfg_included rpi_pi.cfg; then print_success "host MCU ([mcu rpi]) is already in use"
     elif [ "$(service_state klipper-mcu)" != active ] || { [ "$TESTING" != 1 ] && [ ! -e /tmp/klipper_host_mcu ]; }; then
         print_info "The klipper-mcu service is not running, so [mcu rpi] was not added. Run ./installer.sh --update, then ./installer.sh --pi-sensors."
     else
-        printf '# The host MCU (service klipper-mcu): lets Klipper use sensors wired to the Pi'"'"'s own pins, as pins rpi:gpioN or rpi:None. See docs/HOST_MCU.md.\n[mcu rpi]\nserial: /tmp/klipper_host_mcu\n' > "$cd/rpi_mcu.cfg"
-        pisens_add rpi_mcu.cfg "Host MCU" || true
+        printf '# The host MCU (service klipper-mcu): lets Klipper use sensors wired to the Pi'"'"'s own pins, as pins rpi:gpioN or rpi:None. See docs/HOST_MCU.md.\n[mcu rpi]\nserial: /tmp/klipper_host_mcu\n' > "$cd/.wm-part-host-mcu"
+        pisens_add host-mcu "Host MCU" || true
     fi
 }
 
@@ -2798,11 +2838,17 @@ do_doctor() {
             else doc_bad "wm_canids.py is missing or different in ~/printer_data/wm-tools" "WM_EXTRUDER_SETUP could not write the CAN ids."; offer_fix "copy wm_canids.py again" step_rpicfg; fi
         fi
     done
+    if [ -f "$HOME_DIR/printer_data/config/rpi_pi.cfg" ]; then
+        rpicfg_included rpi_pi.cfg && doc_ok "rpi_pi.cfg (host MCU, temperatures, chamber light: $(python3 -I "$(rpipi_py)" parts "$HOME_DIR/printer_data/config" 2>/dev/null)) is included" || { doc_bad "rpi_pi.cfg is not included in printer.cfg" "The Pi temperature, the board temperatures, the host MCU and WM_CHAMBER_LIGHT are missing."; offer_fix "include rpi_pi.cfg" rpipi_step; }
+    fi
+    if rpicfg_included rpi_homing.cfg && grep -qE '^\[(homing_override|idle_timeout|gcode_macro z_rise)\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; then
+        doc_bad "printer.cfg still has its own homing / idle timeout sections, and rpi_homing.cfg has them too" "Since 2.10.0 they live in rpi_homing.cfg; the ones in printer.cfg win. Run ./installer.sh --cfg-merge to take them out of printer.cfg (it asks first)."
+    fi
     local lurl; lurl="$(light_url)"
     if [ -n "$lurl" ] && [ -f "$HOME_DIR/printer_data/config/moonraker.conf" ]; then
         python3 -I "$(light_py)" conf "$HOME_DIR/printer_data/config/moonraker.conf" "$lurl"; case "$?" in
-            0) if rpicfg_included rpi_light.cfg; then doc_ok "chamber light: Moonraker power device chamber_light at $lurl, WM_CHAMBER_LIGHT installed"
-               else doc_bad "chamber light: rpi_light.cfg (WM_CHAMBER_LIGHT) is not included in printer.cfg" "A print does not turn the light on at its start."; offer_fix "install rpi_light.cfg" step_light; fi ;;
+            0) if rpipi_has light && rpicfg_included rpi_pi.cfg; then doc_ok "chamber light: Moonraker power device chamber_light at $lurl, WM_CHAMBER_LIGHT installed"
+               else doc_bad "chamber light: WM_CHAMBER_LIGHT is not in rpi_pi.cfg or rpi_pi.cfg is not included in printer.cfg" "A print does not turn the light on at its start."; offer_fix "install WM_CHAMBER_LIGHT" step_light; fi ;;
             10) doc_bad "chamber light: moonraker.conf has no [power chamber_light] for the screen board at $lurl (missing, or the board got a new address)" "The Light buttons in Fluidd and on the touchscreen do nothing."; offer_fix "write [power chamber_light] for $lurl" step_light ;;
             12) doc_ok "chamber light: moonraker.conf has a [power chamber_light] section of your own" ;;
         esac
@@ -2825,8 +2871,8 @@ do_doctor() {
         [ "$(service_enabled $s)" = enabled ] && doc_ok "$s starts at boot" || { doc_bad "$s will not start at boot" "The Pi would come up without the web page."; offer_fix "enable $s" bash -c "sudo systemctl enable $s"; }
     done
     if [ -f /etc/systemd/system/klipper-mcu.service ] || [ "$TESTING" != 1 ] && [ -x /usr/local/bin/klipper_mcu ]; then
-        [ "$(service_state klipper-mcu)" = active ] && doc_ok "klipper-mcu (the host MCU) is running" || { doc_bad "klipper-mcu (the host MCU) is not running" "$(rpicfg_included rpi_mcu.cfg && echo "printer.cfg uses [mcu rpi], so Klipper cannot start without it." || echo "Nothing uses it yet, but Fluidd lists it as stopped.")"; offer_fix "start klipper-mcu and enable it at boot" bash -c "sudo systemctl enable --now klipper-mcu"; }
-    elif rpicfg_included rpi_mcu.cfg; then doc_bad "printer.cfg uses [mcu rpi] but the klipper-mcu service is not installed" "Klipper cannot start without it. Run ./installer.sh --update to build it."; fi
+        [ "$(service_state klipper-mcu)" = active ] && doc_ok "klipper-mcu (the host MCU) is running" || { doc_bad "klipper-mcu (the host MCU) is not running" "$(rpipi_has host-mcu && echo "printer.cfg uses [mcu rpi], so Klipper cannot start without it." || echo "Nothing uses it yet, but Fluidd lists it as stopped.")"; offer_fix "start klipper-mcu and enable it at boot" bash -c "sudo systemctl enable --now klipper-mcu"; }
+    elif rpipi_has host-mcu; then doc_bad "printer.cfg uses [mcu rpi] but the klipper-mcu service is not installed" "Klipper cannot start without it. Run ./installer.sh --update to build it."; fi
     id -nG "$WM_USER" 2>/dev/null | tr ' ' '\n' | grep -qx tty || [ "$TESTING" = 1 ] && doc_ok "user $WM_USER is in the tty group (Klipper can open the host MCU)" || { doc_bad "user $WM_USER is not in the tty group" "Klipper could not open the host MCU ([mcu rpi]): 'Permission denied' on /tmp/klipper_host_mcu."; offer_fix "add $WM_USER to the tty group (Klipper must be restarted afterwards)" bash -c "sudo usermod -aG tty $WM_USER"; }
     if [ "$TESTING" != 1 ]; then sudo nginx -t >/dev/null 2>&1 && doc_ok "nginx configuration is valid" || { doc_bad "nginx configuration is invalid" "sudo nginx -t shows why."; offer_fix "reinstall the nginx files" step_nginx; }; fi
     [ -f /etc/udev/rules.d/99-wm-can0.rules ] || [ "$TESTING" = 1 ] && doc_ok "can0 rule installed" || { doc_bad "can0 rule missing" "can0 would not come up by itself."; offer_fix "install it" step_can; }

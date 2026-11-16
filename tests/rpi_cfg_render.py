@@ -80,7 +80,7 @@ want("bed pid runs", run("WM_BED_PID", {"CONFIRM": "1"}), "PID_CALIBRATE HEATER=
 want("bed pid SAVE=0", run("WM_BED_PID", {"CONFIRM": "1", "SAVE": "0"}), "PID_CALIBRATE", none=("SAVE_CONFIG",))
 want("bed pid refuses watermark", run("WM_BED_PID", {"CONFIRM": "1"}, control="watermark"), "RAISE: heater_bed uses control: watermark")
 # tool head LEDs (rpi-cfg/rpi_tool_leds.cfg): a delayed_gcode, not a macro
-led = re.search(r'^\[delayed_gcode WM_TOOL_LEDS\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_tool_leds.cfg")).read(), re.M).group(1)
+led = re.search(r'^\[delayed_gcode WM_TOOL_LEDS\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_base.cfg")).read(), re.M).group(1)
 def leds(detected, undefined=(), thr=4, cur=99, seen=(-1, -1, -1, -1)):
     pr = {"filament_switch_sensor filament%d" % i: {"filament_detected": detected[i]} for i in range(4) if i not in undefined}
     pr["save_variables"] = {"variables": {"thr_number": thr, "current_extruder": cur}}
@@ -93,7 +93,7 @@ want("leds: only the tool that changed is called", leds([True, True, True, False
 want("leds: only the tool heads this printer has", leds([True] * 4, thr=2), "_RGB_LOAD T=1", none=("T=2", "T=3"))
 want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "_RGB_UNLOAD T=2", "_RGB_LOAD T=3")
 # print end watcher (rpi-cfg/rpi_print_end.cfg)
-pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_print_end.cfg")).read(), re.M).group(1)
+pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "rpi_base.cfg")).read(), re.M).group(1)
 def pend(state, ready):
     pr = {"print_stats": {"state": state}, "gcode_macro START_PRINT": {"print_body_ready": ready}}
     return ["<<run PRINT_END>>" if l.strip() == "PRINT_END" else l.strip() for l in env.from_string(pe).render(printer=pr).splitlines() if l.strip()]
@@ -121,11 +121,11 @@ want("full calibration end window saves only on click", run("_WM_FIRST_RUN_CAL_D
 def more(fname, folder="rpi-cfg"):
     t = open(os.path.join(ROOT, folder, fname)).read()
     return {m.group(1): m.group(2) for m in re.finditer(r'^\[(?:gcode_macro|delayed_gcode) (\S+)\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', t, re.M)}
-ZO = more("rpi_zoffset.cfg"); UN = more("rpi_unload.cfg"); SA = more("rpi_safety.cfg"); LI = more("rpi_light.cfg", "config")
+ZO = more("rpi_calibration.cfg"); UN = more("rpi_base.cfg"); SA = more("rpi_base.cfg"); LI = more("rpi_light.cfg", "config")
 for group in (ZO, UN, SA, LI):
     for n in group: env.from_string(group[n])
-want("rpi_zoffset.cfg has its macros", sorted(ZO), "WM_FULL_OFFSET_CAL", "WM_OFFSETS_Z_HOT", "WM_NOZZLE_GROWTH_CAL", "WM_Z_TRIM_MENU", "_WM_WAIT_TEMP", "_WM_WAIT_TEMP_STEP", "_WM_Z_TOUCH", none=("WM_Z_TRIM_SET",))
-want("rpi_unload.cfg has its macros", sorted(UN), "WM_UNLOAD_MENU", "_WM_UNLOAD_GO", "WM_UNLOAD_STOP", none=("\nWM_UNLOAD_GO",))
+want("rpi_calibration.cfg has the Z offset macros", sorted(ZO), "WM_FULL_OFFSET_CAL", "WM_OFFSETS_Z_HOT", "WM_NOZZLE_GROWTH_CAL", "WM_Z_TRIM_MENU", "_WM_WAIT_TEMP", "_WM_WAIT_TEMP_STEP", "_WM_Z_TOUCH", none=("WM_Z_TRIM_SET",))
+want("rpi_base.cfg has the unload macros", sorted(UN), "WM_UNLOAD_MENU", "_WM_UNLOAD_GO", "WM_UNLOAD_STOP", none=("\nWM_UNLOAD_GO",))
 def zrun(name, params=None, temp=25.0, warmup=1, extra=None):
     w = {"z": [0.0] * 5, "g": [0.0] * 3, "temp": 140, "bed": 60, "samples": 5, "soak_s": 20, "max_drift": 0.02, "drip_s": 20, "wipes": 2, "retract_mm": 20, "warmup": warmup, "hot_ok": -1, "growth_ok": -1, "chain": 0}
     printer = {"save_variables": {"variables": {"thr_number": 4, "current_extruder": 0, "wipe_position": [-13.0, 240.0]}}, "print_stats": {"state": "standby"},

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.10.0
+
+Fewer files in the config folder. Nothing in the macros changed: the same sections, only in fewer files. Tested on a ZR Ultra-S (Klipper restarts, every macro and switch loaded, G28, host MCU, temperatures, chamber light).
+
+- **`rpi-cfg/rpi_base.cfg`** holds the small always-on helpers that were separate files: `rpi_virtual_pins.cfg` (first, so the switch pins exist before anything uses them), `rpi_safety.cfg`, `rpi_print_end.cfg`, `rpi_tool_leds.cfg`, `rpi_head_sensors.cfg`, `rpi_unload.cfg`, and the `SET_GCODE_OFFSET` wrapper (from `rpi_pi.cfg`). Each part starts with its old file name.
+- **`rpi-cfg/rpi_calibration.cfg`** now also holds the Z offset tools (was `rpi_zoffset.cfg`).
+- **`rpi-cfg/rpi_homing.cfg`** (new): `homing_override`, `Z_HOMING`, `z_rise`, `_z_rise_run` and `idle_timeout`, moved out of the factory `printer.cfg` (both models, all 8 variants). `printer.cfg` keeps the hardware settings.
+- **`rpi_pi.cfg` is written by the installer** (`scripts/wm_rpi_pi.py`) from the parts this Pi uses: `host-mcu` (`[mcu rpi]`), `pi-temp` (`config/rpi_pi_temp.cfg`), `board-temps`, `light` (`WM_CHAMBER_LIGHT`). These were `rpi_mcu.cfg`, `rpi_pi.cfg`, `rpi_mcu_temps.cfg` and `rpi_light.cfg`. The `--pi-sensors` step still restarts Klipper after adding a part and puts everything back when Klipper does not come up.
+- **Update from 2.9.0 or older:** the old files leave `printer.cfg` and are kept in `~/wm-backups/rpi-join-<time>` and `~/wm-backups/rpi-pi-<time>`; the homing sections leave `printer.cfg` through the printer.cfg merge (it asks first). The doctor reports `rpi_pi.cfg` and homing sections that are still in `printer.cfg`.
+- A lost `[include]` line of an `rpi_` file is added again below `rpi_base.cfg` (before, at the top: a lost `rpi_calibration.cfg` line would have come back above the switch pins and Klipper would not start).
+- In the config folder: 20 `rpi_` files on the test printer became 11 (the ACE panel's four files are unchanged).
+- Not changed on purpose: WonderMaker's own files (`extruder0-3.cfg`, `wm_zru_*.cfg`, ...): each `extruderN.cfg` is one toolhead and the include lines choose how many toolheads a printer has; tools and WonderMaker's scripts use them by name.
+
 ## 2.9.0
 
 The fixes and tools made on the dev Pi since 2.8.0 that were tested on a ZR Ultra-S. Held back for a later version (built, not yet tested in a print): the bed warp wait before the mesh (Bed Warp Stabilisation) and `START_PRINT ADAPTIVE=1` read as a number.

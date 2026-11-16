@@ -373,7 +373,7 @@ Pause and template custom G-code:
 
 ![OrcaSlicer: Pause G-code and Template Custom G-code](docs/img/orca-machine-gcode-pause.png)
 
-The Pi also has a safety net: if a G-code file finishes without calling `PRINT_END`, [`rpi_print_end.cfg`](rpi-cfg/rpi_print_end.cfg) runs it once. It does not replace `START_PRINT`, so the start line above is needed.
+The Pi also has a safety net: if a G-code file finishes without calling `PRINT_END`, [`rpi_base.cfg`](rpi-cfg/rpi_base.cfg) (part `rpi_print_end.cfg`) runs it once. It does not replace `START_PRINT`, so the start line above is needed.
 
 #### Heating the chamber from OrcaSlicer (Ultra-S)
 
@@ -441,7 +441,7 @@ Tested on a ZR Ultra-S (hot Z, heat growth, trims and the guided run). `WM_FULL_
 | A different hotend or nozzle type | step 3, then the test print |
 | Only the first layer feel is off | the test print and the trims |
 
-Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `saved_variables.cfg`: `t1_offset` to `t3_offset` (third number is Z), `wm_z_trim_t0` to `wm_z_trim_t3`, `wm_nozzle_growth`, `wm_nozzle_growth_meas`, `wm_z_ref_temp`. The live adjusts are not saved (they live for one print). Files: `rpi_zoffset.cfg`, `rpi_virtual_pins.cfg`, the driver `wm_virtual_pins.py`, `_OFFSET_SET` in `change_macros.cfg`, and `SET_GCODE_OFFSET` in `rpi_pi.cfg` (and in `rpi_ace.cfg` with the ACE Pro panel) which hands Z adjusts to `_WM_LIVEZ_SGO`.
+Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `saved_variables.cfg`: `t1_offset` to `t3_offset` (third number is Z), `wm_z_trim_t0` to `wm_z_trim_t3`, `wm_nozzle_growth`, `wm_nozzle_growth_meas`, `wm_z_ref_temp`. The live adjusts are not saved (they live for one print). Files: `rpi_calibration.cfg` (Z offset tools), `rpi_base.cfg` (switch pins), the driver `wm_virtual_pins.py`, `_OFFSET_SET` in `change_macros.cfg`, and `SET_GCODE_OFFSET` in `rpi_base.cfg` (and in `rpi_ace.cfg` with the ACE Pro panel) which hands Z adjusts to `_WM_LIVEZ_SGO`.
 
 ### 4.4 Unload menu, pause guard and chamber light
 
@@ -453,7 +453,7 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
 ### 4.5 Filament sensors of the docked tools, and the load queue
 
 - WonderMaker's tool change switches the head filament sensors of the three docked tools off (right during a print: a docked tool must not pause it), but nothing switched them on again. Filament pushed by hand into a docked tool did not start its load.
-- `rpi-cfg/rpi_head_sensors.cfg` (`WM_HEAD_SENSOR_WATCH`, every 2 s) switches them on again whenever no print runs or is paused, no tool change runs, the ACE Pro macros are idle and Klipper is not busy. During a print or a pause nothing changes.
+- `rpi-cfg/rpi_base.cfg`, part `rpi_head_sensors.cfg` (`WM_HEAD_SENSOR_WATCH`, every 2 s) switches them on again whenever no print runs or is paused, no tool change runs, the ACE Pro macros are idle and Klipper is not busy. During a print or a pause nothing changes.
 - **Queue:** Klipper drops a filament insert that happens while it is busy (for example while another tool loads). Each tool's `insert_gcode` now first marks "Klipper started this load" (`_WM_HEAD_MARK`). A tool that got filament without a mark is queued and loaded when the printer is idle, one after the other, in the order they were put in (console: "Filament inserted in T2 while the printer was busy", then "Loading T2 now").
 
 ### 4.6 Speed test (Auto Speed) with a Save window
@@ -474,7 +474,7 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
 - X and Y home at 80 mm/s (was 50). During a print `z_rise` does nothing (a print has its own Z clearance; it asked the endstops at every dock move, about 0.3 s each). The wait before the tool unlocks is 0.3 s (was 1 s), and the carriage backs off the dock at 12000 mm/min. Z speeds are unchanged (a faster Z tripped the Z stall detection).
 - `G28 X Z`, `G28 Y Z` and `G28 X Y Z` now home the axes named (before, they homed nothing).
 - **Idle timeout:** during a paused print only the nozzle heaters go off; the bed (keeps the part stuck), the chamber and the motors (keep the position, so RESUME still works) stay on. Outside a pause it turns off all heaters and the motors.
-- These are in `printer.cfg`. A Pi that is already installed gets them with `./installer.sh --cfg-merge` (or the update), which asks before it changes anything.
+- Since 2.10.0 these live in `rpi-cfg/rpi_homing.cfg` (printer.cfg keeps only the hardware settings and the `homing_speed`). A Pi that is already installed gets the file with the update; the printer.cfg merge (it asks first) takes the old sections out of `printer.cfg`, and the doctor reports them while both are there.
 
 ## 5. Fluidd (web panel and ZR Tools)
 
@@ -847,7 +847,7 @@ factory/ultra/          WonderMaker ZR Ultra: upstream Klipper and Moonraker (+ 
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run Klipper on a Pi with no printer, see README-DEVBOX.md
 first-layer-stl/        flat test squares for the first layer check after WM_FULL_OFFSET_CAL (one per tool head, and a 5 patch bed test)
-rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_zoffset.cfg (Z offset tools), rpi_unload.cfg (unload menu), rpi_safety.cfg, rpi_virtual_pins.cfg, rpi_head_sensors.cfg (load queue), rpi_auto_speed.cfg (speed test), rpi_calibration.cfg (calibration macros) and rpi_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and rpi_tool_leds.cfg (tool head LEDs: green filament, red none); installed by the installer
+rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_base.cfg (helpers, unload menu, load queue, live Z wrapper), rpi_calibration.cfg (calibration and Z offset tools), rpi_homing.cfg (homing, idle timeout), rpi_nozzle.cfg (Nozzle Type, Extruder Setup), rpi_auto_speed.cfg (speed test); installed by the installer, which also writes rpi_pi.cfg (host MCU, temperatures, chamber light)
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                stage_from_repo.sh, wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
