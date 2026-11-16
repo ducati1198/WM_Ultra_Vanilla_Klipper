@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.9.0
+
+The fixes and tools made on the dev Pi since 2.8.0 that were tested on a ZR Ultra-S. Held back for a later version (built, not yet tested in a print): the bed warp wait before the mesh (Bed Warp Stabilisation) and `START_PRINT ADAPTIVE=1` read as a number.
+
+**New**
+
+- **Live Z adjust per tool (`rpi_zoffset.cfg`, `_OFFSET_SET` in `change_macros.cfg`, `SET_GCODE_OFFSET` in `rpi_pi.cfg`).** Z+ / Z- during a print changes only the tool on the carriage, and each tool gets its own adjust back at every tool change (before, a tool change reset it). Every print starts at 0. After the print (also after a cancel) the window `WM_LIVE_Z_MENU` offers **Save all** (added to the Z trim of each tool) or **Do not save**. `Z_OFFSET_APPLY_PROBE` and `Z_OFFSET_APPLY_ENDSTOP` (Fluidd's and the touchscreen's save buttons) open that window instead of baking the tool offset, trim and heat growth into the probe. `WM_LIVE_Z_ZERO` zeroes only the live adjust. The heat growth follows a nozzle temperature that goes up during the print. Tested in a print with 4 tools and 12 tool changes.
+- **One Z trim per tool.** The trim for all tools is gone (two values that add up were easy to set by mistake). A trim for all tools left from 2.8.0 is added to each tool's trim once at the first start (`_WM_Z_TRIM_MIGRATE`); the print height does not change. `WM_Z_TRIM` needs `T=`.
+- **Head filament sensors of the docked tools back on, and a load queue (`rpi-cfg/rpi_head_sensors.cfg`).** The tool change switched the sensors of the docked tools off and nothing switched them on again, so filament pushed into a docked tool by hand did not load. `WM_HEAD_SENSOR_WATCH` switches them on whenever no print runs or is paused and Klipper is idle. A filament pushed in while Klipper was busy (another tool loading) was dropped by Klipper; it is now queued and loaded afterwards, in order. Each `insert_gcode` (`extruder0-3.cfg`) marks its load with `_WM_HEAD_MARK` (only when that macro exists).
+- **Speed test with a Save window (`rpi-cfg/rpi_auto_speed.cfg`, `scripts/wm_speed_limits.py`).** `WM_AUTO_SPEED` (klipper_auto_speed by Anonoei, MIT, shipped in `factory/<model>/klipper/klippy/extras/`) finds the highest acceleration and speed without lost steps, inside a zone that keeps clear of the tool docks. It needs a calibrated input shaper: without one it offers **Calibrate input shaper** first and comes back after the restart (tested: speed 390 without the shaper, 700 with it). The result window has **Check first**, **Save** (writes `max_accel` and `max_velocity` into `printer.cfg` with a copy, never above the input shaper's limit, then offers a Klipper restart) and **Do not save**. Needs the gcode shell command extension; removing the extension takes it out too.
+- **Touchscreen (screen board and KlipperScreen on the Pi):** a **Sensors** page and a sensor strip with friendly labels, buttons for the Z calibration macros on Calibrate and the Unload menu on More, the live Z adjust on the print and Fine Tuning pages with a **Save Z Trim** button after a print, windows that show every text line and close at once, and the sensors read again after the start. KlipperScreen's own files are changed by `zr_tools/patch_ks_wm.py` (list `zr_tools/ks_wm_patches.json`, a copy `<file>.wm-orig` first).
+- **The Pi finds its screen board (B-034).** The Pi never asked for the screen board's address; the board announces it to the Pi for the chamber light (`rpi_chamber_light.json`). `./installer.sh --board add` without an address now takes that board, and the Pi install and update offer to add it when it is not added yet (asks the board's ssh password once).
+- **Screen board time zone (B-033).** The board comes set to China time. The board install asks for the time zone while it is still on China time (`--tz NAME` answers it ahead), `screen_board.sh --set-tz NAME` sets it alone, and the Pi gives every board it knows its own time zone at `--board add` and at every board update; the doctor reports a board on another zone.
+
+**Faster**
+
+- X and Y home at 80 mm/s (was 50). `z_rise` does nothing during a print (it asked the endstops at every dock move). The wait before the tool unlocks is 0.3 s (was 1 s) and the carriage backs off the dock at 12000 mm/min. Z speeds stay (a faster Z tripped the Z stall detection). Tested in prints.
+
+**Fixed**
+
+- **Idle timeout during a pause (`printer.cfg`).** It turned off the heaters of a paused print. Now during a pause only the nozzles go off; bed, chamber and motors stay so RESUME works. Outside a pause it turns off all heaters and the motors (before: only the nozzles).
+- **`G28 X Z`, `G28 Y Z` and `G28 X Y Z` homed nothing (`printer.cfg`, `homing_override`).** They now home the axes named.
+- **Touchscreen windows** showed only their last text line, and a Dismiss or button press waited until a busy Klipper had finished. Sensors showed off after a Klipper restart.
+- **Cleanup:** dead macros removed: `_SAVE_SPEED`, `_RESTORE_SPEED`, `_OFFSET_RESET` (`change_macros.cfg`), `_START_PROBE`, `_RGB_CLOSE` (`macros.cfg`), `_CALIBRATE_MOVE_OVER_PROBE` (`offset_calibrate.cfg`), `_GANTRY_TRIGGER` (`load_cell.cfg`), `WIPE_NOZZLE_SIMPLE` (`fz-wipe-nozzle.cfg`). Nothing called them. On a Pi that is already installed the last two stay (harmless); the others go with the macro fixes step.
+
+**Update on a Pi that is already installed**
+
+- The `printer.cfg` changes (homing, `z_rise`, `homing_override`, idle timeout) come with the printer.cfg merge of the update (`./installer.sh --cfg-merge`), which asks first. `max_velocity` and `max_accel` are not touched.
+- The macro fixes step also handles a fix whose lines a later version changed again (it no longer reports those as "different on this Pi"), and `tools/make_macro_patches.py` handles a block removed at the end of a file.
+- The speed test module and `wm_speed_limits.py` are copied by the update; `rpi_head_sensors.cfg` and `rpi_auto_speed.cfg` are added to `printer.cfg` like the other rpi-cfg files.
+- Tests: new checks for all of the above.
+
 ## 2.8.0
 
 Z offset tools with a guided calibration, an unload menu, pause guards, the chamber light through Moonraker, and the fixes found on the dev Pi since 2.7.10. Everything was used on a ZR Ultra-S unless a line says otherwise.

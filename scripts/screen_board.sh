@@ -13,6 +13,8 @@
 # Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --remove installer|backups|rescue|restoredata  --set-driver modesetting|fbdev
 # bash scripts/screen_board.sh --zr-pi --pi HOST            check the ZR Tools macros on the Pi (asks its user name and password), install them when missing
 # bash scripts/screen_board.sh --fix-clock                   turn on automatic time sync (NTP), fix apt's date check
+# bash scripts/screen_board.sh --set-tz America/Toronto      set the board's time zone (the board comes with China time; the Pi installer sets the Pi's zone by itself)
+#        --tz NAME with --pi HOST: the time zone to set during the install (otherwise the install asks when the board is still on China time)
 # bash scripts/screen_board.sh --free-space                  list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # bash scripts/screen_board.sh --post-update                 (re)apply the permissions the Update and Factory mode buttons need (sudoers, root copy) and the version marks
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
@@ -41,7 +43,7 @@ CFG_DIR="$HOME_DIR/printer_data/config"
 # it finds the folder through the path saved at install time.
 if [ ! -f "$REPO_DIR/zr_tools/zr_tools.py" ] && [ -s "$BK/installer_dir" ] && [ -f "$(cat "$BK/installer_dir")/zr_tools/zr_tools.py" ]; then REPO_DIR="$(cat "$BK/installer_dir")"; fi
 NOARGS=0; [ $# -eq 0 ] && NOARGS=1
-FIXALL=0; ARG1=""; ARG_BACKUP=""; MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0; NO_SUDO_RULE=0
+FIXALL=0; ARG1=""; ARG_BACKUP=""; MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0; NO_SUDO_RULE=0; TZ_WANT=""
 STAMP="$(date +%Y%m%d-%H%M%S)"
 # Services stopped and disabled, in this order (restore starts them in reverse order). Only those that exist are touched.
 SERVICES=(makerbase-client klipper moonraker nginx crowsnest makerbase-webcam janus klipper-mcu hostapd moonraker-obico octoapp)
@@ -90,6 +92,19 @@ patch_ks_job_status_light() {   # the Chamber light button on the print screen
     grep -q "machine.device_power.post_device" "$f" 2>/dev/null && return 0
     [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
     python3 "$py" "$f" || { cp "$f.wm-orig" "$f"; warn_later "Could not add the Chamber light button to KlipperScreen's print screen."; }
+}
+
+patch_ks_wm() {   # 2.9.0: sensor strip and Sensors page, live Z adjust on the print and Fine Tuning screens, windows show every line and close at once, sensors read again after the start (zr_tools/patch_ks_wm.py, list ks_wm_patches.json)
+    local d="${REPO_DIR:-.}/zr_tools" key f rc
+    [ -f "$d/patch_ks_wm.py" ] && [ -f "$d/ks_wm_patches.json" ] || return 0
+    for key in extrude:panels/extrude.py job_status:panels/job_status.py fine_tune:panels/fine_tune.py prompts:ks_includes/widgets/prompts.py screen:screen.py; do
+        f="$KS_DIR/${key#*:}"
+        [ -f "$f" ] || continue
+        [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
+        python3 "$d/patch_ks_wm.py" "${key%%:*}" "$f"; rc=$?
+        [ "$rc" = 11 ] && warn_later "KlipperScreen's ${key#*:} was not changed (its lines are different from the KlipperScreen version this installer knows). The ZR changes of that screen are missing."
+    done
+    return 0
 }
 
 sb_cum() {   # step weight... : the percent finished when step K starts (the weights are how long each step takes, roughly)
@@ -149,6 +164,8 @@ while [ $# -gt 0 ]; do
         --menu) MODE=menu ;;
         --free-space) MODE=freespace ;;
         --fix-clock) MODE=fixclock ;;
+        --set-tz) MODE=settz; TZ_WANT="${2:-}"; [ $# -gt 1 ] && shift ;;
+        --tz) TZ_WANT="${2:-}"; shift ;;
         --zr-pi) MODE=zrpi ;;
         --install) MODE=install; NOARGS=0 ;;
         --update) MODE=update ;;
@@ -233,6 +250,25 @@ apt_ok() {
     if [ "$TESTING" = 1 ]; then [ "${WM_TEST_APT_OK:-1}" = 1 ]; return; fi
     [ "$DRY" = 1 ] && return 0
     sudo apt-get update 2>&1 | tail -n 6; [ "${PIPESTATUS[0]}" = 0 ]
+}
+set_timezone() {   # the board comes with China time (Asia/Shanghai). TZ_WANT: --tz / --set-tz (the Pi installer passes its own zone), else asked here
+    local cur want="$TZ_WANT"
+    if [ "$TESTING" = 1 ]; then cur="${WM_TEST_TZ:-America/Toronto}"; else cur="$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null)"; fi
+    if [ -z "$want" ]; then
+        [ "$cur" = Asia/Shanghai ] || [ "$MODE" = settz ] || return 0     # a zone was chosen already: left alone
+        if [ "${WM_ASSUME_YES:-0}" = 1 ] || { [ ! -t 0 ] && [ "$TESTING" != 1 ]; }; then
+            print_warning "The board is on ${cur:-an unknown} time zone. Set yours with: bash scripts/screen_board.sh --set-tz America/Toronto (your zone)"; return 0
+        fi
+        read -r -p "$(echo -e "${YELLOW}?${NC} The board's time zone is ${cur:-unknown}. Your time zone, for example America/Toronto (Enter keeps it): ")" want || want=""
+        want="$(echo "$want" | tr -d '[:space:]')"
+        [ -n "$want" ] || { print_info "Time zone left as ${cur:-it is}."; return 0; }
+    fi
+    [[ "$want" =~ ^[A-Za-z0-9_+/-]+$ ]] || { print_warning "'$want' is not a time zone name. Left as $cur."; return 0; }
+    if [ "$TESTING" != 1 ] && ! timedatectl list-timezones 2>/dev/null | grep -qx "$want"; then print_warning "'$want' is not a known time zone (list: timedatectl list-timezones). Left as $cur."; return 0; fi
+    [ "$want" = "$cur" ] && { print_success "Time zone is $cur"; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo timedatectl set-timezone $want (now $cur)${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] sudo timedatectl set-timezone $want" >> "$HOME_DIR/.sudo.log"; print_success "Time zone is $want (was $cur)"; return 0; fi
+    SUDO timedatectl set-timezone "$want" && print_success "Time zone is $want (was $cur)" || print_warning "The time zone could not be set (still $cur)."
 }
 fix_clock() {   # automatic time sync (NTP): with a wrong date HTTPS downloads and apt fail. Asks once; nothing else on the board is changed.
     print_header "Date and time"
@@ -348,7 +384,7 @@ preflight() {
         ask_yn "Look for files to erase now?" y && { do_free_space; free="$(disk_free_mb)"; }
     fi
     [ "${free:-0}" -gt "$FREE_NEED_MB" ] && print_success "disk space ${free} MB free" || die_with_fix "only ${free} MB free." "free space first: bash scripts/screen_board.sh --free-space  (it shows what is safe to erase and asks before deleting)."
-    apt_fix; fix_clock; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."
+    apt_fix; fix_clock; set_timezone; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."
     if [ "$TESTING" != 1 ]; then curl -fsS -m 8 -o /dev/null https://github.com 2>/dev/null && print_success "GitHub reachable" || die_with_fix "GitHub is not reachable." "KlipperScreen is downloaded from GitHub."; fi
 }
 
@@ -444,12 +480,12 @@ step_klipperscreen() {
     fi
     # ZR Tools panel files
     if [ "$DRY" != 1 ]; then
-        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt" 2>/dev/null
+        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py} "$KS_DIR/panels/"; cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt" 2>/dev/null
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
-        patch_ks_zcalibrate; patch_ks_menu_light; patch_ks_ws_dup; patch_ks_job_status_light
-        [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; }
+        patch_ks_zcalibrate; patch_ks_menu_light; patch_ks_ws_dup; patch_ks_job_status_light; patch_ks_wm
+        [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; grep -qs '^panels/wm_sensors' "$KS_DIR/.git/info/exclude" || echo 'panels/wm_sensors.py' >> "$KS_DIR/.git/info/exclude"; }
     fi
     write_ks_conf
     write_service
@@ -917,7 +953,7 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     return 0
 }
 panels_differ() {   # true when the screen's panel files are not the ones in folder $1 (the version marks can lie after a git pull: the files are the truth)
-    local f; for f in zr_tools zr_views zr_logic; do cmp -s "$1/zr_tools/$f.py" "$KS_DIR/panels/$f.py" || return 0; done; return 1
+    local f; for f in zr_tools zr_views zr_logic wm_sensors; do [ -f "$1/zr_tools/$f.py" ] || continue; cmp -s "$1/zr_tools/$f.py" "$KS_DIR/panels/$f.py" || return 0; done; return 1
 }
 do_post_update() {   # optional argument: the folder that holds the newest files (default: the installer folder)   # the system-level files that buttons need (root copy of this script, sudoers lines, version marks). An update runs this with the NEW
     # script, so what a new version adds is applied even when the update itself was started by an older script. Also the fix when a button says its permission is missing.
@@ -988,9 +1024,9 @@ do_update_board_core() {
     ls -1t "$BKDIR"/screen-backup-*-before-update.tgz 2>/dev/null | tail -n +6 | while read -r o; do rm -f "$o"; done   # only the newest 5 automatic backups stay; ones you made yourself are never deleted
     progress_bar 40 100 "Update step 3 of 6: copying the new files"
     if [ "$DRY" != 1 ]; then
-        mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; cp "$w/VERSION" "$KS_DIR/panels/zr_version.txt"
+        mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; [ -f "$w/zr_tools/wm_sensors.py" ] && cp "$w/zr_tools/wm_sensors.py" "$KS_DIR/panels/"; cp "$w/VERSION" "$KS_DIR/panels/zr_version.txt"
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
-        patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light
+        patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light; REPO_DIR="$w" patch_ks_wm
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
         mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"; cp "$w/scripts/lib_free_space.sh" "$BK/lib_free_space.sh" 2>/dev/null; cp "$w/VERSION" "$BK/version"
         # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)
@@ -1047,10 +1083,10 @@ do_doctor_board() {
         if [ "$TESTING" != 1 ] && [ "$(systemctl is-active KlipperScreen 2>/dev/null)" = activating ]; then print_info "KlipperScreen is still starting, waiting up to 60 s ..."; wait_ks; fi
         if svc_active KlipperScreen; then ok "KlipperScreen is running"
         else pb "KlipperScreen is not running" "journalctl -u KlipperScreen -n 40"; fixit "start it" start_ks; fi
-        for f in zr_tools.py zr_views.py zr_logic.py; do
+        for f in zr_tools.py zr_views.py zr_logic.py wm_sensors.py; do
             [ -f "$KS_DIR/panels/$f" ] && continue
             pb "ZR Tools file missing: $f" "a KlipperScreen update may have removed it."
-            fixit "copy the ZR Tools files again" bash -c "mkdir -p '$KS_DIR/panels' && cp '$REPO_DIR'/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} '$KS_DIR/panels/'"; break
+            fixit "copy the ZR Tools files again" bash -c "mkdir -p '$KS_DIR/panels' && cp '$REPO_DIR'/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py} '$KS_DIR/panels/'"; break
         done
         [ -f "$CFG_DIR/KlipperScreen.conf" ] && ok "KlipperScreen.conf exists" || pb "KlipperScreen.conf is missing" "restore a backup (menu: Backup and restore)."
         for u in "${SERVICES[@]}"; do svc_exists "$u" && svc_enabled "$u" && { pb "factory service $u is still enabled" "it would start at the next boot and fight with KlipperScreen."; fixit "disable $u" SUDO systemctl disable "$u"; }; done
@@ -1295,6 +1331,7 @@ case "$MODE" in
     menu) menu_main ;;
     freespace) do_free_space ;;
     fixclock) apt_fix; fix_clock ;;
+    settz) set_timezone ;;
     zrpi) do_zr_pi ;;
     setdriver) do_setdriver ;;
     update) do_update_board ;;

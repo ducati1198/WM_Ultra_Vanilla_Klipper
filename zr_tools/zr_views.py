@@ -95,6 +95,10 @@ class ViewsMixin:
         items += [("shuffle", "Choose toolheads", self.show_mapping),
                   ("fan", "Fans", lambda: self._open_stock("fan", "Fan")),
                   ("retract", "Pressure advance", lambda: self._open_stock("pressure_advance", "Pressure advance"))]
+        items.append(("filament", "Sensors", lambda: self._open_stock("wm_sensors", "Sensors")))   # all sensors, friendly label and real name
+        have = {str(x).strip().upper() for x in (self._sections() or [])}
+        if not have or "GCODE_MACRO WM_UNLOAD_MENU" in have:      # the unload window of the Pi (one tool or all tools), hidden when the Pi lacks it
+            items.append(("retract", "Unload menu", lambda: self._utility("Unload menu", "WM_UNLOAD_MENU", None)))
         if L.collision_settings(self._collision_section()):
             items.append(("warning", "Collision", self.show_collision))
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),

@@ -103,5 +103,131 @@
   "new": "runout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n        UPDATE_DELAYED_GCODE ID=delayed_pause3 DURATION=2.5\n    {% endif %}\n",
   "old": "runout_gcode:\n    RESPOND MSG=\"Filament runout detected, pausing in 2.5 seconds...\"\n    UPDATE_DELAYED_GCODE ID=delayed_pause3 DURATION=2.5\n",
   "version": "2.8.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    M118 START_PRINT begin\n    {% if \"gcode_macro _WM_LIVEZ_RESET\" in printer %}\n        _WM_LIVEZ_RESET\n    {% endif %}\n    {% if \"gcode_macro WM_CHAMBER_LIGHT\" in printer %}",
+  "old": "    M118 START_PRINT begin\n    {% if \"gcode_macro WM_CHAMBER_LIGHT\" in printer %}",
+  "version": "2.9.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    RESTORE_GCODE_STATE NAME=PAUSE MOVE=1 MOVE_SPEED=60 \n    {% if \"gcode_macro _WM_LIVEZ\" in printer %}\n        _WM_Z_TRIM_APPLY\n    {% endif %}\n    M24",
+  "old": "    RESTORE_GCODE_STATE NAME=PAUSE MOVE=1 MOVE_SPEED=60 \n    M24",
+  "version": "2.9.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "    BED_MESH_CALIBRATE_BASE {rawparams}\n\n\n[gcode_macro M109]",
+  "old": "    BED_MESH_CALIBRATE_BASE {rawparams}\n\n[gcode_macro _START_PROBE]\nvariable_bed_temp = 0\ngcode = \n\t{% set PROBE_TEMP = 0 %}\n\t{% set MAX_TEMP = PROBE_TEMP + 5 %}\n\t{% set ACTUAL_TEMP = printer.extruder.temperature %}\n\t{% set TARGET_TEMP = printer.extruder.target %}\n\t# SET_GCODE_VARIABLE MACRO=START_PROBE VARIABLE=bed_temp VALUE={printer.heater_bed.target}\n\t# SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET=0\n\t\n\t{% if TARGET_TEMP > PROBE_TEMP %}\n        { action_respond_info('Extruder temperature target of %.1fC is too high, lowering to %.1fC' % (TARGET_TEMP, PROBE_TEMP)) }\n        M106 S255\n        M104 S0\n        {% if ACTUAL_TEMP > MAX_TEMP %}\n            { action_respond_info('Extruder temperature %.1fC is still too high, waiting until below %.1fC' % (ACTUAL_TEMP, MAX_TEMP)) }\n            TEMPERATURE_WAIT SENSOR=extruder MAXIMUM=49\n        {% endif %}\n            M106 S0\n            G4 P1000\n    {% endif %}\n    \n\n[gcode_macro M109]",
+  "version": "2.9.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 4,
+  "new": "    SET_HEATER_TEMPERATURE HEATER={heater} TARGET={s}\n    {% if \"gcode_macro _WM_LIVEZ_HEAT\" in printer %}\n        _WM_LIVEZ_HEAT T={t} S={s}\n    {% endif %}\n    {% if s > 0 %}",
+  "old": "    SET_HEATER_TEMPERATURE HEATER={heater} TARGET={s}\n    {% if s > 0 %}",
+  "version": "2.9.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 5,
+  "new": "    {% else %}\n        SET_HEATER_TEMPERATURE HEATER=extruder{t} TARGET={s}\n    {% endif %}\n    {% if \"gcode_macro _WM_LIVEZ_HEAT\" in printer %}\n        _WM_LIVEZ_HEAT T={t} S={s}\n    {% endif %}\n\t",
+  "old": "    {% else %}\n        SET_HEATER_TEMPERATURE HEATER=extruder{t} TARGET={s}\n    {% endif %}\n\t",
+  "version": "2.9.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 6,
+  "new": "        {% endif %}\n        {% if extruder_preheat_temp > 0 %}\n            M104 S0\n        {% endif %}\n    {% endif %}\n\n\n[gcode_macro _RGB_LOAD]",
+  "old": "        {% endif %}\n        {% if extruder_preheat_temp > 0 %}\n            M104 S0\n        {% endif %}\n    {% endif %}\n\n[gcode_macro _RGB_CLOSE]\ngcode:\n    {% set t  = params.T|default(0)|int %}\n    \n    {% if t == 0 %}\n      SET_LED LED=T0_RGB RED=0.0 GREEN=0.0 BLUE=0.0\n    {% elif t == 1 %}\n      SET_LED LED=T1_RGB RED=0.0 GREEN=0.0 BLUE=0.0\n    {% elif t == 2 %}\n      SET_LED LED=T2_RGB RED=0.0 GREEN=0.0 BLUE=0.0\n    {% elif t == 3 %}\n      SET_LED LED=T3_RGB RED=0.0 GREEN=0.0 BLUE=0.0\n    {% elif t == 99 %}\n    {% endif %}\n\n\n[gcode_macro _RGB_LOAD]",
+  "version": "2.9.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 1,
+  "new": "            M400\n            G4 P300\n",
+  "old": "            M400\n            G4 P1000\n",
+  "version": "2.9.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 2,
+  "new": "        UNLOCK\n        G0 Y310 F12000\n        M400",
+  "old": "        UNLOCK\n        G0 Y310 F6000\n        M400",
+  "version": "2.9.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 3,
+  "new": "\n        G0 Y310 F12000\n        G0 Y270 F12000",
+  "old": "\n        G0 Y310 F9600\n        G0 Y270 F12000",
+  "version": "2.9.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 4,
+  "new": "        {% endif %}\n    {% endif %}\n\n\n\n",
+  "old": "        {% endif %}\n    {% endif %}\n\n[gcode_macro _SAVE_SPEED]\nvariable_accel: 0\nvariable_velocity: 0\ngcode:\n    {% set accel = (printer.toolhead.max_accel)*0.5 %}\n    {% set velocity = printer.toolhead.max_velocity %}\n    {% set conf_max_accel = (printer.configfile.settings.printer.max_accel*0.5)|int %}\n    {% set conf_max_velocity = printer.configfile.settings.printer.max_velocity|int %}\n\n    SET_GCODE_VARIABLE MACRO=_SAVE_SPEED VARIABLE=accel VALUE={accel}\n    SET_GCODE_VARIABLE MACRO=_SAVE_SPEED VARIABLE=velocity VALUE={velocity}\n\n    {% if velocity != conf_max_velocity and accel != conf_max_accel %}\n        SET_VELOCITY_LIMIT VELOCITY={conf_max_velocity} ACCEL={conf_max_accel}\n        { action_respond_info(\"SAVE SPEED ACCEL%f VELOCITY%f\" % (accel, velocity)) }\n    {% elif velocity != conf_max_velocity and accel == conf_max_accel %}\n        SET_VELOCITY_LIMIT VELOCITY={conf_max_velocity}\n        { action_respond_info(\"SAVE SPEED  VELOCITY%f\" % (velocity)) }\n    {% elif velocity == conf_max_velocity and accel != conf_max_accel %}\n        SET_VELOCITY_LIMIT ACCEL={conf_max_accel}\n        { action_respond_info(\"SAVE SPEED ACCEL%f\" % (accel)) }\n    {% endif %}\n    # { action_respond_info(\"SAVE SPEED ACCEL%f VELOCITY%f\" % (accel, velocity)) }\n\n[gcode_macro _RESTORE_SPEED]\ngcode:\n    {% set accel_set = printer.toolhead.max_accel %}\n    {% set velocity_set = printer.toolhead.max_velocity %}\n    {% set vars = printer['gcode_macro _SAVE_SPEED'] %}\n    {% set accel = vars.accel %}\n    {% set velocity = vars.velocity %}\n\n    {% if velocity != velocity_set and accel != accel_set %}\n        SET_VELOCITY_LIMIT VELOCITY={accel} ACCEL={velocity}\n        { action_respond_info(\"RESTORE SPEED ACCEL%f VELOCITY%f\" % (accel, velocity)) }\n    {% elif velocity != velocity_set and accel == accel_set %}\n        SET_VELOCITY_LIMIT VELOCITY={velocity}\n        { action_respond_info(\"RESTORE SPEED  VELOCITY%f\" % (velocity)) }\n    {% elif velocity == velocity_set and accel != accel_set %}\n        SET_VELOCITY_LIMIT ACCEL={accel}\n        { action_respond_info(\"RESTORE SPEED ACCEL%f\" % (accel)) }\n    {% endif %}\n\n\n\n",
+  "version": "2.9.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 5,
+  "new": "        {% set sv = printer.save_variables.variables %}\n        {% set trim = sv[\"wm_z_trim_t%d\" % tool]|default(0)|float %}\n        {% set ename = \"extruder\" if tool == 0 else \"extruder%d\" % tool %}",
+  "old": "        {% set sv = printer.save_variables.variables %}\n        {% set trim = sv.wm_z_trim_all|default(0)|float + sv[\"wm_z_trim_t%d\" % tool]|default(0)|float %}\n        {% set ename = \"extruder\" if tool == 0 else \"extruder%d\" % tool %}",
+  "version": "2.9.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 6,
+  "new": "        {% set heat = growth * (target - ref) if (growth > 0 and target > ref) else 0 %}\n        # live Z adjust of this tool (Z+ / Z- during the print, rpi_zoffset.cfg): the tool gets its own number back at every tool change\n        {% set lz = printer[\"gcode_macro _WM_LIVEZ\"][\"l%d\" % tool]|float if \"gcode_macro _WM_LIVEZ\" in printer else 0 %}\n        SET_GCODE_OFFSET X={offset_x} Y={offset_y} Z={(offset_z + trim + heat + lz)|round(5)} move=1\n        {% if \"gcode_macro _WM_LIVEZ\" in printer %}\n            SET_GCODE_VARIABLE MACRO=_WM_LIVEZ VARIABLE=show VALUE={lz}\n            SET_GCODE_VARIABLE MACRO=_WM_LIVEZ VARIABLE=heat_t VALUE={target}\n        {% endif %}\n    {% endif %}",
+  "old": "        {% set heat = growth * (target - ref) if (growth > 0 and target > ref) else 0 %}\n        SET_GCODE_OFFSET X={offset_x} Y={offset_y} Z={(offset_z + trim + heat)|round(5)} move=1\n    {% endif %}",
+  "version": "2.9.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 7,
+  "new": "",
+  "old": "\n[gcode_macro _OFFSET_RESET]\ngcode:\n    {% if \"xy\" not in printer.toolhead.homed_axes or retry == 1 %}\n        G28 X Y\n    {% endif %}\n    SET_GCODE_OFFSET X=0 Y=0 Z=0 move=1\n    { action_respond_info(\"OFFSET_RESET\") }",
+  "version": "2.9.0"
+ },
+ {
+  "file": "offset_calibrate.cfg",
+  "n": 1,
+  "new": "    { action_respond_info(\"T3 POSITON X:%f Y:%f\" % (position_x, position_y)) }\n\n\n[gcode_macro _APPLY_PRE_Z_OFFSET]",
+  "old": "    { action_respond_info(\"T3 POSITON X:%f Y:%f\" % (position_x, position_y)) }\n\n[gcode_macro _CALIBRATE_MOVE_OVER_PROBE]\ngcode:\n    BED_MESH_CLEAR\n    G0 Z10 F9600 # UPDATE THIS WITH YOUR POSITION\n    # G0 X147.85 Y229.31 F10000  # UPDATE THIS WITH YOUR POSITION\n    # G0 X299  F10000  # UPDATE THIS WITH YOUR POSITION\n    # G0 Y290  F10000  # UPDATE THIS WITH YOUR POSITION\n    # # probe samples=2\n    # G0 Z6.5 F2000 # UPDATE THIS WITH YOUR POSITION\n    \n\n[gcode_macro _APPLY_PRE_Z_OFFSET]",
+  "version": "2.9.0"
+ },
+ {
+  "file": "extruder0.cfg",
+  "n": 1,
+  "new": "    {% set printer_state = printer.print_stats.state %}\n    {% if \"gcode_macro _WM_HEAD_MARK\" in printer %}\n        _WM_HEAD_MARK T=0             # tells the head sensor watcher that Klipper started this load (rpi_head_sensors.cfg)\n    {% endif %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "old": "    {% set printer_state = printer.print_stats.state %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "version": "2.9.0"
+ },
+ {
+  "file": "extruder1.cfg",
+  "n": 1,
+  "new": "    {% set printer_state = printer.print_stats.state %}\n    {% if \"gcode_macro _WM_HEAD_MARK\" in printer %}\n        _WM_HEAD_MARK T=1             # tells the head sensor watcher that Klipper started this load (rpi_head_sensors.cfg)\n    {% endif %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "old": "    {% set printer_state = printer.print_stats.state %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "version": "2.9.0"
+ },
+ {
+  "file": "extruder2.cfg",
+  "n": 1,
+  "new": "    {% set printer_state = printer.print_stats.state %}\n    {% if \"gcode_macro _WM_HEAD_MARK\" in printer %}\n        _WM_HEAD_MARK T=2             # tells the head sensor watcher that Klipper started this load (rpi_head_sensors.cfg)\n    {% endif %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "old": "    {% set printer_state = printer.print_stats.state %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "version": "2.9.0"
+ },
+ {
+  "file": "extruder3.cfg",
+  "n": 1,
+  "new": "    {% set printer_state = printer.print_stats.state %}\n    {% if \"gcode_macro _WM_HEAD_MARK\" in printer %}\n        _WM_HEAD_MARK T=3             # tells the head sensor watcher that Klipper started this load (rpi_head_sensors.cfg)\n    {% endif %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "old": "    {% set printer_state = printer.print_stats.state %}\n    {% set bed_leveling = printer[\"gcode_macro G29\"].bed_leveling|default(False) %}",
+  "version": "2.9.0"
  }
 ]

@@ -23,7 +23,7 @@ Details:
 1. [Disclaimer](#disclaimer-use-at-your-own-risk) · [What you get](#what-you-get)
 2. [Hardware](#2-hardware)
 3. [Install](#3-install) (including [the installer menu](#the-installer-menu) and the [command table](#34-command-table))
-4. [When the main board is connected](#4-when-the-main-board-is-connected) (including the [CAN ids of the other boards](#41-can-ids-of-the-other-boards), the [Z offset and first layer calibration](#43-z-offset-and-first-layer-calibration) and the [slicer setup: OrcaSlicer and the Machine G-code](#42-slicer-use-orcaslicer-and-set-the-machine-g-code))
+4. [When the main board is connected](#4-when-the-main-board-is-connected) (including the [CAN ids of the other boards](#41-can-ids-of-the-other-boards), the [Z offset and first layer calibration](#43-z-offset-and-first-layer-calibration), the [slicer setup: OrcaSlicer and the Machine G-code](#42-slicer-use-orcaslicer-and-set-the-machine-g-code), the [load queue of the docked tools](#45-filament-sensors-of-the-docked-tools-and-the-load-queue), the [speed test](#46-speed-test-auto-speed-with-a-save-window) and [faster homing, idle timeout](#47-faster-homing-and-tool-changes-idle-timeout))
 5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools) (including the [OrcaSlicer plugin](#install-the-orcaslicer-plugin-optional-works-without-an-ace-pro))
 6. [KlipperScreen on the Raspberry Pi (touchscreen)](#6-klipperscreen-on-the-raspberry-pi-touchscreen)
 7. [KlipperScreen on the WonderMaker screen board (optional)](#7-klipperscreen-on-the-wondermaker-screen-board-optional)
@@ -310,7 +310,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, the Fluidd panel and the screen boards added with `--board`, and says how to update |
 | `./installer.sh --update-all` | pulls the installer and the Fluidd panel, runs `--update --yes`, then updates the screen boards (not during a print) |
 | `./installer.sh --update-boards` | updates only the screen boards you added |
-| `./installer.sh --board add\|remove\|list [user@address]` | the screen boards this Pi may update over ssh: `add` asks for the board's password once and sets up a key |
+| `./installer.sh --board add\|remove\|list [user@address]` | the screen boards this Pi may update over ssh: `add` asks for the board's password once and sets up a key. `add` without an address takes the board that announced itself to this Pi |
 | `./installer.sh --update` | after `git pull`: refreshes services, packages, panel, add-ons; shows what changed; keeps `printer_data` (an edited `zr_tools.cfg` is saved as `zr_tools.cfg.zrbak_<date>` before it is replaced) |
 | `./installer.sh --undo [DIR]` | puts back the folders the installer moved aside (latest by default) |
 | `./installer.sh --backup [DIR]` | saves config, calibration and database to a private `.tgz` (only when you run it) |
@@ -322,6 +322,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `bash scripts/screen_board.sh --zr-pi --pi IP` | on the screen board: checks the ZR Tools macros on the Pi over ssh (asks its user name and password), installs them if missing |
 | `bash scripts/screen_board.sh --free-space` | on the screen board: lists what is safe to erase (sizes, warnings), erases only what you pick and confirm |
 | `bash scripts/screen_board.sh --fix-clock` | on the screen board: turns on automatic time sync (NTP) and fixes apt's date check |
+| `bash scripts/screen_board.sh --set-tz America/Toronto` | on the screen board: sets its time zone (the board comes with China time) |
 | `scripts/board_check.sh` | read-only: main board on USB, can0, CAN devices, services, Moonraker |
 
 ### 3.5 Open Fluidd
@@ -396,7 +397,8 @@ Tested on a ZR Ultra-S (hot Z, heat growth, trims and the guided run). `WM_FULL_
 
 - **Every print:** `START_PRINT` heats T0 to 140 C, homes, wipes T0 (once more right before the mesh), and probes the bed mesh with T0. The nozzle itself touches the bed. Z zero for the print is where T0's nozzle touches the bed at 140 C.
 - **Every tool change:** the printer applies the saved Z offset of the tool it picked up. T0 is the reference and is always 0.
-- On top of the saved offset it adds a saved fine adjustment (trim) and, when switched on, a correction for how much the nozzle grows when it is hot.
+- On top of the saved offset it adds, for the tool it picked up: its saved fine adjustment (Z trim), the correction for how much the nozzle grows when it is hot (when switched on), and the live Z adjust you made for that tool during this print (see below).
+- So the height of a tool = saved Z offset + Z trim of the tool + heat growth + live Z adjust of the tool. Each part is kept per tool.
 
 **Before you start:** a clean bed and clean nozzle tips (a blob of plastic reads as a longer nozzle), filament loaded in every tool head for step 1, all tool heads in their docks, nozzle heaters off. The bed may be warm.
 
@@ -414,11 +416,21 @@ Tested on a ZR Ultra-S (hot Z, heat growth, trims and the guided run). `WM_FULL_
 
 **The trim window (`WM_Z_TRIM_MENU`)**
 
-- One trim for all tools and one per tool head. Plus is further from the bed, minus is closer. Buttons from 0.01 to 0.1 mm, limit 0.3 mm either way.
+- One trim per tool head (since 2.9.0 there is no trim for all tools any more: two values that add up were easy to set by mistake). Plus is further from the bed, minus is closer. Buttons from 0.01 to 0.1 mm, limit 0.3 mm either way.
+- A printer that still has a trim for all tools from 2.8.0 gets it added to the trim of each tool once, at the first start after the update (`_WM_Z_TRIM_MIGRATE`, a console line says so). The print height does not change.
 - How to read a square: a closed smooth surface where the lines just touch is good. Rough, see-through or with ridges between the lines is too close: use a plus trim. Lines that do not touch each other and lift easily is too far: use a minus trim.
-- Use the trim for all tools when every square is off the same way, and a tool trim when one square differs from the others.
-- Trims are saved on the printer and stay across tool changes and restarts. Fluidd's own Z adjust is reset at the next tool change.
-- In the console: `WM_Z_TRIM` shows the values, `WM_Z_TRIM T=1 Z=-0.02` sets one.
+- Correct each square with the trim of its tool. When every square is off the same way, give every tool the same change.
+- Trims are saved on the printer and stay across tool changes and restarts.
+- In the console: `WM_Z_TRIM` shows the values, `WM_Z_TRIM T=1 Z=-0.02` sets one (the full value, not a step added to the last one).
+
+**Live Z adjust during a print (per tool)**
+
+- The Z+ / Z- buttons of Fluidd and the touchscreen's Fine Tuning page change only the tool on the carriage. Each tool keeps its own live adjust: when the print changes back to that tool, its adjust comes back with it (before 2.9.0 a tool change reset it).
+- The touchscreen's print page and Fine Tuning page show the live adjust of the tool on the carriage, not the whole Z offset. The zero button sets only that live adjust to 0 (`WM_LIVE_Z_ZERO`); tool offset, trim and heat growth stay.
+- Every print starts with all live adjusts at 0.
+- After the print (also after a cancel), when a tool has a live adjust, a window `WM_LIVE_Z_MENU` lists them: **Save all** adds each one to the Z trim of its tool, **Do not save** drops them. On the touchscreen the button is **Save Z Trim** on the print page.
+- Klipper's own "save Z offset to probe / endstop" (`Z_OFFSET_APPLY_PROBE`, `Z_OFFSET_APPLY_ENDSTOP`, used by Fluidd and the touchscreen) would put the tool offset, trim and heat growth into the probe calibration. On this printer they open the same Save all / Do not save window instead.
+- A heat growth correction follows a nozzle temperature that goes up during the print; a cooldown is not followed.
 
 **When to do it again**
 
@@ -429,7 +441,7 @@ Tested on a ZR Ultra-S (hot Z, heat growth, trims and the guided run). `WM_FULL_
 | A different hotend or nozzle type | step 3, then the test print |
 | Only the first layer feel is off | the test print and the trims |
 
-Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `saved_variables.cfg`: `t1_offset` to `t3_offset` (third number is Z), `wm_z_trim_all`, `wm_z_trim_t0` to `wm_z_trim_t3`, `wm_nozzle_growth`, `wm_nozzle_growth_meas`, `wm_z_ref_temp`. Files: `rpi_zoffset.cfg`, `rpi_virtual_pins.cfg`, the driver `wm_virtual_pins.py`, and `_OFFSET_SET` in `change_macros.cfg`.
+Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `saved_variables.cfg`: `t1_offset` to `t3_offset` (third number is Z), `wm_z_trim_t0` to `wm_z_trim_t3`, `wm_nozzle_growth`, `wm_nozzle_growth_meas`, `wm_z_ref_temp`. The live adjusts are not saved (they live for one print). Files: `rpi_zoffset.cfg`, `rpi_virtual_pins.cfg`, the driver `wm_virtual_pins.py`, `_OFFSET_SET` in `change_macros.cfg`, and `SET_GCODE_OFFSET` in `rpi_pi.cfg` (and in `rpi_ace.cfg` with the ACE Pro panel) which hands Z adjusts to `_WM_LIVEZ_SGO`.
 
 ### 4.4 Unload menu, pause guard and chamber light
 
@@ -437,6 +449,32 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
 - **Pause and resume guards:** a second `PAUSE` while the print is already paused does nothing and says so, `RESUME` outside a pause says "Nothing to resume", and the tool map of the print is kept for the resume.
 - **Start-up safety check:** if an interrupted filament insert left the grip check off, it is switched on again 8 s after Klipper starts, with a message.
 - **Chamber light:** with a WonderMaker screen board the light is the Moonraker power device `chamber_light`. The Fluidd Toolheads card, the Light buttons on the touchscreen and `WM_CHAMBER_LIGHT STATE=on|off|toggle` all switch it and always show the same state. A print turns it on at its start. Set up by `./installer.sh --light` (an install and `--update` do it too, once the screen board has started).
+
+### 4.5 Filament sensors of the docked tools, and the load queue
+
+- WonderMaker's tool change switches the head filament sensors of the three docked tools off (right during a print: a docked tool must not pause it), but nothing switched them on again. Filament pushed by hand into a docked tool did not start its load.
+- `rpi-cfg/rpi_head_sensors.cfg` (`WM_HEAD_SENSOR_WATCH`, every 2 s) switches them on again whenever no print runs or is paused, no tool change runs, the ACE Pro macros are idle and Klipper is not busy. During a print or a pause nothing changes.
+- **Queue:** Klipper drops a filament insert that happens while it is busy (for example while another tool loads). Each tool's `insert_gcode` now first marks "Klipper started this load" (`_WM_HEAD_MARK`). A tool that got filament without a mark is queued and loaded when the printer is idle, one after the other, in the order they were put in (console: "Filament inserted in T2 while the printer was busy", then "Loading T2 now").
+
+### 4.6 Speed test (Auto Speed) with a Save window
+
+- `WM_AUTO_SPEED` finds the highest acceleration and speed of X and Y without lost steps. It uses [klipper_auto_speed](https://github.com/Anonoei/klipper_auto_speed) by Anonoei (MIT), shipped in `factory/<model>/klipper/klippy/extras/` with three changes for this printer: the test stays in the zone X 10-290, Y 10-280 (the tool docks are above), the speed limits are put back after every test, and the last result is kept (also after a restart) for the Save window.
+- **It needs a calibrated input shaper.** Without one the tool head shakes more and loses steps much earlier (tested: speed 390 without, 700 with the shaper). Without a shaper the window **Input shaper first** offers **Calibrate input shaper** (`WM_VIBRATION_COMP`, then Klipper restarts) and the speed test window opens again by itself afterwards.
+- It takes about 5 to 20 minutes, is loud, and only the emergency stop ends it. The bed must be empty and all heaters off. T0 is taken when the carriage is empty.
+- At the end the **Speed test result** window shows what was found, the 80 percent values, the limit of your input shaper for clean prints, and your values now:
+  - **Check first** runs a fast pattern 50 times with the values to be saved and checks for lost steps (`WM_AUTO_SPEED_VALIDATE`, about 5 min). The window comes back with passed or FAILED.
+  - **Save** writes `max_accel` and `max_velocity` into `[printer]` of `printer.cfg` (a copy is kept as `printer.cfg.wm-before-autospeed-<time>`, only those two lines change, above the SAVE_CONFIG block), then offers **Restart Klipper now**. The acceleration saved is never higher than your input shaper allows (Klipper's own `find_shaper_max_accel`). Refused while a print runs.
+  - **Do not save** changes nothing. `_WM_AUTO_SPEED_RESULT` opens the window again later.
+- A result measured without input shaper cannot be saved.
+- Needs the gcode shell command extension (the Save script `wm-tools/wm_speed_limits.py`); removing the extension takes `rpi_auto_speed.cfg` out too.
+- Your slicer speeds must be high enough to use a higher `max_velocity`.
+
+### 4.7 Faster homing and tool changes, idle timeout
+
+- X and Y home at 80 mm/s (was 50). During a print `z_rise` does nothing (a print has its own Z clearance; it asked the endstops at every dock move, about 0.3 s each). The wait before the tool unlocks is 0.3 s (was 1 s), and the carriage backs off the dock at 12000 mm/min. Z speeds are unchanged (a faster Z tripped the Z stall detection).
+- `G28 X Z`, `G28 Y Z` and `G28 X Y Z` now home the axes named (before, they homed nothing).
+- **Idle timeout:** during a paused print only the nozzle heaters go off; the bed (keeps the part stuck), the chamber and the motors (keep the position, so RESUME still works) stay on. Outside a pause it turns off all heaters and the motors.
+- These are in `printer.cfg`. A Pi that is already installed gets them with `./installer.sh --cfg-merge` (or the update), which asks before it changes anything.
 
 ## 5. Fluidd (web panel and ZR Tools)
 
@@ -537,6 +575,14 @@ Auto uses Compact when the short side is 520 px or less, or the long side is 900
 
 **ZR Tools pages:** Toolheads (select, heat, load, unload, purge, colour, material), Filament, Climate (chamber, air filter), Calibrate (only the macros that exist on your printer: Z and XY offsets, bed mesh, PID, wipe position, input shaper via the accelerometer), **ACE Pro** (only when an ACE Pro is present: slots, load/unload, feed assist, dryer presets, endless spool), More (collision detection settings, **read-only**; timelapse; restart; system page with Pi temperature, power flags, can0, Klipper state, the Fluidd address (the one entered under Pi address) and a backup button) and Settings. Fan, Z offset, pressure advance and camera use KlipperScreen's own pages. The emergency stop is KlipperScreen's own button, shown while printing.
 
+**Since 2.9.0** (changes to KlipperScreen's own files, made by `zr_tools/patch_ks_wm.py` from the list `zr_tools/ks_wm_patches.json`; each file is copied to `<file>.wm-orig` first, and a KlipperScreen of another version is left alone with a warning):
+
+- **Calibrate** has buttons for Full offset calibration, Hot Z offsets, Z trim, Live Z adjust, Nozzle heat growth and Bed screws; **More** has the Unload menu and a **Sensors** page (every filament sensor with its friendly label, the real Klipper name under it, and its state: `panels/wm_sensors.py`).
+- The sensor strip of the Extrude page shows T<n> head, T<n> hub and Tool lock of the tool on the carriage, and a button **All sensors**.
+- The print page and Fine Tuning show the live Z adjust of the tool on the carriage; after a print one button **Save Z Trim** opens the Save all / Do not save window (section 4.3).
+- A window shows every text line (not only the last one) and closes at once when a button or X is pressed (before, it waited until a busy Klipper had run the button's G-code).
+- The filament sensors are read again 8 s after the screen starts (they showed off after a Klipper restart).
+
 **Settings page:** layout (tabs/grid), size (auto/compact/comfortable, default comfortable) and light/dark theme. They are stored in `~/printer_data/config/zr_screen.conf` (not in KlipperScreen's own settings). You can also change the layout with `./installer.sh --screen-layout grid`.
 
 **What it looks like** (real captures from the WonderMaker screen board, 800x480, layout `tabs`, size Comfortable, from the dev Pi in idle: all four heads docked, ACE Pro connected):
@@ -609,6 +655,7 @@ Your gcode files, settings, KlipperScreen and the factory software are never in 
 ### Clock, and ZR Tools on the Pi
 
 - **Clock.** A wrong date makes HTTPS downloads and apt fail. The install starts by checking whether the board's clock is synchronised. If not, it asks once and turns on automatic time sync (NTP, `systemd-timesyncd`). If no time server answers (some networks block it), it sets the clock once from GitHub's reply. apt's expired-date check is switched off as before. Run it alone with `bash scripts/screen_board.sh --fix-clock` or Settings > Fix the clock.
+- **Time zone.** WonderMaker screen boards come set to China time (Asia/Shanghai), so the clock on the screen is wrong even when it is synchronised. The install asks for your time zone while the board is still on China time (`--tz America/Toronto` answers it ahead, Enter keeps it). The Pi sets every board it knows to its own time zone by itself: at `./installer.sh --board add`, and at every `--update-boards` / `--update-all`. The Pi's doctor reports a board on another time zone. Set it by hand with `bash scripts/screen_board.sh --set-tz America/Toronto`.
 - **ZR Tools on the Pi.** The ZR Tools page on the board sends macros such as `ZR_LOAD` to Klipper on the Pi, so the Pi needs `zr_tools.cfg` too. During the install the board asks *Also check and set up the ZR Tools macros on the Pi now?* (default **no**). If you say yes it asks the Pi user name (default `t13dp`) and password. The password is used for this run only and is never saved. The board logs in over ssh (it installs `sshpass` for that), then:
   1. checks `zr_tools.cfg`, the `[include zr_tools.cfg]` line in `printer.cfg` and `[save_variables]`;
   2. if all three are fine it says **already installed** and changes nothing;
@@ -800,7 +847,7 @@ factory/ultra/          WonderMaker ZR Ultra: upstream Klipper and Moonraker (+ 
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run Klipper on a Pi with no printer, see README-DEVBOX.md
 first-layer-stl/        flat test squares for the first layer check after WM_FULL_OFFSET_CAL (one per tool head, and a 5 patch bed test)
-rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_zoffset.cfg (Z offset tools), rpi_unload.cfg (unload menu), rpi_safety.cfg, rpi_virtual_pins.cfg, rpi_calibration.cfg (calibration macros) and rpi_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and rpi_tool_leds.cfg (tool head LEDs: green filament, red none); installed by the installer
+rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_zoffset.cfg (Z offset tools), rpi_unload.cfg (unload menu), rpi_safety.cfg, rpi_virtual_pins.cfg, rpi_head_sensors.cfg (load queue), rpi_auto_speed.cfg (speed test), rpi_calibration.cfg (calibration macros) and rpi_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and rpi_tool_leds.cfg (tool head LEDs: green filament, red none); installed by the installer
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                stage_from_repo.sh, wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
@@ -814,7 +861,7 @@ tests/                  run_tests.sh (installer, fake home) and test_screen.py (
 
 ## 11. Credits and license
 
-Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic ACE Pro and WonderMaker are trademarks of their owners; this project is unaffiliated. Layout inspired by [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper). The Fluidd Toolheads card, the ACE Pro driver config and the OrcaSlicer plugin live in [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) ([plugin](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin)). This repository is under the GPL v3, see [LICENSE](LICENSE).
+Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic ACE Pro and WonderMaker are trademarks of their owners; this project is unaffiliated. Layout inspired by [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper). The Fluidd Toolheads card, the ACE Pro driver config and the OrcaSlicer plugin live in [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) ([plugin](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin)). The speed test uses [klipper_auto_speed](https://github.com/Anonoei/klipper_auto_speed) by Anonoei (MIT licence, kept with the files in `klippy/extras/autospeed/LICENSE`), with the changes for this printer listed in section 4.6. This repository is under the GPL v3, see [LICENSE](LICENSE).
 
 ## Tools: new WonderMaker releases (tools/wm-release)
 
@@ -872,7 +919,7 @@ In Fluidd's software update page the entry `WM_Ultra_Vanilla_Klipper` has an **U
 Three things get new versions on GitHub: this installer, the Fluidd panel (the ACE Pro project `wm-ultra-fluidd-acepro-panel`) and the screen boards.
 
 - **Fluidd panel:** its **Update** button in Fluidd's software update page downloads the new files and a second service (`wm-panel-update`) applies them: backup, install, restart of Klipper. Same rules as above (not during a print, log `~/wm-pi-update.log`).
-- **Screen boards:** run `./installer.sh --board add t13dp@<board-ip>` once on the Pi. It asks for the board's password once and puts the Pi's ssh key on the board. After that `./installer.sh --update-boards` runs the board's own Update (the same script the Update button on its screen runs). Only boards you add are ever touched. The Pi's Update (Fluidd or the screen) updates them after the installer update.
+- **Screen boards:** run `./installer.sh --board add` once on the Pi (with `t13dp@<board-ip>`, or without: then it takes the board that announced itself, the one the chamber light points to; the Pi install and update also offer it when such a board is not added yet). It asks for the board's password once and puts the Pi's ssh key on the board. After that `./installer.sh --update-boards` runs the board's own Update (the same script the Update button on its screen runs). Only boards you add are ever touched. The Pi's Update (Fluidd or the screen) updates them after the installer update.
 - **Everything at once:** `./installer.sh --update-all`, or the **Update Pi** button on the screen (More page): it lists what is new (installer, Fluidd panel) and offers **Not now** or **Update now**.
 - **Doctor** (`./installer.sh --doctor`) checks all three against GitHub and offers to update what is behind. It skips quietly when the Pi has no internet.
 

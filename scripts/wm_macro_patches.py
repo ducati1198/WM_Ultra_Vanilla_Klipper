@@ -19,13 +19,26 @@ import json, os, shutil, sys, time
 def plan(text, entries):
     """-> (new text, applied, already, skipped) for the entries of one file, in list order"""
     applied, already, skipped = [], [], []
+    ok_by_version, bad = {}, []
     for e in entries:
         tag = "%s #%d (%s)" % (e["file"], e["n"], e["version"])
-        if text.count(e["old"]) == 1:      # the old lines never contain the new ones, and the new ones never the old (the list is built that way)
+        if text.count(e["old"]) == 1:      # the old lines never contain the new ones (the list is built that way)
             text = text.replace(e["old"], e["new"])
             applied.append(tag)
         elif e["new"] in text:
             already.append(tag)
+        else:
+            bad.append((e, tag))
+            ok_by_version.setdefault(e["version"], []).append(False)
+            continue
+        ok_by_version.setdefault(e["version"], []).append(True)
+    # a fix of an older version whose lines a later version changed again: when every fix of every later version of this file
+    # is in, the file is at that later state, so the older one is in too (its old and new lines are simply gone)
+    key = lambda v: [int(x) for x in v.split(".") if x.isdigit()]
+    for e, tag in bad:
+        later = [v for v in ok_by_version if key(v) > key(e["version"])]
+        if later and all(all(ok_by_version[v]) for v in later):
+            already.append(tag + " (changed again by a later fix)")
         else:
             skipped.append(tag)
     return text, applied, already, skipped

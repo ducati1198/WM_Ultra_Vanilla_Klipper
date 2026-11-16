@@ -27,7 +27,8 @@
 # ./installer.sh --check-updates       read-only: list what is new on GitHub since your copy of this repository (then: git pull, ./installer.sh --update)
 # ./installer.sh --update-all           download and apply every newer version: this installer, the Fluidd panel (ACE Pro project) and the screen boards you added; refused during a print
 # ./installer.sh --update-boards        update only the screen boards you added (--board add user@host)
-# ./installer.sh --board add|remove|list [user@host]   screen boards this Pi may update over ssh (a key is set up once; the password is asked once)
+# ./installer.sh --board add|remove|list [user@host]   screen boards this Pi may update over ssh (a key is set up once; the password is asked once).
+#                                                      "--board add" alone uses the address the screen board announced (rpi_chamber_light.json)
 # ./installer.sh --get-latest          download the newest installer folder (git pull, or the GitHub tarball when this is not a clone); then run --update
 # ./installer.sh --undo [DIR]          put back the folders the installer moved aside (latest, or DIR)
 # ./installer.sh --backup [DIR]        save your config, calibration and database to a .tgz (only when you run it)
@@ -419,7 +420,7 @@ nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
 rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
-    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; [ "$b" = rpi_virtual_pins.cfg ] && continue; echo "$b"; done
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_auto_speed.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; [ "$b" = rpi_virtual_pins.cfg ] && continue; echo "$b"; done
     # rpi_virtual_pins.cfg comes last: step_rpicfg puts each new include line above the first one, so the file handled last is read first by Klipper, and [wm_virtual_pins] must be read before rpi_zoffset.cfg uses a wm_pin
     [ -f "$SCRIPT_DIR/rpi-cfg/rpi_virtual_pins.cfg" ] && echo rpi_virtual_pins.cfg; return 0
 }
@@ -472,12 +473,23 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     # rpi_virtual_pins.cfg needs the driver wm_virtual_pins.py in Klipper's extras, or Klipper would not start: an update copies it here, before the include line is written
     local vp="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_virtual_pins.py" ex="$HOME_DIR/klipper/klippy/extras"
     if [ -f "$vp" ] && [ -d "$ex" ] && ! cmp -s "$vp" "$ex/wm_virtual_pins.py"; then cp "$vp" "$ex/wm_virtual_pins.py" && print_info "driver wm_virtual_pins.py copied into Klipper's extras (the switch Nozzle Heat Growth needs it)"; fi
+    # rpi_auto_speed.cfg needs the speed test module (klipper_auto_speed by Anonoei, MIT, with this repository's changes): same reason
+    local asd="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras" af
+    if [ -d "$ex" ] && [ -f "$asd/auto_speed.py" ]; then
+        for af in auto_speed.py autospeed/__init__.py autospeed/funcs.py autospeed/main.py autospeed/move.py autospeed/wrappers.py autospeed/LICENSE; do
+            [ -f "$asd/$af" ] && ! cmp -s "$asd/$af" "$ex/$af" && mkdir -p "$(dirname "$ex/$af")" && cp "$asd/$af" "$ex/$af" && print_info "speed test module: $af copied into Klipper's extras"
+        done
+    fi
     for f in $(rpicfg_list); do
         if { [ "$f" = rpi_virtual_pins.cfg ] || [ "$f" = rpi_zoffset.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
+        if [ "$f" = rpi_auto_speed.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
         if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
         fi
         cp "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"
+        if [ "$f" = rpi_auto_speed.cfg ]; then   # the Save button of the speed test writes max_accel and max_velocity into printer.cfg with this script
+            mkdir -p "$HOME_DIR/printer_data/wm-tools" && cp "$SCRIPT_DIR/scripts/wm_speed_limits.py" "$HOME_DIR/printer_data/wm-tools/wm_speed_limits.py" && chmod +x "$HOME_DIR/printer_data/wm-tools/wm_speed_limits.py"
+        fi
         if [ "$f" = rpi_nozzle.cfg ]; then   # its shell command runs this script; it is kept outside the config folder, which WonderMaker updates merge
             mkdir -p "$(dirname "$(nozzle_script_dst)")" && cp "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" && chmod +x "$(nozzle_script_dst)"
             cp "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" && chmod +x "$(canids_script_dst)"   # behind WM_EXTRUDER_SETUP (Set Up)
@@ -517,6 +529,7 @@ step_light() {   # ./installer.sh --light, and in every install and update: the 
         if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include rpi_light.cfg]\n&/" "$cfg"; else sed -i "1i [include rpi_light.cfg]" "$cfg"; fi
         print_success "rpi_light.cfg (WM_CHAMBER_LIGHT) is installed and included in printer.cfg (copy: printer.cfg.wm-before-light-$STAMP)"
     fi
+    board_offer_add
 }
 do_light() {   # ./installer.sh --light
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
@@ -1918,11 +1931,11 @@ step_wm_modules() {   # --update: the Pi-side WonderMaker modules (wm_*.py) of t
     [ -d "$HOME_DIR/klipper/klippy/extras" ] || { print_info "~/klipper/klippy/extras is missing: nothing to refresh"; return 0; }
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would copy the wm_*.py modules that differ from this repository into ~/klipper/klippy/extras${NC}"; return 0; fi
     while read -r sum path; do
-        case "$path" in klipper/klippy/extras/wm_*.py) ;; *) continue ;; esac
+        case "$path" in klipper/klippy/extras/wm_*.py|klipper/klippy/extras/auto_speed.py|klipper/klippy/extras/autospeed/*) ;; *) continue ;; esac
         f="$src/$path"
         if [ ! -f "$f" ] || [ "$(sha256sum "$f" | cut -d' ' -f1)" != "$sum" ]; then print_warning "$(basename "$path"): the repository copy is missing or damaged, skipped"; bad=1; continue; fi
         [ -f "$HOME_DIR/$path" ] && [ "$(sha256sum "$HOME_DIR/$path" | cut -d' ' -f1)" = "$sum" ] && continue
-        run cp "$f" "$HOME_DIR/$path" && { n=$((n+1)); print_info "updated $(basename "$path")"; }
+        run mkdir -p "$(dirname "$HOME_DIR/$path")"; run cp "$f" "$HOME_DIR/$path" && { n=$((n+1)); print_info "updated $(basename "$path")"; }
     done < "$src/SHA256SUMS"
     [ "$bad" = 0 ] || warn_later "Some Pi-side modules in this repository are damaged. Restore them: cd $REPO_DIR && git checkout -- factory"
     if [ "$n" -gt 0 ]; then print_success "$n Pi-side module(s) updated"; else print_success "Pi-side modules are already the latest"; fi
@@ -2424,11 +2437,39 @@ do_check_updates() {   # read-only: the installer, the Fluidd panel and the scre
     fi
     return 0
 }
+board_from_light() {   # the screen board's address as the board itself announced it (rpi_chamber_light.json, written by the board install)
+    local u; u="$(light_url)"; u="${u#*://}"; u="${u%%[:/]*}"
+    [[ "$u" =~ ^[A-Za-z0-9.-]+$ ]] && echo "$u"
+}
+board_offer_add() {   # install / update: a screen board announced itself but this Pi does not update it yet
+    local h t; h="$(board_from_light)"; [ -n "$h" ] || return 0
+    t="t13dp@$h"; grep -qxF "$t" "$BOARDS_FILE" 2>/dev/null && return 0
+    if [ "$DRY" = 1 ] || [ ! -t 0 ] || [ "${WM_ASSUME_YES:-0}" = 1 ]; then
+        print_info "Screen board found at $h (it announced its chamber light). So this Pi can update it and keep its time zone: ./installer.sh --board add"; return 0
+    fi
+    ask_yn "Screen board found at $h. Add it, so this Pi can update it and keep its time zone the same? (asks the board's ssh password once)" y || { print_info "Later: ./installer.sh --board add"; return 0; }
+    BOARD_ACT=add; BOARD_TARGET="$t"; ( do_board ) || print_warning "The board was not added. Later: ./installer.sh --board add"
+}
+board_sync_tz() {   # a screen board takes this Pi's time zone (WonderMaker boards come with China time). $1 = user@host
+    local t="$1" pitz btz
+    if [ "$TESTING" = 1 ]; then pitz="${WM_TEST_TZ:-America/Toronto}"; else pitz="$(timedatectl show -p Timezone --value 2>/dev/null)"; fi
+    [[ "$pitz" =~ ^[A-Za-z0-9_+/-]+$ ]] || return 0
+    btz="$(wm_ssh "$t" 'timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone' 2>/dev/null | head -n1 | tr -d '[:space:]')"
+    [ -n "$btz" ] && [ "$btz" != "$pitz" ] || return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would set the time zone of board $t to $pitz (now $btz)${NC}"; return 0; fi
+    if wm_ssh "$t" "sudo -n timedatectl set-timezone $pitz" >/dev/null 2>&1; then print_success "Board $t: time zone set to $pitz (was $btz), the same as this Pi"
+    else print_warning "Board $t is on time zone $btz, this Pi on $pitz. On the board run: bash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --set-tz $pitz"; fi
+}
 do_board() {   # --board add|remove|list [user@host]
     mkdir -p "$BACKUP_ROOT"
     case "$BOARD_ACT" in
         list) if [ -n "$(boards_list)" ]; then echo "  Screen boards this Pi updates:"; boards_list | sed 's/^/    /'; else echo "  No screen board added. Add one with: ./installer.sh --board add t13dp@<board-ip>"; fi ;;
         add)
+            if [ -z "$BOARD_TARGET" ]; then   # no address given: the one the screen board announced (rpi_chamber_light.json)
+                local found; found="$(board_from_light)"
+                [ -n "$found" ] || die_with_fix "no screen board address is known yet (the board has not announced itself)." "./installer.sh --board add t13dp@<board-ip>"
+                BOARD_TARGET="t13dp@$found"; print_info "Screen board found at $found (it announced its chamber light)."
+            fi
             case "$BOARD_TARGET" in *@*) ;; *) die_with_fix "give the board as user@address." "./installer.sh --board add t13dp@<board-ip>" ;; esac
             if [ "$TESTING" != 1 ] && ! wm_ssh "$BOARD_TARGET" true 2>/dev/null; then
                 [ -f "$HOME_DIR/.ssh/id_ed25519" ] || { mkdir -p "$HOME_DIR/.ssh"; chmod 700 "$HOME_DIR/.ssh"; ssh-keygen -q -t ed25519 -N '' -f "$HOME_DIR/.ssh/id_ed25519" -C "wm-pi-updater"; }
@@ -2437,6 +2478,7 @@ do_board() {   # --board add|remove|list [user@host]
                 wm_ssh "$BOARD_TARGET" true 2>/dev/null || die_with_fix "ssh to $BOARD_TARGET still asks for a password." "check ~/.ssh/authorized_keys on the board."
             fi
             grep -qxF "$BOARD_TARGET" "$BOARDS_FILE" 2>/dev/null || echo "$BOARD_TARGET" >> "$BOARDS_FILE"
+            board_sync_tz "$BOARD_TARGET"
             print_success "Board $BOARD_TARGET added. Doctor and Update now include it; update it with ./installer.sh --update-boards" ;;
         remove)
             [ -n "$BOARD_TARGET" ] || die_with_fix "give the board to remove." "./installer.sh --board remove t13dp@<board-ip>"
@@ -2456,6 +2498,7 @@ do_update_boards() {   # runs the board's own Update (the same root copy the Upd
         [ -n "$t" ] || continue
         local bv; bv="$(board_version "$t")"
         if [ -z "$bv" ]; then print_warning "Board $t cannot be reached over ssh: skipped."; bad=$((bad+1)); continue; fi
+        board_sync_tz "$t"
         if ! ver_newer "$newv" "$bv"; then print_success "Board $t is up to date ($bv)."; continue; fi
         if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from $bv to $newv${NC}"; continue; fi
         if wm_ssh "$t" 'sudo -n /usr/local/sbin/wm-factory-restore --update --yes --detach' 2>&1 | tail -n 3; [ "${PIPESTATUS[0]}" = 0 ]; then
@@ -2670,6 +2713,11 @@ doc_updates() {   # doctor: is a newer installer, Fluidd panel or screen board o
         if [ -z "$bv" ]; then doc_bad "screen board $t cannot be reached over ssh" "Check that it is on; set the key up again with ./installer.sh --board add $t"
         elif ver_newer "$newv" "$bv"; then doc_bad "screen board $t is behind ($bv, latest $newv)" "Update with ./installer.sh --update-boards (or --update-all)."; behind=1
         else doc_ok "screen board $t has $bv (newest)"; fi
+        if [ -n "$bv" ]; then
+            local btz pitz; pitz="$( [ "$TESTING" = 1 ] && echo "${WM_TEST_TZ:-America/Toronto}" || timedatectl show -p Timezone --value 2>/dev/null)"
+            btz="$(wm_ssh "$t" 'timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone' 2>/dev/null | head -n1 | tr -d '[:space:]')"
+            if [ -n "$btz" ] && [ -n "$pitz" ] && [ "$btz" != "$pitz" ]; then doc_bad "screen board $t is on time zone $btz, this Pi on $pitz" "./installer.sh --update-boards sets the board to the Pi's zone (or on the board: bash scripts/screen_board.sh --set-tz $pitz)."; fi
+        fi
     done < <(boards_list)
     [ "$behind" = 1 ] && offer_fix "update everything now (installer, Fluidd panel, screen boards; a backup is taken first)" bash "$REPO_DIR/installer.sh" --update-all
     return 0
@@ -3027,13 +3075,16 @@ do_remove_addon_core() {
         shell-command)
             local ef="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" users
             [ -f "$ef" ] || { print_info "The shell command extension is not installed."; return 0; }
-            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v '/rpi_nozzle\.cfg$' | tr '\n' ' ')"   # rpi_nozzle.cfg is ours: it is taken out below
+            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v -e '/rpi_nozzle\.cfg$' -e '/rpi_auto_speed\.cfg$' | tr '\n' ' ')"   # rpi_nozzle.cfg and rpi_auto_speed.cfg are ours: they are taken out below
             if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
             ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
-            if [ -f "$cfgd/rpi_nozzle.cfg" ]; then   # _WM_NOZZLE_TYPE needs the extension: take its include out (printer.cfg is copied first) and keep the file aside
-                [ -f "$cfgd/printer.cfg" ] && cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" && sed -i '/^[[:space:]]*\[include[[:space:]]\+rpi_nozzle\.cfg[[:space:]]*\]/d' "$cfgd/printer.cfg"
-                mv "$cfgd/rpi_nozzle.cfg" "$cfgd/rpi_nozzle.cfg.wm-removed-$STAMP"; print_info "rpi_nozzle.cfg (_WM_NOZZLE_TYPE) was taken out of printer.cfg too, because it needs the extension. It is kept as rpi_nozzle.cfg.wm-removed-$STAMP."
-            fi
+            local own what
+            for own in rpi_nozzle.cfg rpi_auto_speed.cfg; do   # _WM_NOZZLE_TYPE and the Save button of the speed test need the extension: take the include out (printer.cfg is copied first) and keep the file aside
+                [ -f "$cfgd/$own" ] || continue
+                [ "$own" = rpi_nozzle.cfg ] && what="_WM_NOZZLE_TYPE" || what="the speed test WM_AUTO_SPEED"
+                [ -f "$cfgd/printer.cfg" ] && { [ -f "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" ] || cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP"; } && sed -i "/^[[:space:]]*\[include[[:space:]]\+${own//./\\.}[[:space:]]*\]/d" "$cfgd/printer.cfg"
+                mv "$cfgd/$own" "$cfgd/$own.wm-removed-$STAMP"; print_info "$own ($what) was taken out of printer.cfg too, because it needs the extension. It is kept as $own.wm-removed-$STAMP."
+            done
             rm -f "$ef"; WANT_SHELLCMD=0; save_answers
             print_success "Removed. Restart Klipper from Fluidd when you are ready." ;;
         obico|octoapp|octoeverywhere)

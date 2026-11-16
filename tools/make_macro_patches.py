@@ -26,7 +26,9 @@ def hunks(old, new):
             lo, hi = max(0, i1 - ctx), min(len(a), i2 + ctx)
             o = "\n".join(a[lo:hi])
             n = "\n".join(a[lo:i1] + b[j1:j2] + a[i2:hi])
-            if (old.count(o) == 1 and o and o not in n and n not in o) or (lo == 0 and hi == len(a)):
+            # "new inside old" is fine (a block removed at the end of the file has nothing after it); "old inside new" is not
+            # (the patch would apply again on every update)
+            if (old.count(o) == 1 and o and o not in n and (n not in o or hi == len(a))) or (lo == 0 and hi == len(a)):
                 break
             ctx += 1
         out.append((o, n))
