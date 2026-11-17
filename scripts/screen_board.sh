@@ -104,6 +104,8 @@ patch_ks_wm() {   # 2.9.0 (graphs off 2.11.0): sensor strip and Sensors page, li
         python3 "$d/patch_ks_wm.py" "${key%%:*}" "$f"; rc=$?
         [ "$rc" = 11 ] && warn_later "KlipperScreen's ${key#*:} was not changed (its lines are different from the KlipperScreen version this installer knows). The ZR changes of that screen are missing."
     done
+    # 2.14.0: pictures a window can show ("action:prompt_image name", for example the tool setter position helper)
+    if ls "$d"/wm_images/*.png >/dev/null 2>&1; then mkdir -p "$KS_DIR/wm_images" && cp "$d"/wm_images/*.png "$KS_DIR/wm_images/"; fi
     return 0
 }
 

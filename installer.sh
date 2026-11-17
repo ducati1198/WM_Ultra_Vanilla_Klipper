@@ -527,6 +527,9 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     # rpi_base.cfg ([wm_virtual_pins]) needs the driver wm_virtual_pins.py in Klipper's extras, or Klipper would not start: an update copies it here, before the include line is written
     local vp="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_virtual_pins.py" ex="$HOME_DIR/klipper/klippy/extras"
     if [ -f "$vp" ] && [ -d "$ex" ] && ! cmp -s "$vp" "$ex/wm_virtual_pins.py"; then cp "$vp" "$ex/wm_virtual_pins.py" && print_info "driver wm_virtual_pins.py copied into Klipper's extras (the switch Nozzle Heat Growth needs it)"; fi
+    # rpi_calibration.cfg ([wm_tool_touch], tool setter position helper, 2.14.0) needs the driver wm_tool_touch.py: same reason
+    local tt="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_tool_touch.py"
+    if [ -f "$tt" ] && [ -d "$ex" ] && ! cmp -s "$tt" "$ex/wm_tool_touch.py"; then cp "$tt" "$ex/wm_tool_touch.py" && print_info "driver wm_tool_touch.py copied into Klipper's extras (the tool setter position helper needs it)"; fi
     # rpi_auto_speed.cfg needs the speed test module (klipper_auto_speed by Anonoei, MIT, with this repository's changes): same reason
     local asd="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras" af
     if [ -d "$ex" ] && [ -f "$asd/auto_speed.py" ]; then
@@ -536,6 +539,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     fi
     for f in $(rpicfg_list); do
         if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ] || [ "$f" = rpi_bed_soak.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
+        if [ "$f" = rpi_calibration.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/wm_tool_touch.py" ]; then print_warning "$f not installed: the driver wm_tool_touch.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_auto_speed.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
         if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"

@@ -327,5 +327,12 @@
   "new": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament tangle on T3 (tool 4): the filament is pulled tight. The print is paused. Free the filament, then resume.\"\n    {% endif %}\n    {% if \"gcode_macro _WM_ENDLESS_TANGLE\" in printer %}\n        _WM_ENDLESS_TANGLE T=3\n    {% endif %}",
   "old": "    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}\n        RESPOND TYPE=error MSG=\"Filament runout on path 3 (tool 4). The print is paused.\"\n    {% endif %}",
   "version": "2.13.0"
+ },
+ {
+  "file": "offset_calibrate.cfg",
+  "n": 1,
+  "new": "sample_retract_dist: 0.75\nsamples_tolerance: 0.1\nsamples_tolerance_retries: 6\nsamples: 3",
+  "old": "sample_retract_dist: 0.75\nsamples_tolerance: 0.5\nsamples_tolerance_retries: 3\nsamples: 3",
+  "version": "2.14.0"
  }
 ]

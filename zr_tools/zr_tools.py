@@ -1222,6 +1222,7 @@ class Panel(ViewsMixin, ScreenPanel):
             ("bed-level", "Bed leveling", "WM_BED_LEVELING", None),
             ("z-farther", "Probe calibrate (Z height)", "WM_PROBE_CALIBRATE", None),
             ("fine-tune", "Offsets: rapid", "WM_OFFSETS_RAPID", None),
+            ("fine-tune", "Tool setter position", "WM_SETTER_PROBE_POSITION", None),
             ("fine-tune", "Offsets: accurate", "WM_OFFSETS_ACCURATE", None),
             ("fine-tune", "Full offset calibration", "WM_FULL_OFFSET_CAL", None),
             ("z-farther", "Hot Z offsets", "WM_OFFSETS_Z_HOT", None),

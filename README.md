@@ -396,6 +396,29 @@ Settings (in `macros.cfg`, macro `M191`): `max_chamber` 65, `part_fan_speed` 0.5
 
 Tested on a ZR Ultra-S (hot Z, heat growth, trims and the guided run).
 
+**The tool setter position (`WM_SETTER_PROBE_POSITION`, since 2.14.0)**
+
+The offset calibration starts every touch from one saved position next to the tool setter, the two small metal blocks at the back right of the bed. It is the line `probe_position = (X, Y, Z, x_offset, y_offset)` in `saved_variables.cfg`. When it is wrong, the nozzle misses the blocks or hits them and the tool offsets come out wrong. Fluidd: **Tool Setter Position** (RPI Calibration). Touchscreen: Calibrate > **Tool setter position**.
+
+![The right position: height, place, and how to compare](docs/img/tool-setter-pictures.png)
+
+| Step | What happens |
+|---|---|
+| Start | homes if needed, picks up T0, goes to the saved position; the last part down with the touch sensor on, so the nozzle stops and stays up when it meets something |
+| **Find automatically** (T0 only, about 5 min) | 1) top of the back block from above, 5 spots: the height is that top minus 0.5 mm, the middle of the 1 mm straight nozzle tip. 2) both blocks on both faces: X and Y. 3) the two ends of each block: the middle of their 6 mm width. One window shows saved, found, the block top, the touched widths and both middles |
+| Wide search | only when the quick search fails, and only after you press Start in the window that says why: 10 mm to the left and in front of the saved position, three slow sweeps to the right and one to the back until the blocks are met, then the fine search again |
+| **Save with middles** | X = middle of the back block, Y = middle of the right block, Z as found, and the two offsets that keep the calibration touching on those middles |
+| **Save found** | the found X, Y, Z; the two offsets stay |
+| After a save | **Test with T0** (the real calibration touch, about 3 min, saves nothing), **Run Offsets rapid**, **Restore old** (the line before is kept as `probe_position_backup`) |
+| By hand | step buttons X, Y, Z of 1, 0.5, 0.1 and 0.05 mm, within 10 mm of the saved X and Y and not lower than 3 mm under the saved Z |
+
+- Clean the T0 nozzle tip first and keep the bed clear, above all the back right corner. The wide search needs 10 mm of free room to the left of the toolhead (dock, parked tool heads); the setting is `variable_reach` in `[gcode_macro _WM_SETTER]`.
+- The numbers behind it are settings of the same macro: `tip_half` 0.5 (half of the straight nozzle tip; a nozzle without a straight tip has not been tested), `width` 2.75 (a 2 mm block plus the tip, touched on both faces), `block_w` 5.95 (a 6 mm block with a rounded top, touched on both ends).
+- The block ends repeat within about 0.3 mm (rounded edges), the faces within 0.05 mm. Up to about 2 mm from the middle of a block the calibration works the same.
+- **False touches.** The load cell of the tool setter sometimes reports a touch without contact. The helper repeats touches that do not agree, and since 2.14.0 the offset calibration itself needs its three touches within 0.1 mm (it was 0.5) and tries 6 times. In the console this shows as `Probe samples exceed tolerance. Retrying...`; when 6 tries fail the calibration stops with `Probe samples exceed samples_tolerance`: run it again.
+
+Tested on a ZR Ultra-S: quick search, wide search at 10 mm, block middles, both saves and the test with T0.
+
 **What it is.** A tool changer has four nozzles, and each one sits at a slightly different place on the carriage. So that every tool prints where T0 prints, the printer needs, for each tool, how far its nozzle is from T0's nozzle in X, Y and Z (its tool offset). The full offset calibration measures all of it, in the right order, and saves it. You start it with **Full Offset Calibration** (`WM_FULL_OFFSET_CAL`): a window takes you through the three steps below, one after the other, and tells you before each one what to do (clean the nozzles, take the purged plastic off, ...). You can also run each step alone.
 
 **Where to find it:** in Fluidd, macro category **RPI Calibration** (every macro there has a readable name); on the touchscreen, ZR Tools > **Calibrate**.
@@ -896,6 +919,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Klipper "Duplicate canbus_uuid" | The files in this repository have empty uuids for the toolheads and load cell; the installer fills unique placeholders (`b00000000000`...). Run `./installer.sh --repair` if you see it. Then set the real uuids with `scripts/read_write_can_id.sh`. |
 | Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of section 7). |
 | Screen board: KlipperScreen says it cannot connect | Open **Pi address** on the screen and enter the Pi's IP; check the Pi is on and trusts the board in `moonraker.conf`. |
+| The offset calibration misses the tool setter, hits it, or stops with `Probe samples exceed samples_tolerance` | Open **Tool Setter Position** (`WM_SETTER_PROBE_POSITION`), press Start, then **Find automatically**, save and run **Test with T0** (section Z offset tools, since 2.14.0). A stop with `samples_tolerance` alone is a run with many false touches of the load cell: clean the nozzle tips and run the calibration again. |
 | A nozzle drips on the part while it heats (after a tool change, a pause or a spool swap) | Since 2.13.0 a nozzle on the carriage that has to heat more than 5 C during a print lifts 2 mm, goes to the wipe position, heats there and comes back to the same spot. A toolhead heating in its dock does not move. |
 | Screen board: stuck on "Connecting to ..." after the Pi was off the network | KlipperScreen tries 4 times, then stops. Since 2.13.0 it starts a new round of tries every 30 seconds by itself (the same as tapping **Retry**), so it comes back when the Pi does. Before 2.13.0: tap **Retry**, or restart KlipperScreen (`sudo systemctl restart KlipperScreen` over SSH). |
 | Pi gone from the network (no Fluidd, no SSH, ping fails) but the printer still runs | On a Pi on Wi-Fi the Wi-Fi chip can hang (seen on a Pi 400: `brcmfmac ... CMD53 sg block write failed -110` in the kernel log) while the Pi, Klipper and Moonraker keep running. The installer turns Wi-Fi power saving off and installs **wm-wifi-watchdog** (`./installer.sh --wifi`): every 30 s it pings the router; after 3 misses it turns the Wi-Fi off and on, 2 minutes later it reloads the Wi-Fi driver. It never reboots the Pi and never touches Klipper. So wait about 3 minutes before you power cycle. What it did: `journalctl -t wm-wifi-watchdog`. A network cable is the most reliable fix. |

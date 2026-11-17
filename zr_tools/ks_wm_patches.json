@@ -85,6 +85,14 @@
   {
    "new": "            if button[\"response\"] == response_id:\n                # WonderMaker: close at once, like Fluidd. The G-code may wait while Klipper is busy (B-032);\n                # a macro that wants the window again opens it again\n                self.end()\n                self.screen._send_action(None, \"printer.gcode.script\", {\"script\": button[\"gcode\"]})\n                break\n\n    def close(self, *args):\n        self.end()          # WonderMaker: close at once, also when Klipper is busy (B-032)\n        script = {\"script\": 'RESPOND type=\"command\" msg=\"action:prompt_end\"'}",
    "old": "            if button[\"response\"] == response_id:\n                self.screen._send_action(None, \"printer.gcode.script\", {\"script\": button[\"gcode\"]})\n\n    def close(self, *args):\n        script = {\"script\": 'RESPOND type=\"command\" msg=\"action:prompt_end\"'}"
+  },
+  {
+   "new": "            return\n        elif data.startswith(\"prompt_image\"):\n            # WonderMaker: pictures in a window, \"prompt_image name [name ...]\" (files wm_images/<name>.png)\n            self.add_images(data.replace(\"prompt_image\", \"\").split())\n            return   # pictures added\n        elif data.startswith(\"prompt_button \"):\n",
+   "old": "            return\n        elif data.startswith(\"prompt_button \"):\n"
+  },
+  {
+   "new": "            self.scroll_box.add(button)\n\n    def add_images(self, names):\n        # WonderMaker: side by side, as wide as the screen allows. A missing or broken picture is left out.\n        import os\n        import re\n        from gi.repository import GdkPixbuf\n        folder = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), \"wm_images\")\n        names = [n for n in names if re.match(r\"^[a-z0-9][a-z0-9-]{0,40}$\", n)][:4]\n        files = [f for f in (os.path.join(folder, n + \".png\") for n in names) if os.path.isfile(f)]\n        if not files:\n            return\n        width = max(120, min(300, (self.screen.width - 90 - 8 * (len(files) - 1)) // len(files)))\n        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.CENTER)\n        for f in files:\n            try:\n                row.add(Gtk.Image.new_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(f, width, -1, True)))\n            except Exception as e:\n                logging.error(f\"WonderMaker: picture {f} not shown: {e}\")\n        self.scroll_box.add(row)\n\n    def set_footer_button(self, name, gcode, style=\"default\"):\n",
+   "old": "            self.scroll_box.add(button)\n\n    def set_footer_button(self, name, gcode, style=\"default\"):\n"
   }
  ],
  "screen": [

@@ -10,7 +10,9 @@
                                           (instead of Klipper's Save Z to probe / endstop, which would bake the tool offsets in)
   fine_tune   panels/fine_tune.py         Fine Tuning shows and changes the live Z adjust of the tool on the carriage
   prompts     ks_includes/widgets/prompts.py   every text line of a window is shown (not only the last one), and a window
-                                          closes at once when a button or X is pressed (before, it waited for a busy Klipper)
+                                          closes at once when a button or X is pressed (before, it waited for a busy Klipper);
+                                          a window can show pictures, "action:prompt_image name [name ...]" (2.14.0, files
+                                          KlipperScreen/wm_images/<name>.png)
   screen      screen.py                   the filament sensors are read again 8 s after the start (they showed off after a
                                           Klipper restart); and 30 s after KlipperScreen stopped retrying to reach
                                           the Pi it starts a new round of tries by itself (2.13.0)
