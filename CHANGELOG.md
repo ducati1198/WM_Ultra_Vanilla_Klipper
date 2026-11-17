@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.15.0
+
+- **Touchscreen: the steps of Tool Setter Position on their own page (`zr_tools/wm_setter.py`).** The adjust window had 24 step buttons in six rows without a label (KlipperScreen puts all text of a window on top) and jumped back up after every step. On the touchscreen it is now a page built like the Move page: X left, X right, Y back, Y front, Z up, Z down, one row to choose the step (0.05, 0.1, 0.5, 1 mm), the numbers now / saved / moved, and Find automatically, Save, Back to saved, Close. It opens by itself after Start, closes when the helper closes, and calls the same macros, so the limits are the same. The start window with the pictures, the Find result and the Save windows are unchanged. Fluidd is unchanged.
+- **Touchscreen: Z trim on one page (`zr_tools/wm_ztrim.py`).** One screen in place of two windows: T0 to T3 with their saved trim (tap one to choose it), two big buttons Closer to the bed and Further from the bed, the step (0.01, 0.02, 0.05, 0.1 mm), Set this one to 0, Set all to 0 (asks first), Close. Same macros and the same 0.30 mm limit.
+- **How:** three new changes to KlipperScreen's `prompts.py` in `ks_wm_patches.json`: a window whose buttons call `_WM_SETTER_STEP`, `_WM_Z_TRIM_WIN` or `_WM_Z_TRIM_STEP` is not shown, its page opens (or is refreshed) with the window's data. When the page cannot load, the window opens as before. No macro changed. `screen_board.sh` copies the two pages at install, update and repair.
+
 ## 2.14.0
 
 - **Tool setter position helper (`WM_SETTER_PROBE_POSITION`, `rpi-cfg/rpi_calibration.cfg`; Fluidd category RPI Calibration, touchscreen Calibrate > Tool setter position).** The offset calibration starts every touch from one saved position next to the tool setter (the two small blocks at the back right of the bed): `probe_position` in `saved_variables.cfg`, X, Y, Z and two offsets. Until now it was set by eye and typed by hand. The helper puts the T0 nozzle there (the last part down with the touch sensor on, so it stops when it meets something) and opens a window with pictures of the right position.

@@ -482,12 +482,12 @@ step_klipperscreen() {
     fi
     # ZR Tools panel files
     if [ "$DRY" != 1 ]; then
-        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py} "$KS_DIR/panels/"; cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt" 2>/dev/null
+        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py,wm_setter.py,wm_ztrim.py} "$KS_DIR/panels/"; cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt" 2>/dev/null
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         patch_ks_zcalibrate; patch_ks_menu_light; patch_ks_ws_dup; patch_ks_job_status_light; patch_ks_wm
-        [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; grep -qs '^panels/wm_sensors' "$KS_DIR/.git/info/exclude" || echo 'panels/wm_sensors.py' >> "$KS_DIR/.git/info/exclude"; }
+        [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; grep -qs '^panels/wm_sensors' "$KS_DIR/.git/info/exclude" || echo 'panels/wm_sensors.py' >> "$KS_DIR/.git/info/exclude"; grep -qs '^panels/wm_setter' "$KS_DIR/.git/info/exclude" || printf 'panels/wm_setter.py\npanels/wm_ztrim.py\n' >> "$KS_DIR/.git/info/exclude"; }
     fi
     write_ks_conf
     write_service
@@ -993,7 +993,7 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     return 0
 }
 panels_differ() {   # true when the screen's panel files are not the ones in folder $1 (the version marks can lie after a git pull: the files are the truth)
-    local f; for f in zr_tools zr_views zr_logic wm_sensors; do [ -f "$1/zr_tools/$f.py" ] || continue; cmp -s "$1/zr_tools/$f.py" "$KS_DIR/panels/$f.py" || return 0; done; return 1
+    local f; for f in zr_tools zr_views zr_logic wm_sensors wm_setter wm_ztrim; do [ -f "$1/zr_tools/$f.py" ] || continue; cmp -s "$1/zr_tools/$f.py" "$KS_DIR/panels/$f.py" || return 0; done; return 1
 }
 do_post_update() {   # optional argument: the folder that holds the newest files (default: the installer folder)   # the system-level files that buttons need (root copy of this script, sudoers lines, version marks). An update runs this with the NEW
     # script, so what a new version adds is applied even when the update itself was started by an older script. Also the fix when a button says its permission is missing.
@@ -1065,7 +1065,7 @@ do_update_board_core() {
     ls -1t "$BKDIR"/screen-backup-*-before-update.tgz 2>/dev/null | tail -n +6 | while read -r o; do rm -f "$o"; done   # only the newest 5 automatic backups stay; ones you made yourself are never deleted
     progress_bar 40 100 "Update step 3 of 6: copying the new files"
     if [ "$DRY" != 1 ]; then
-        mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; [ -f "$w/zr_tools/wm_sensors.py" ] && cp "$w/zr_tools/wm_sensors.py" "$KS_DIR/panels/"; cp "$w/VERSION" "$KS_DIR/panels/zr_version.txt"
+        mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; for f in wm_sensors wm_setter wm_ztrim; do [ -f "$w/zr_tools/$f.py" ] && cp "$w/zr_tools/$f.py" "$KS_DIR/panels/"; done; cp "$w/VERSION" "$KS_DIR/panels/zr_version.txt"
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light; REPO_DIR="$w" patch_ks_wm
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
@@ -1124,10 +1124,10 @@ do_doctor_board() {
         if [ "$TESTING" != 1 ] && [ "$(systemctl is-active KlipperScreen 2>/dev/null)" = activating ]; then print_info "KlipperScreen is still starting, waiting up to 60 s ..."; wait_ks; fi
         if svc_active KlipperScreen; then ok "KlipperScreen is running"
         else pb "KlipperScreen is not running" "journalctl -u KlipperScreen -n 40"; fixit "start it" start_ks; fi
-        for f in zr_tools.py zr_views.py zr_logic.py wm_sensors.py; do
+        for f in zr_tools.py zr_views.py zr_logic.py wm_sensors.py wm_setter.py wm_ztrim.py; do
             [ -f "$KS_DIR/panels/$f" ] && continue
             pb "ZR Tools file missing: $f" "a KlipperScreen update may have removed it."
-            fixit "copy the ZR Tools files again" bash -c "mkdir -p '$KS_DIR/panels' && cp '$REPO_DIR'/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py} '$KS_DIR/panels/'"; break
+            fixit "copy the ZR Tools files again" bash -c "mkdir -p '$KS_DIR/panels' && cp '$REPO_DIR'/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py,wm_setter.py,wm_ztrim.py} '$KS_DIR/panels/'"; break
         done
         [ -f "$CFG_DIR/KlipperScreen.conf" ] && ok "KlipperScreen.conf exists" || pb "KlipperScreen.conf is missing" "restore a backup (menu: Backup and restore)."
         for u in "${SERVICES[@]}"; do svc_exists "$u" && svc_enabled "$u" && { pb "factory service $u is still enabled" "it would start at the next boot and fight with KlipperScreen."; fixit "disable $u" SUDO systemctl disable "$u"; }; done

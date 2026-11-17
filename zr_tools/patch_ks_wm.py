@@ -13,6 +13,8 @@
                                           closes at once when a button or X is pressed (before, it waited for a busy Klipper);
                                           a window can show pictures, "action:prompt_image name [name ...]" (2.14.0, files
                                           KlipperScreen/wm_images/<name>.png)
+                                          the adjust window of the tool setter position helper and the Z trim windows
+                                          open as their own page (2.15.0, panels/wm_setter.py and panels/wm_ztrim.py)
   screen      screen.py                   the filament sensors are read again 8 s after the start (they showed off after a
                                           Klipper restart); and 30 s after KlipperScreen stopped retrying to reach
                                           the Pi it starts a new round of tries by itself (2.13.0)
