@@ -30,7 +30,7 @@ class FeedSlotHelper:
 
         self.is_pending = False
 
-        self.first_run = True #模块第一次加载的时候，防止插着材料上电误判
+        self.first_run = True # first load of the module: avoids a false detection when powered on with filament inserted
 
         
         self.invert_feed_dir = config.getboolean('invert_feed_dir', False)
@@ -76,7 +76,7 @@ class FeedSlotHelper:
         color_feeder = self.printer.lookup_object("color_feeder")
         _is_feeding = color_feeder._is_feeding        
 
-        #需要按键状态变化才触发 
+        # only triggers when the button state changes
         if self.first_run: 
             self.first_run = False      
             if slot_detect_state == self.last_state or self.last_state == None:
@@ -85,7 +85,7 @@ class FeedSlotHelper:
             
         self.last_state = slot_detect_state
         
-        self.is_pending = True #默认先排队，看下面的状态是否能通过再取消排队
+        self.is_pending = True # queued by default; taken out of the queue when the checks below pass
 
         logging.info(f"_is_feeding ====== {_is_feeding}")
         if color_feeder._is_feeding is True:
@@ -97,10 +97,10 @@ class FeedSlotHelper:
         is_printing = idle_timeout.get_status(eventtime)["state"] == "Printing"
         
 
-        # 在这里做一下打印头是否有耗材
+        # check here whether the print head has filament
         logging.info(f"eventtime:{eventtime}, min_event_systime:{self.min_event_systime}")
 
-        # 正在打印，需要退出
+        # printing: leave
         if eventtime < self.min_event_systime or is_printing:
             return
         
@@ -120,15 +120,15 @@ class FeedSlotHelper:
             # self.slot_stepper.do_move(40)
 
             if color_feeder.detect_helper._current_feed_state == "detected":
-                # 如果不清楚当前在四进一出的是哪个slot，就所有slot都做一遍退料
+                # when it is not known which slot is in the 4-in-1 hub, unload every slot once
                 if color_feeder._current_feed == None:
                     logging.warn(f"color_feeder._current_feed is None, would retract all the 4 slots!")
                     script = "cut_filament\nBOX_OUT_FILAMENT SLOT=slot0\nBOX_OUT_FILAMENT SLOT=slot1\nBOX_OUT_FILAMENT SLOT=slot2\nBOX_OUT_FILAMENT SLOT=slot3\n"      
-                    # 换挡到要进料的耗材
-                    script = script + "\nECHELON_SP STEPPER=trans_stepper" #设置当前为0点
-                    script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) #回零换挡电机
-                    script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist)  #移动换挡电机到对应料槽
-                    # 再进料新的耗材
+                    # shift the selector to the filament to feed
+                    script = script + "\nECHELON_SP STEPPER=trans_stepper" # set the current position as zero
+                    script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) # home the selector motor
+                    script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist)  # move the selector motor to that slot
+                    # then feed the new filament
                     #script = script + "\nECHELON_INVERT STEPPER=feed_stepper"
                     script = script + "\nECHELON_SP STEPPER=feed_stepper"
                     if self.invert_feed_dir:
@@ -141,14 +141,14 @@ class FeedSlotHelper:
                     color_feeder._current_feed = self.name        
                 else:
                     logging.info(f"there is marterial in the 4 in 1 endstop: {color_feeder._current_feed}")
-                    # 如果当前占用的料槽是要进料的料槽
+                    # when the slot in use is the slot to feed
                     if color_feeder._current_feed == self.name:      
                         logging.info("it is the same slot")        
-                        # 先换挡
-                        script = "ECHELON_SP STEPPER=trans_stepper" #设置当前为0点
-                        script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=500" #回零换挡电机
-                        script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist) #移动换挡电机到对应料槽
-                        # 再进料
+                        # shift the selector first
+                        script = "ECHELON_SP STEPPER=trans_stepper" # set the current position as zero
+                        script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=500" # home the selector motor
+                        script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist) # move the selector motor to that slot
+                        # then feed
                         script = script + "\nECHELON_SP STEPPER=feed_stepper"
                         script = script + "\nG4 P1000\n"
                         if self.invert_feed_dir:
@@ -157,17 +157,17 @@ class FeedSlotHelper:
                             script = script + "\nECHELON_STEPPER_HOMING STEPPER=feed_stepper MOVE=" + str(color_feeder.feed_max_dist) + " PDI=-"  + str(color_feeder.retract_dist) + "\n"  
                         self.gcode.run_script(script)
                     
-                    # 如果当前占用的料槽不是要进料的料槽
+                    # when the slot in use is not the slot to feed
                     else:
                         logging.info("it is the different slot")       
                         cur_object = 'feed_slot ' + color_feeder._current_feed
                         logging.info(f"cur_object is {cur_object}")
                         cur_slot_obj = self.printer.lookup_object(cur_object)
-                        # 先换挡到当前占用四进一出的耗材
-                        script = "ECHELON_SP STEPPER=trans_stepper" #设置当前为0点
-                        script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) #回零换挡电机
-                        script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(cur_slot_obj.trans_dist) #移动换挡电机到对应料槽
-                        # 然后退料
+                        # first shift the selector to the filament that is in the 4-in-1 hub
+                        script = "ECHELON_SP STEPPER=trans_stepper" # set the current position as zero
+                        script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) # home the selector motor
+                        script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(cur_slot_obj.trans_dist) # move the selector motor to that slot
+                        # then unload
                         script = script + "\ncut_filament\nBOX_OUT_FILAMENT SLOT=" + color_feeder._current_feed
                         # script = script + "\nECHELON_INVERT STEPPER=feed_stepper"
                         # script = script + "\nECHELON_SP STEPPER=feed_stepper"
@@ -176,11 +176,11 @@ class FeedSlotHelper:
                         # else:
                         #     script = script + "\nECHELON_STEPPER_HOMING STEPPER=feed_stepper MOVE=-" + str(color_feeder.feed_max_dist) + " PDI=-"  + str(color_feeder.retract_dist) + "\n"  
                         
-                        # 换挡到要进料的耗材
-                        script = script + "\nECHELON_SP STEPPER=trans_stepper" #设置当前为0点
-                        script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) #回零换挡电机
-                        script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist)  #移动换挡电机到对应料槽
-                        # 再进料新的耗材
+                        # shift the selector to the filament to feed
+                        script = script + "\nECHELON_SP STEPPER=trans_stepper" # set the current position as zero
+                        script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) # home the selector motor
+                        script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist)  # move the selector motor to that slot
+                        # then feed the new filament
                         #script = script + "\nECHELON_INVERT STEPPER=feed_stepper"
                         script = script + "\nECHELON_SP STEPPER=feed_stepper"
                         if self.invert_feed_dir:
@@ -188,7 +188,7 @@ class FeedSlotHelper:
                         else:
                             script = script + "\nECHELON_STEPPER_HOMING STEPPER=feed_stepper MOVE=" + str(color_feeder.feed_max_dist) + " PDI=-"  + str(color_feeder.retract_dist) + "\n"  
                         
-                        # 非打印状态下，去到排料口
+                        # when not printing, go to the purge chute
                         print_stats = self.printer.lookup_object("print_stats")
                         is_printing = print_stats.get_status(eventtime)["state"] == "printing"
                         if is_printing == False:
@@ -200,14 +200,14 @@ class FeedSlotHelper:
                             script = script + "\nG0 Y321 F6000"
                         self.gcode.run_script(script)
                         color_feeder._current_feed = self.name
-            # 如果当前四进一出限位没有检测到耗材
+            # when the 4-in-1 hub switch detects no filament
             else:
                 logging.info("no material in the 4 in 1 endstop")       
-                # 先换挡
-                script = "ECHELON_SP STEPPER=trans_stepper" #设置当前为0点
-                script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) #回零换挡电机
-                script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist) + "\n"  #移动换挡电机到对应料槽
-                # 再进料
+                # shift the selector first
+                script = "ECHELON_SP STEPPER=trans_stepper" # set the current position as zero
+                script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) # home the selector motor
+                script = script + "\nECHELON_STEPPER STEPPER=trans_stepper MOVE=" + str(slot_obj.trans_dist) + "\n"  # move the selector motor to that slot
+                # then feed
                 script = script + "\nECHELON_SP STEPPER=feed_stepper"
                 if self.invert_feed_dir:
                     script = script + "\nECHELON_STEPPER_HOMING STEPPER=feed_stepper MOVE=-" + str(color_feeder.feed_max_dist) + " PDI=" + str(color_feeder.retract_dist) + "\n"
@@ -220,7 +220,7 @@ class FeedSlotHelper:
             script = "ECHELON_SP STEPPER=trans_stepper"
             script = script + "\nECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=" + str(color_feeder.trans_max_dist) + " PDI=5.5" 
             script = script + "\nECHELON_STEPPER_DISABLE STEPPER=feed_stepper"
-            # 非打印状态下，去到排料口
+            # when not printing, go to the purge chute
             print_stats = self.printer.lookup_object("print_stats")
             is_printing = print_stats.get_status(eventtime)["state"] == "printing"
             if is_printing == False:
@@ -260,12 +260,12 @@ class FeedSlotHelper:
             logging.warning(f"Failed to read JSON file {file_path}: {str(e)}")
             return None
         
-        # 更新实例变量
+        # update the instance variables
         self.info_color = data.get("color")
         self.info_material = data.get("material")
         self.info_temp = data.get("temperature")
         
-        # 直接返回数据字典，避免重复 .get() 调用
+        # return the data dictionary directly, avoids repeated .get() calls
         return {
             "color": self.info_color,
             "material": self.info_material,
@@ -334,39 +334,39 @@ class FeedSlotHelper:
     
     def cmd_CONFIG_SLOT_COLOR(self, gcmd):
         color = gcmd.get('COLOR')
-        if not color:  # 简单的参数校验
+        if not color:  # simple parameter check
             logging.error("No COLOR parameter provided")
             return
         
         slot_fila_info = self.read_json_file(self.fila_info_file_path)
         if not slot_fila_info:
-            slot_fila_info = {"material": None, "temperature": None}  # 提供默认值
+            slot_fila_info = {"material": None, "temperature": None}  # default values
 
         self.info_color = color
         
         self.write_json_file(
             self.fila_info_file_path, 
             color, 
-            slot_fila_info.get("material")  # 使用 .get() 避免 KeyError
+            slot_fila_info.get("material")  # .get() avoids a KeyError
         )
         logging.info(f"config {self.name} color: {color}")
 
     def cmd_CONFIG_SLOT_MATERIAL(self, gcmd):
         material = gcmd.get('MATERIAL')
-        if not material:  # 简单的参数校验
+        if not material:  # simple parameter check
             logging.error("No MATERIAL parameter provided")
             return
         
         slot_fila_info = self.read_json_file(self.fila_info_file_path)
         if not slot_fila_info:
-            slot_fila_info = {"material": None, "temperature": None}  # 提供默认值
+            slot_fila_info = {"material": None, "temperature": None}  # default values
 
         self.info_material = material
 
         
         self.write_json_file(
             self.fila_info_file_path, 
-            slot_fila_info.get("color"),  # 使用 .get() 避免 KeyError
+            slot_fila_info.get("color"),  # .get() avoids a KeyError
             material            
         )
         
@@ -396,7 +396,7 @@ class FeedSlot:
 
         self.check_pendding_period = 5.0
 
-        # 定时器检测是否有pending状态的装料
+        # timer: checks for a load that is waiting (pending)
         self.check_pending_timer = self.reactor.register_timer(self._check_pending_loading)
         self.reactor.update_timer(self.check_pending_timer, self.reactor.NOW + 5.0)
 
@@ -410,7 +410,7 @@ class FeedSlot:
 
         logging.info(f"{self.find_bit_position(mask)}\n {self.name}\033[0m")
 
-        # 换挡距离
+        # selector travel
         self.trans_dist = config.getfloat('trans_dist', 0., minval=0.)
 
         self.get_status = self.slot_helper.get_status
@@ -430,7 +430,7 @@ class FeedSlot:
             params = buttons_read_cmd.send([oid, self.shift])
             logging.info(f"\033[93m  {(params['state'])} \033[0m")
 
-            #注意这里的state是管脚的裸电平
+            # note: state here is the raw level of the pin
             if params['state'] == 1:
                 self.slot_helper.last_state = not self.invert
             else:
@@ -455,17 +455,17 @@ class FeedSlot:
         check_time = self.reactor.monotonic()
         return check_time + self.check_pendding_period
 
-    def _button_handler(self, eventtime, state):#注意这里的state已经在button库里面处理过invert逻辑，所以它是表征是否有效电平
-        logging.info(f"_button_handler: {self.name}, state = {state}， last_event = {self.last_eventtime}, event_time = {eventtime}")
-         # 消抖逻辑改进
+    def _button_handler(self, eventtime, state):# note: state here already has the invert logic of the button library applied, so it tells whether the level is active
+        logging.info(f"_button_handler: {self.name}, state = {state}, last_event = {self.last_eventtime}, event_time = {eventtime}")
+         # improved debounce logic
         if self.last_eventtime != 0.0:
             diff = eventtime - self.last_eventtime
-            # 只有当时间间隔过短且状态没有变化时才忽略
+            # ignored only when the interval is too short and the state did not change
             if diff < 0.5 and state == self.last_state:
-                logging.info(f"忽略可能的抖动事件: {diff}秒, 状态未变化")
+                logging.info(f"ignoring a possible bounce event: {diff} s, state unchanged")
                 return
     
-        # 更新最后事件时间和状态
+        # update the time and state of the last event
         self.last_eventtime = eventtime
         self.last_state = state  
         self.slot_helper.button_state = state

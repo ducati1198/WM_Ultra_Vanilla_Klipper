@@ -7,9 +7,9 @@ class StallSensor:
         self.name = config.get_name().split(' ')[-1]
         self.pin = config.get('pin')
         self.last_state = 0
-        # === press 时间窗口控制 ===
+        # === press time window ===
         self.press_times = deque()
-        self.press_window = 0.5    # 秒
+        self.press_window = 0.5    # seconds
         self.press_count = 3
         buttons = self.printer.load_object(config, "buttons")
         buttons.register_buttons([self.pin], self.button_callback)
@@ -32,17 +32,17 @@ class StallSensor:
             template = self.release_template
         try:
             if state:
-                logging.info("触发！！！")
-                # === 记录 press 时间 ===
+                logging.info("Triggered!!!")
+                # === record the press time ===
                 self.press_times.append(eventtime)
-                # === 清理 0.5s 之前的 press ===
+                # === drop presses older than 0.5 s ===
                 cutoff = eventtime - self.press_window
                 while self.press_times and self.press_times[0] < cutoff:
                     self.press_times.popleft()
-                # === 未达到 3 次，不处理 ===
+                # === fewer than 3 presses: nothing to do ===
                 if len(self.press_times) < self.press_count:
                     return
-                # === 达到条件，清空队列，正式触发 ===
+                # === condition met: clear the queue and trigger ===
                 self.press_times.clear()
                 self.printer.command_error("STALL_SENSOR triggered")
                 if self.name == "Z_STALL_SENSOR":

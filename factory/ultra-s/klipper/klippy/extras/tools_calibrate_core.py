@@ -77,14 +77,14 @@ class ToolsCalibrate:
         self.printer.register_event_handler("klippy:ready", self._handle_ready)
 
     def _disable_collision_detect(self):
-        """无论校准成功或失败，发生异常时强制关闭加速度计碰撞监测"""
+        """Whether the calibration succeeds or fails: on an error, force the accelerometer collision monitoring off"""
         collision_obj = self.printer.lookup_object('collision_detect', None)
         if collision_obj is not None:
             try:
                 collision_obj.cmd_disable()
-                self.gcode.respond_info("[ToolsCalibrate] 异常兜底：已自动禁用碰撞检测。")
+                self.gcode.respond_info("[ToolsCalibrate] Fallback after an error: collision detection was switched off automatically.")
             except Exception as e:
-                logging.error(f"[ToolsCalibrate] 自动禁用碰撞检测失败: {str(e)}")
+                logging.error(f"[ToolsCalibrate] Switching off collision detection automatically failed: {str(e)}")
 
     def _handle_ready(self):
         save_vars = self.printer.lookup_object('save_variables', None)
@@ -442,7 +442,7 @@ class PrinterProbeMultiAxis:
             if max(axis_positions) - min(axis_positions) > samples_tolerance:
                 if retries >= samples_retries:
                     self.mcu_probe[axis].multi_probe_end()
-                    # 发生公差超限时，先调用 _disable_collision_detect 关闭加速度监听
+                    # when the tolerance is exceeded, first call _disable_collision_detect to stop the acceleration listener
                     coll = self.printer.lookup_object('collision_detect', None)
                     if coll is not None:
                         try:

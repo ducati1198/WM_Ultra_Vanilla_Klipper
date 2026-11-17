@@ -21,7 +21,7 @@ WANT = [  # (section, [(option, value)]) in the order they are added
     ("file_manager", [("queue_gcode_uploads", "False"), ("enable_object_processing", "True")]),
     ("machine", [("provider", "systemd_dbus"), ("validate_service", "False"), ("validate_config", "False")]),
     ("secrets", []),
-    ("data_store", [("gcode_store_size", "5000")]),   # the Fluidd console keeps 5000 lines (default 1000 is about an hour of a print)
+    ("data_store", [("gcode_store_size", "1000")]),   # the Fluidd console keeps 1000 lines (the Moonraker default, written down so the value is visible and easy to change)
 ]
 TIMELAPSE = [  # [timelapse] options of the K1 setup, added only when missing
     ("output_path", "~/printer_data/timelapse/"), ("frame_path", "~/printer_data/frames/"), ("camera", "default"),

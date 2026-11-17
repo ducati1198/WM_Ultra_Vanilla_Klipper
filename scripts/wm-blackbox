@@ -1,0 +1,69 @@
+#!/bin/bash
+# wm-blackbox - a small flight recorder for the printer's Raspberry Pi.
+# Every 10 seconds it writes one line to /var/log/wm-blackbox/blackbox.log and forces it onto the disk, so that
+# after a crash the last lines show what the Pi looked like seconds before: power flags, temperature, core voltage,
+# load, memory, and whether Klipper and Moonraker were running. Kernel messages about USB, the disk, power and
+# errors are copied in as they appear. At every start it says whether the last stop was clean or not.
+# Read it with:  wm-blackbox report        (last crash and the lines before it)
+#                tail -n 40 /var/log/wm-blackbox/blackbox.log
+D=/var/log/wm-blackbox
+F=$D/blackbox.log
+EVERY=10
+MAX_BYTES=5000000        # the file is renamed to blackbox.log.1 at this size (one old file is kept)
+
+if [ "${1:-}" = report ]; then
+    [ -f "$F" ] || { echo "no black box log yet"; exit 0; }
+    n=$(cat "$F.1" "$F" 2>/dev/null | grep -n " BOOT after an UNCLEAN stop" | tail -1 | cut -d: -f1)
+    if [ -z "$n" ]; then echo "No unclean stop is recorded."; tail -n 5 "$F"; exit 0; fi
+    echo "Last unclean stop: the 25 lines before the Pi went down, then the boot line."
+    cat "$F.1" "$F" 2>/dev/null | sed -n "$(( n > 25 ? n - 25 : 1 )),${n}p"
+    exit 0
+fi
+
+mkdir -p "$D"
+log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$F"; sync -d "$F" 2>/dev/null || sync; }
+flags() {   # vcgencmd get_throttled in words
+    local v=$(( $1 )) s=""
+    [ $(( v & 0x1 )) != 0 ]     && s="$s UNDER-VOLTAGE-NOW"
+    [ $(( v & 0x2 )) != 0 ]     && s="$s freq-capped-now"
+    [ $(( v & 0x4 )) != 0 ]     && s="$s throttled-now"
+    [ $(( v & 0x8 )) != 0 ]     && s="$s temp-limit-now"
+    [ $(( v & 0x10000 )) != 0 ] && s="$s under-voltage-since-boot"
+    [ $(( v & 0x20000 )) != 0 ] && s="$s freq-capped-since-boot"
+    [ $(( v & 0x40000 )) != 0 ] && s="$s throttled-since-boot"
+    [ $(( v & 0x80000 )) != 0 ] && s="$s temp-limit-since-boot"
+    echo "${s:- ok}"
+}
+
+prev="$(tail -n 1 "$F" 2>/dev/null)"
+rsts="$(vcgencmd get_rsts 2>/dev/null | cut -d= -f2)"
+if [ -f "$D/clean" ]; then
+    rm -f "$D/clean"
+    log "BOOT after a clean stop. reset=$rsts"
+elif [ -n "$prev" ]; then
+    log "BOOT after an UNCLEAN stop (power loss, freeze or hard reset). reset=$rsts. Note: this boot's clock may be behind until the network time arrives. Last line before it: $prev"
+else
+    log "BOOT first start of the black box. reset=$rsts"
+fi
+trap 'log "STOP clean (shutdown, reboot or service stop)"; touch "$D/clean"; sync; exit 0' TERM INT
+
+# kernel messages: start from now, then copy the interesting new ones each round
+journalctl -k -n 0 --cursor-file="$D/cursor" >/dev/null 2>&1
+last_thr=""
+while :; do
+    thr="$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"; thr="${thr:-0x0}"
+    temp="$(vcgencmd measure_temp 2>/dev/null | cut -d= -f2)"
+    core="$(vcgencmd measure_volts core 2>/dev/null | cut -d= -f2)"
+    load="$(cut -d' ' -f1-3 /proc/loadavg)"
+    mem="$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)"
+    up="$(cut -d. -f1 /proc/uptime)"
+    disk="$(cat /sys/block/sda/device/state 2>/dev/null || echo none)"
+    log "up=${up}s power=$thr$(flags "$thr") temp=$temp core=$core load=$load mem=${mem}M disk=$disk klipper=$(systemctl is-active klipper 2>/dev/null) moonraker=$(systemctl is-active moonraker 2>/dev/null)"
+    if [ "$thr" != "$last_thr" ] && [ -n "$last_thr" ]; then log "POWER FLAGS CHANGED from $last_thr to $thr:$(flags "$thr")"; fi
+    last_thr="$thr"
+    journalctl -k -p 6 -o short --no-pager --no-hostname --cursor-file="$D/cursor" 2>/dev/null \
+        | grep -i -E "usb|voltage|error|fail|reset|i/o|ext4|sd[a-z]|xhci|oom|out of memory|panic|watchdog|hung|blocked for|can0|gs_usb|thermal" \
+        | grep -v -E "^-- " | head -n 40 | while IFS= read -r l; do log "KERNEL $l"; done
+    if [ "$(stat -c %s "$F" 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then mv -f "$F" "$F.1"; log "log file started again (the old one is blackbox.log.1)"; fi
+    sleep "$EVERY" & wait $!
+done

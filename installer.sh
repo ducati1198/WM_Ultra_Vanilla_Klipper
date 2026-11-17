@@ -17,6 +17,8 @@
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
+# ./installer.sh --logs                the troubleshooting logs (wm-events.log, wm-config-check.log, wm-ace.log, wm-blackbox.log in Fluidd > Configuration > Other Files) and the black box that records the Pi every 10 s. Also done in every install and update; the doctor checks them; --support-bundle includes them
+# ./installer.sh --ultra-backup        move every backup into ~/ultra-backup (sorted by type, 400 MB limit) and show the sizes
 # ./installer.sh --wifi                Pi on Wi-Fi (NetworkManager): Wi-Fi power saving off and a watchdog that restarts the Wi-Fi when the router stops answering
 # ./installer.sh --light               set up the chamber light as a Moonraker power device (Fluidd, touchscreen and WM_CHAMBER_LIGHT then agree); needs an installed screen board
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FIRST_RUN_CAL, WM_FULL_OFFSET_CAL, WM_Z_TRIM_MENU, WM_UNLOAD_MENU, ...) and their include line in printer.cfg
@@ -55,7 +57,7 @@
 # ./installer.sh --system-info         read-only: host name, time zone, clock, addresses, Wi-Fi
 # ./installer.sh --set-timezone NAME   for example America/Toronto (asks first)
 # ./installer.sh --set-hostname NAME   the name.local address of this Pi (asks first)
-# ./installer.sh --no-backup           with --update: skip the automatic backup that is otherwise saved first (the newest 5 are kept in ~/wm-backups)
+# ./installer.sh --no-backup           with --update: skip the automatic backup that is otherwise saved first (the newest 5 are kept in ~/ultra-backup/settings)
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
@@ -94,6 +96,7 @@ WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT="";
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
+ULTRA="$HOME_DIR/ultra-backup"; WMB="$ULTRA/settings"   # item 36: every backup lives under ~/ultra-backup, sorted by type (settings, config, fluidd-page, fluidd-macros, installer, drivers, other)
 STATE="$BACKUP_ROOT/installed.manifest"
 CONF="$BACKUP_ROOT/install.conf"
 PANEL_REPO="ducati1198/wm-ultra-fluidd-acepro-panel"; PANEL_ZIP=""; PANEL_FROM=""; PANEL_FAILED=0
@@ -216,6 +219,8 @@ while [ $# -gt 0 ]; do
         --import-settings) MODE=importset; IMPORT_HOST="${2:-}"; [ $# -gt 1 ] && shift ;;
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --pi-sensors)   MODE=pisensors ;;
+        --logs)         MODE=logs ;;         # troubleshooting logs + black box
+        --ultra-backup) MODE=ultrabackup ;;   # one folder for every backup (item 36)
         --wifi)         MODE=wifi ;;         # Wi-Fi power saving off and the Wi-Fi watchdog (only when the Pi is on Wi-Fi with NetworkManager)   # board temperature sensors + the host MCU, once Klipper runs
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --light)        MODE=light ;;     # the chamber light as a Moonraker power device (needs an installed screen board)
@@ -428,7 +433,7 @@ rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klippe
 }
 # Names: the config files this installer puts on the Pi used to be called wm_*.cfg (and wm_chamber_light.json,
 # wm-ultra-install.conf). Since 2.6.0 they are rpi_*.cfg. A Pi that has the old names is renamed once (copies of everything
-# that changes go to ~/wm-backups/rename-<time>/), and the [include ...] lines in the config files follow. Macro names
+# that changes go to ~/ultra-backup/config/<date>/rename-<time>/), and the [include ...] lines in the config files follow. Macro names
 # (WM_BED_LEVELING ...) and variable names are not touched.
 RPI_RENAME_MAP=(wm_ace_driver.cfg:rpi_ace_driver.cfg wm_ace.cfg:rpi_ace.cfg wm_calibration.cfg:rpi_calibration.cfg wm_chamber_light.json:rpi_chamber_light.json wm_endless.cfg:rpi_endless.cfg wm_fan_guard.cfg:rpi_fan_guard.cfg wm_mcu_temps.cfg:rpi_mcu_temps.cfg wm_nozzle.cfg:rpi_nozzle.cfg wm_pi.cfg:rpi_pi.cfg wm_print_end.cfg:rpi_print_end.cfg wm_rpi_mcu.cfg:rpi_mcu.cfg wm_stats.cfg:rpi_stats.cfg wm_tool_leds.cfg:rpi_tool_leds.cfg wm-ultra-install.conf:rpi-ultra-install.conf)
 rpi_old_names_present() {
@@ -438,7 +443,7 @@ rpi_old_names_present() {
 }
 rpi_names_migrate() {
     rpi_old_names_present || return 0
-    local cd="$HOME_DIR/printer_data/config" p old new f n=0 bak="$HOME_DIR/wm-backups/rename-$STAMP"
+    local cd="$HOME_DIR/printer_data/config" p old new f n=0 bak="$ULTRA/config/$(date +%F)/rename-$STAMP"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rename the config files with the old wm_ names to rpi_ (copies first) and change the include lines${NC}"; return 0; fi
     mkdir -p "$bak" && chmod 700 "$bak" 2>/dev/null
     for p in "${RPI_RENAME_MAP[@]}"; do
@@ -476,9 +481,9 @@ rpipi_include() {   # [include rpi_pi.cfg] above the other includes (a copy of p
     if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include rpi_pi.cfg]\n&/" "$cfg"; else sed -i "1i [include rpi_pi.cfg]" "$cfg"; fi
     print_success "rpi_pi.cfg is included in printer.cfg (copy of the old one: printer.cfg.wm-before-rpipi-$STAMP)"
 }
-RPI_JOINED_OLD=(rpi_virtual_pins.cfg rpi_safety.cfg rpi_print_end.cfg rpi_tool_leds.cfg rpi_head_sensors.cfg rpi_unload.cfg rpi_zoffset.cfg)
-rpi_join_migrate() {   # 2.10.0: the old separate files are in rpi_base.cfg and rpi_calibration.cfg now; their include lines go, the files are kept in ~/wm-backups/rpi-join-<time>
-    local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f bk="$HOME_DIR/wm-backups/rpi-join-$STAMP" n=0
+RPI_JOINED_OLD=(rpi_virtual_pins.cfg rpi_safety.cfg rpi_print_end.cfg rpi_tool_leds.cfg rpi_head_sensors.cfg rpi_unload.cfg rpi_zoffset.cfg rpi_homing.cfg rpi_bed_soak.cfg)
+rpi_join_migrate() {   # 2.10.0 and later: the old separate files (the last two, rpi_homing.cfg and rpi_bed_soak.cfg, since F-103) are in rpi_base.cfg and rpi_calibration.cfg now; their include lines go, the files are kept in ~/ultra-backup/config/<date>/rpi-join-<time>
+    local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f bk="$ULTRA/config/$(date +%F)/rpi-join-$STAMP" n=0
     for f in "${RPI_JOINED_OLD[@]}"; do [ -e "$cd/$f" ] || rpicfg_included "$f" || continue; n=$((n+1)); done
     [ "$n" -gt 0 ] || return 0
     mkdir -p "$bk"; cp -p "$cfg" "$bk/printer.cfg"
@@ -486,13 +491,13 @@ rpi_join_migrate() {   # 2.10.0: the old separate files are in rpi_base.cfg and 
         rpicfg_included "$f" && cfg_include_remove "$f"
         [ -e "$cd/$f" ] && mv "$cd/$f" "$bk/$f"
     done
-    print_info "The Pi's small files are joined since 2.10.0: rpi_base.cfg and rpi_calibration.cfg replace ${RPI_JOINED_OLD[*]}. Their include lines left printer.cfg; the old files (and printer.cfg before) are kept in $bk"
+    print_info "The Pi's small files are joined: rpi_base.cfg and rpi_calibration.cfg replace ${RPI_JOINED_OLD[*]}. Their include lines left printer.cfg; the old files (and printer.cfg before) are kept in $bk"
 }
 rpipi_step() {   # rpi_pi.cfg: old separate files become parts, the Pi temperature part, the include line
     local cd="$HOME_DIR/printer_data/config" ex="$HOME_DIR/klipper/klippy/extras" out rc
     [ -f "$(rpipi_py)" ] || return 0
-    out="$(python3 -I "$(rpipi_py)" migrate "$cd" "$HOME_DIR/wm-backups/rpi-pi-$STAMP" 2>&1)"; rc=$?
-    [ "$rc" = 10 ] && { echo "$out" | sed 's/^/        /'; print_info "rpi_pi.cfg now holds the host MCU, the temperatures and the chamber light (old files kept in ~/wm-backups/rpi-pi-$STAMP)"; }
+    out="$(python3 -I "$(rpipi_py)" migrate "$cd" "$ULTRA/config/$(date +%F)/rpi-pi-$STAMP" 2>&1)"; rc=$?
+    [ "$rc" = 10 ] && { echo "$out" | sed 's/^/        /'; print_info "rpi_pi.cfg now holds the host MCU, the temperatures and the chamber light (old files kept in ~/ultra-backup/config/<date>/rpi-pi-$STAMP)"; }
     if [ ! -d "$ex" ] || [ -f "$ex/temperature_host.py" ]; then   # the Pi temperature needs Klipper's temperature_host
         python3 -I "$(rpipi_py)" set "$cd" pi-temp "$SCRIPT_DIR/config/rpi_pi_temp.cfg" || print_warning "rpi_pi.cfg: the Pi temperature part could not be written"
     fi
@@ -502,12 +507,8 @@ rpicfg_role() {   # $1 = rpi-cfg file, $2 = name | effect: what the file is, and
     case "$1:$2" in
         rpi_calibration.cfg:name) echo "calibration macros" ;;
         rpi_calibration.cfg:effect) echo "WM_BED_LEVELING, WM_FIRST_RUN_CAL and the other WM_ calibration macros do not exist" ;;
-        rpi_homing.cfg:name) echo "homing and Z drop" ;;
-        rpi_homing.cfg:effect) echo "G28 homes without the 5 mm bed drop and the Pi's homing order, the idle timeout spares no paused print, and tool changes, the nozzle wipe and ACE loads stop with Unknown command z_rise" ;;
-        rpi_base.cfg:name) echo "base helpers" ;;
-        rpi_base.cfg:effect) echo "the switch pins, the start-up safety check, the unload menu, the head sensor load queue and live Z per tool do not exist, and the other rpi_ files that use them fail" ;;
-        rpi_bed_soak.cfg:name) echo "bed warp wait" ;;
-        rpi_bed_soak.cfg:effect) echo "START_PRINT does not wait for the bed to settle before the bed mesh, and Measure Bed Warp does not exist" ;;
+        rpi_base.cfg:name) echo "base helpers, homing and bed warp wait" ;;
+        rpi_base.cfg:effect) echo "homing and the bed drop (z_rise), the idle timeout, the bed warp wait, the switch pins, the start-up safety check, the unload menu, the head sensor load queue and live Z per tool do not exist, and the other rpi_ files that use them fail" ;;
         rpi_nozzle.cfg:name) echo "nozzle type and extruder setup" ;;
         rpi_nozzle.cfg:effect) echo "the Nozzle Type and Extruder Setup macros do not exist" ;;
         rpi_auto_speed.cfg:name) echo "speed test" ;;
@@ -530,6 +531,9 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     # rpi_calibration.cfg ([wm_tool_touch], tool setter position helper, 2.14.0) needs the driver wm_tool_touch.py: same reason
     local tt="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_tool_touch.py"
     if [ -f "$tt" ] && [ -d "$ex" ] && ! cmp -s "$tt" "$ex/wm_tool_touch.py"; then cp "$tt" "$ex/wm_tool_touch.py" && print_info "driver wm_tool_touch.py copied into Klipper's extras (the tool setter position helper needs it)"; fi
+    # rpi_base.cfg (_WM_START_PURGE) reads the print info of the file (used tools and temperatures) from the driver wm_print_info.py, loaded by [wm_print_info] in printer.cfg: copy it first, so a merged printer.cfg never makes Klipper fail
+    local pi="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_print_info.py"
+    if [ -f "$pi" ] && [ -d "$ex" ] && ! cmp -s "$pi" "$ex/wm_print_info.py"; then cp "$pi" "$ex/wm_print_info.py" && print_info "driver wm_print_info.py copied into Klipper's extras (the print start purge reads the slicer's tool list with it)"; fi
     # rpi_auto_speed.cfg needs the speed test module (klipper_auto_speed by Anonoei, MIT, with this repository's changes): same reason
     local asd="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras" af
     if [ -d "$ex" ] && [ -f "$asd/auto_speed.py" ]; then
@@ -538,7 +542,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         done
     fi
     for f in $(rpicfg_list); do
-        if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ] || [ "$f" = rpi_bed_soak.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
+        if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_calibration.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/wm_tool_touch.py" ]; then print_warning "$f not installed: the driver wm_tool_touch.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_auto_speed.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
         if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
@@ -584,7 +588,7 @@ step_light() {   # ./installer.sh --light, and in every install and update: the 
     esac
     # WM_CHAMBER_LIGHT is the part "light" of rpi_pi.cfg (until 2.9.0 the file rpi_light.cfg, which the migration moves in)
     if [ -f "$(rpipi_py)" ]; then
-        python3 -I "$(rpipi_py)" migrate "$cd" "$HOME_DIR/wm-backups/rpi-pi-$STAMP" | sed 's/^/        /'
+        python3 -I "$(rpipi_py)" migrate "$cd" "$ULTRA/config/$(date +%F)/rpi-pi-$STAMP" | sed 's/^/        /'
         if rpipi_has light && rpicfg_included rpi_pi.cfg; then python3 -I "$(rpipi_py)" set "$cd" light "$SCRIPT_DIR/config/rpi_light.cfg"; print_success "WM_CHAMBER_LIGHT is installed (rpi_pi.cfg)"
         else python3 -I "$(rpipi_py)" set "$cd" light "$SCRIPT_DIR/config/rpi_light.cfg" && rpipi_include && print_success "WM_CHAMBER_LIGHT is installed (rpi_pi.cfg, part light)"; fi
     fi
@@ -1029,7 +1033,7 @@ step_pi_sensors() {   # ./installer.sh --pi-sensors, and at the end of an instal
     case "$(print_state)" in printing|paused) print_info "A print is running: the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after the print."; return 0 ;; esac
     print_header "Board temperatures and the host MCU"
     why "Shows the chip temperature of every board in Fluidd, and connects Klipper to the host MCU service (sensors wired to the Pi's own pins). During the install Klipper is not running yet: the files are only added and Klipper loads them at its first start. On a Pi where Klipper runs, Klipper restarts after each and it is undone again if Klipper does not come back."
-    [ -f "$(rpipi_py)" ] && python3 -I "$(rpipi_py)" migrate "$cd" "$HOME_DIR/wm-backups/rpi-pi-$STAMP" | sed 's/^/        /'
+    [ -f "$(rpipi_py)" ] && python3 -I "$(rpipi_py)" migrate "$cd" "$ULTRA/config/$(date +%F)/rpi-pi-$STAMP" | sed 's/^/        /'
     if rpipi_has board-temps && rpicfg_included rpi_pi.cfg; then print_success "board temperature sensors are already in use"
     elif content="$(pisens_mcutemps_content)"; then
         printf '%s\n' "$content" > "$cd/.wm-part-board-temps"; pisens_add board-temps "Board temperature sensors" || true
@@ -1207,6 +1211,85 @@ step_wifi() {   # every install and update, and ./installer.sh --wifi
 }
 
 # ---------------------------------------------------------------------------
+# Troubleshooting logs (item 30, F-107) and the black box (F-022)
+#   wm-log-digest: a small service that writes wm-events.log, wm-config-check.log, wm-ace.log and a copy of the black box
+#                  into ~/printer_data/logs, where Fluidd shows them (Configuration > Other Files). It only reads.
+#   wm-blackbox:   one line every 10 s into /var/log/wm-blackbox (power, temperature, load, kernel USB messages) so a crash
+#                  leaves a trace; the system log is kept on the disk for it.
+# ---------------------------------------------------------------------------
+DIGEST_UNIT=/etc/systemd/system/wm-log-digest.service
+BB_BIN=/usr/local/sbin/wm-blackbox; BB_UNIT=/etc/systemd/system/wm-blackbox.service; BB_JRN=/etc/systemd/journald.conf.d/50-wm-persistent.conf
+digest_script() { echo "$HOME_DIR/printer_data/scripts/wm_log_digest.py"; }
+logs_ok() {   # 0 when the digest script and service are in place and running
+    cmp -s "$SCRIPT_DIR/scripts/wm_log_digest.py" "$(digest_script)" || return 1
+    if [ "$TESTING" = 1 ]; then [ "$(service_state wm-log-digest)" = active ]; return; fi
+    cmp -s "$SCRIPT_DIR/config/wm-log-digest.service" "$DIGEST_UNIT" || return 1
+    [ "$(service_state wm-log-digest)" = active ]
+}
+step_logs() {   # every install and update, and ./installer.sh --logs
+    [ -f "$SCRIPT_DIR/scripts/wm_log_digest.py" ] && [ -f "$SCRIPT_DIR/config/wm-log-digest.service" ] || { print_warning "scripts/wm_log_digest.py is missing from this repository: the troubleshooting logs are not installed"; return 0; }
+    logs_ok && { print_success "Logs: wm-events.log, wm-config-check.log and wm-ace.log are written (Fluidd > Configuration > Other Files)"; return 0; }
+    print_header "Troubleshooting logs"
+    why "klippy.log is mostly a copy of the config written at every start, so the real events are buried. A small service keeps three short logs (what happened, config problems, the ACE Pro) next to it, and a copy of the black box. They stay small (a few MB in all) and can be opened in Fluidd; --support-bundle includes them."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm_log_digest.py and the wm-log-digest service${NC}"; return 0; fi
+    local sd="$HOME_DIR/printer_data/scripts"; mkdir -p "$sd" "$HOME_DIR/printer_data/logs"
+    install -m 755 "$SCRIPT_DIR/scripts/wm_log_digest.py" "$sd/wm_log_digest.py"; record "FILE $sd/wm_log_digest.py"
+    SUDO install -o root -g root -m 644 "$SCRIPT_DIR/config/wm-log-digest.service" "$DIGEST_UNIT"; record "FILE $DIGEST_UNIT"
+    SUDO systemctl daemon-reload
+    SUDO systemctl enable wm-log-digest
+    SUDO systemctl restart wm-log-digest
+    print_success "Troubleshooting logs installed and running: Fluidd > Configuration > Other Files > wm-events.log, wm-config-check.log, wm-ace.log"
+}
+blackbox_ok() {   # 0 when the black box script, its service and the on-disk system log setting are in place and running
+    if [ "$TESTING" = 1 ]; then cmp -s "$SCRIPT_DIR/scripts/wm-blackbox" "$HOME_DIR/.blackbox/wm-blackbox" && [ "$(service_state wm-blackbox)" = active ]; return; fi
+    cmp -s "$SCRIPT_DIR/scripts/wm-blackbox" "$BB_BIN" && cmp -s "$SCRIPT_DIR/config/wm-blackbox.service" "$BB_UNIT" && cmp -s "$SCRIPT_DIR/config/50-wm-persistent.conf" "$BB_JRN" || return 1
+    [ "$(service_state wm-blackbox)" = active ]
+}
+step_blackbox() {   # every install and update, and ./installer.sh --logs
+    [ -f "$SCRIPT_DIR/scripts/wm-blackbox" ] && [ -f "$SCRIPT_DIR/config/wm-blackbox.service" ] && [ -f "$SCRIPT_DIR/config/50-wm-persistent.conf" ] || { print_warning "scripts/wm-blackbox is missing from this repository: the black box is not installed"; return 0; }
+    blackbox_ok && { print_success "Black box: the Pi is recorded every 10 s (wm-blackbox report shows the last crash)"; return 0; }
+    print_header "Black box"
+    why "A freeze, a power dip or a hard reset leaves no trace by itself (the Pi keeps its system log in memory only). The black box writes one line every 10 s to the disk (power flags, temperature, load, memory, USB and disk messages) and says at the next start whether the last stop was clean. The system log is kept on the disk (up to 200 MB) for the same reason."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm-blackbox, its service and the on-disk system log setting${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then mkdir -p "$HOME_DIR/.blackbox"; cp "$SCRIPT_DIR/scripts/wm-blackbox" "$HOME_DIR/.blackbox/"; echo "[test] blackbox installed" >> "$HOME_DIR/.sudo.log"
+    else
+        SUDO install -o root -g root -m 755 "$SCRIPT_DIR/scripts/wm-blackbox" "$BB_BIN"
+        SUDO install -o root -g root -m 644 "$SCRIPT_DIR/config/wm-blackbox.service" "$BB_UNIT"
+        SUDO mkdir -p /etc/systemd/journald.conf.d
+        SUDO install -o root -g root -m 644 "$SCRIPT_DIR/config/50-wm-persistent.conf" "$BB_JRN"
+    fi
+    record "FILE $BB_BIN"; record "FILE $BB_UNIT"; record "FILE $BB_JRN"
+    SUDO systemctl daemon-reload
+    SUDO systemctl restart systemd-journald
+    SUDO systemctl enable wm-blackbox
+    SUDO systemctl restart wm-blackbox
+    print_success "Black box installed and running (wm-blackbox report shows the last crash; the log is /var/log/wm-blackbox/blackbox.log)"
+}
+
+# ---------------------------------------------------------------------------
+# One folder for every backup: ~/ultra-backup, sorted by type, with size limits (item 36)
+# ---------------------------------------------------------------------------
+ultrabackup_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_ultra_backup.py"; }
+ultrabackup_ok() {   # 0 when the helper is in place and no backup is lying around outside ~/ultra-backup
+    cmp -s "$SCRIPT_DIR/scripts/wm_ultra_backup.py" "$(ultrabackup_dst)" || return 1
+    python3 -I "$(ultrabackup_dst)" sweep --dry-run --home "$HOME_DIR" >/dev/null 2>&1; [ "$?" != 10 ]
+}
+step_ultrabackup() {   # every install and update, and ./installer.sh --ultra-backup
+    [ -f "$SCRIPT_DIR/scripts/wm_ultra_backup.py" ] || { print_warning "scripts/wm_ultra_backup.py is missing from this repository: the backup folder helper was not installed."; return 0; }
+    ultrabackup_ok && { print_success "Backups: all in ~/ultra-backup ($(python3 -I "$(ultrabackup_dst)" status --home "$HOME_DIR" | awk '/total/{print $(NF-4), "MB of", $(NF-1)}' | head -1) MB)"; return 0; }
+    print_header "Backup folder (ultra-backup)"
+    why "Backups were spread over many folders (config copies next to the config, wm-backups, acepro-backup, fluidd_backup_*). They now live in one folder, ~/ultra-backup, sorted by type. The newest copy of each config file stays next to it. The newest undo folder of each installer stays where it is: --undo restores from it. The folder is limited to 400 MB: the oldest go first, and nothing is written when the Pi has less than 2 GB free."
+    if [ "$DRY" = 1 ]; then python3 -I "$SCRIPT_DIR/scripts/wm_ultra_backup.py" sweep --dry-run --home "$HOME_DIR" | sed 's/^/    /' | tail -8; return 0; fi
+    mkdir -p "$(dirname "$(ultrabackup_dst)")"; install -m 755 "$SCRIPT_DIR/scripts/wm_ultra_backup.py" "$(ultrabackup_dst)"; record "FILE $(ultrabackup_dst)"
+    local out rc; out="$(python3 -I "$(ultrabackup_dst)" sweep --home "$HOME_DIR" 2>&1)"; rc=$?
+    case "$rc" in
+        0|10) print_success "Backups: $out. The old place of each one is in ~/ultra-backup/INDEX.txt" ;;
+        *)    warn_later "The backup folder helper stopped: $out" ;;
+    esac
+    print_info "$(python3 -I "$(ultrabackup_dst)" status --home "$HOME_DIR" | sed 's/^/ /' | tr '\n' ';' | cut -c1-300)"
+}
+
+# ---------------------------------------------------------------------------
 # Touchscreen (KlipperScreen + ZR Tools). NOT YET TESTED ON HARDWARE.
 # ---------------------------------------------------------------------------
 KS_DIR="$HOME_DIR/KlipperScreen"
@@ -1342,7 +1425,7 @@ remove_python39() {   # only the Python 3.9 this installer added (~/.pythons, ~/
 }
 leftover_report() {   # what of this installer is still on the Pi, and how to remove it
     local f n=0 list=()
-    for f in "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1" "$HOME_DIR/wm-stage" "$HOME_DIR/wm-backups" "$HOME_DIR/wm-install-logs" "$BACKUP_ROOT" "$HOME_DIR"/wm-support-*.tgz "$REPO_DIR"; do [ -e "$f" ] && list+=("$f"); done
+    for f in "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1" "$HOME_DIR/wm-stage" "$ULTRA" "$HOME_DIR/wm-install-logs" "$BACKUP_ROOT" "$HOME_DIR"/wm-support-*.tgz "$REPO_DIR"; do [ -e "$f" ] && list+=("$f"); done
     [ "${#list[@]}" = 0 ] && return 0
     echo "  Still on this Pi (kept on purpose, or not part of the removal):"
     for f in "${list[@]}"; do
@@ -1848,6 +1931,7 @@ moonraker_webcams() {   # the cameras Fluidd lists: [webcam Camera], [webcam Cam
 do_webcam_setup() {   # ./installer.sh --webcam-setup
     print_header "Webcam setup"
     load_answers || true
+    CAM_COUNT="${CLI_CAM_COUNT:-}"; CAM_RES="${CLI_CAM_RES:-}"; CAM_FPS="${CLI_CAM_FPS:-}"   # B-060: the saved answers must not hide the questions: "set up the cameras again" asks again
     [ -d "$HOME_DIR/crowsnest" ] || die_with_fix "the webcam service is not installed." "install it first: ./installer.sh --update --only-addon webcam --webcam on"
     local conf="$HOME_DIR/printer_data/config/crowsnest.conf"
     camera_questions
@@ -2407,7 +2491,7 @@ do_hw_test() {
 # Backup and restore of your printer settings
 # ============================================================================
 do_backup() {
-    local dir="${ARG1:-$HOME_DIR/wm-backups}" out
+    local dir="${ARG1:-$WMB}" out
     mkdir -p "$dir"; out="$dir/wm-backup-$(model_now)-$STAMP.tgz"
     print_header "Backup of your printer settings"
     why "Your calibration and config live only on this SD card. SD cards fail."
@@ -2429,13 +2513,13 @@ do_restore() {
     echo "This replaces ~/printer_data/config, the Moonraker database and (if the backup has it) WonderMaker's ~/TM_T1/factory_settings with the ones in the backup."
     echo "A safety copy of the current ones is made first."
     ask_yn "Continue?" n || { echo "Nothing changed."; return 0; }
-    ARG1="$HOME_DIR/wm-backups"; do_backup >/dev/null
+    ARG1="$WMB"; do_backup >/dev/null
     local was_k=0; [ "$(service_state klipper)" = active ] && was_k=1
     SUDO systemctl stop klipper; SUDO systemctl stop moonraker
-    tar xzf "$f" -C "$HOME_DIR" || die_with_fix "could not unpack the backup." "the safety copy is in ~/wm-backups"
+    tar xzf "$f" -C "$HOME_DIR" || die_with_fix "could not unpack the backup." "the safety copy is in ~/ultra-backup/settings"
     SUDO systemctl start moonraker; [ "$was_k" = 1 ] && SUDO systemctl start klipper
     [ -f "$(pidcfg_py)" ] && ! pidcfg_check >/dev/null && warn_later "The restored config keeps PID settings where Klipper cannot save a PID result (an included file sets them, or a hotend has no control: pid). Fix: ./installer.sh --pid-cfg"
-    print_success "Restored from $f. The previous settings are in ~/wm-backups (newest file)."
+    print_success "Restored from $f. The previous settings are in ~/ultra-backup/settings (newest file)."
 }
 
 # ============================================================================
@@ -2444,7 +2528,7 @@ do_restore() {
 auto_backup() {   # a quick safety copy of your settings before an update or an add-on install; the newest 5 are kept
     if [ "${NO_BACKUP:-0}" = 1 ]; then print_info "Backup before the update skipped (--no-backup)."; return 0; fi
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would save a backup of your config, calibration, database and factory settings first${NC}"; return 0; }
-    local dir="$HOME_DIR/wm-backups" out items=() i
+    local dir="$WMB" out items=() i
     for i in printer_data/config printer_data/database printer_data/moonraker.asvc printer_data/wm-model printer_data/wm-baseline TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
     [ ${#items[@]} -gt 0 ] || return 0
     mkdir -p "$dir"; out="$dir/wm-backup-$(model_now)-before-update-$STAMP.tgz"
@@ -2478,7 +2562,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_patches; step_pidcfg; step_wm_modules; step_wifi; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_patches; step_pidcfg; step_wm_modules; step_wifi; step_logs; step_blackbox; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -2502,6 +2586,7 @@ do_update() {
     step_pi_updater
     step_panel_updater
     save_answers
+    [ -n "$ONLY_ADDON" ] || step_ultrabackup   # last, after the panel and the add-ons: they write backups of their own (acepro-backup, fluidd_backup_*), and those are swept too
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     restart_klipper_after
@@ -2924,13 +3009,19 @@ do_doctor() {
     if [ -f "$HOME_DIR/printer_data/config/rpi_pi.cfg" ]; then
         rpicfg_included rpi_pi.cfg && doc_ok "rpi_pi.cfg (host MCU, temperatures, chamber light: $(python3 -I "$(rpipi_py)" parts "$HOME_DIR/printer_data/config" 2>/dev/null)) is included" || { doc_bad "rpi_pi.cfg is not included in printer.cfg" "The Pi temperature, the board temperatures, the host MCU and WM_CHAMBER_LIGHT are missing."; offer_fix "include rpi_pi.cfg" rpipi_step; }
     fi
-    if rpicfg_included rpi_homing.cfg && grep -qE '^\[(homing_override|idle_timeout|gcode_macro z_rise)\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; then
-        doc_bad "printer.cfg still has its own homing / idle timeout sections, and rpi_homing.cfg has them too" "Since 2.10.0 they live in rpi_homing.cfg; the ones in printer.cfg win. Run ./installer.sh --cfg-merge to take them out of printer.cfg (it asks first)."
+    if rpicfg_included rpi_base.cfg && grep -qE '^\[(homing_override|idle_timeout|gcode_macro z_rise)\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; then
+        doc_bad "printer.cfg still has its own homing / idle timeout sections, and rpi_base.cfg has them too" "They live in rpi_base.cfg; the ones in printer.cfg win. Run ./installer.sh --cfg-merge to take them out of printer.cfg (it asks first)."
     fi
     if [ -n "$(wifi_dev)" ] && nm_active; then
         if wifi_ok; then doc_ok "Wi-Fi: power saving off and the Wi-Fi watchdog runs (journalctl -t wm-wifi-watchdog)"
         else doc_bad "Wi-Fi: power saving is on or the Wi-Fi watchdog is not running" "The Pi's Wi-Fi chip can hang while the Pi keeps running; then Fluidd and SSH lose it until a power cycle."; offer_fix "turn Wi-Fi power saving off and install the Wi-Fi watchdog" step_wifi; fi
     fi
+    if logs_ok; then doc_ok "Logs: the log digest runs (wm-events.log, wm-config-check.log, wm-ace.log in Fluidd > Configuration > Other Files)"
+    else doc_bad "Logs: the troubleshooting log service is not installed or not running" "Without it klippy.log is the only place to look, and it is mostly a copy of the config."; offer_fix "install the troubleshooting logs" step_logs; fi
+    if blackbox_ok; then doc_ok "Black box: the Pi is recorded every 10 s (wm-blackbox report shows the last crash)"
+    else doc_bad "Black box: not installed or not running" "A freeze or power dip then leaves no trace of the Pi's state."; offer_fix "install the black box" step_blackbox; fi
+    if ultrabackup_ok; then doc_ok "Backups: all in ~/ultra-backup, sorted by type, limited to 400 MB"
+    else doc_bad "Backups: some are outside ~/ultra-backup, or the backup folder helper is missing" "The Pi keeps its backups in one folder, sorted by type, with a size limit; older ones were spread over several folders."; offer_fix "move the backups into ~/ultra-backup" step_ultrabackup; fi
     local lurl; lurl="$(light_url)"
     if [ -n "$lurl" ] && [ -f "$HOME_DIR/printer_data/config/moonraker.conf" ]; then
         python3 -I "$(light_py)" conf "$HOME_DIR/printer_data/config/moonraker.conf" "$lurl"; case "$?" in
@@ -2986,7 +3077,7 @@ do_doctor() {
         fi
     elif can_exists; then echo -e "  ${DIM}[skip]${NC}    CAN ids not checked (Klipper is running and uses the bus). ./installer.sh --can-ids checks them."; fi
     progress_bar 4 5 "Doctor 5 of 5: disk space and power"
-    local free; free=$(df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'); [ "${free:-0}" -gt 800 ] && doc_ok "disk space (${free} MB free)" || doc_bad "only ${free} MB free" "Old backups: ~/wm-rpi-backup and ~/wm-backups. Gcode files: ~/printer_data/gcodes."
+    local free; free=$(df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'); [ "${free:-0}" -gt 800 ] && doc_ok "disk space (${free} MB free)" || doc_bad "only ${free} MB free" "Old backups: ~/ultra-backup (./installer.sh --ultra-backup shows the size) and ~/wm-rpi-backup. Gcode files: ~/printer_data/gcodes."
     local p; p="$(power_flags)"; if [ -z "$p" ] || [ "$p" = 0x0 ]; then doc_ok "no power problems reported"; else doc_bad "the Pi reported power/heat flags $p" "Use the official 5 V / 3 A supply and a short cable."; fi
     if [ "$WANT_SCREEN" = 1 ]; then
         [ -d "$KS_DIR" ] && doc_ok "KlipperScreen is installed" || doc_bad "KlipperScreen is missing" "Run ./installer.sh --update."
@@ -3018,6 +3109,36 @@ scrub() {  # remove secrets and private addresses from a stream
             s/\b(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)\b/<private-ip>/g;
             s/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/<mac>/g'
 }
+bundle_extra_logs() {  # the troubleshooting logs, the real klippy lines, the console and the printer state into the bundle dir $1
+    local b="$1" lg="$HOME_DIR/printer_data/logs" f ms=http://127.0.0.1:7125
+    for f in wm-events.log wm-events.log.1 wm-config-check.log wm-ace.log wm-ace.log.1; do [ -f "$lg/$f" ] && scrub < "$lg/$f" > "$b/logs/$f"; done
+    [ -f "$lg/wm-blackbox.log" ] && tail -n 1500 "$lg/wm-blackbox.log" | scrub > "$b/logs/wm-blackbox.log"
+    # klippy.log without the config copy (about 9000 lines at every start) and without the Stats lines
+    [ -f "$lg/klippy.log" ] && awk '/^===== Config file =====/{s=1} !s{print} /^=======================/{s=0}' "$lg/klippy.log" | grep -a -v '^Stats ' | tail -n 1500 | scrub > "$b/logs/klippy-real.log"
+    {
+        echo "--- config files: date, size, checksum, name"
+        for f in "$(cfg_dir)"/*.cfg "$(cfg_dir)"/moonraker.conf; do [ -f "$f" ] && printf '%s %8s %s %s\n' "$(date -r "$f" '+%F %T')" "$(stat -c %s "$f")" "$(md5sum "$f" | cut -c1-8)" "$(basename "$f")"; done
+        echo "--- versions"; echo "installer $VERSION"
+        for f in klipper moonraker wm-ultra-fluidd-acepro-panel WM_Ultra_Vanilla_Klipper; do [ -d "$HOME_DIR/$f/.git" ] && echo "$f $(git -C "$HOME_DIR/$f" describe --always --dirty 2>/dev/null)"; done
+        [ -f "$HOME_DIR/fluidd/.version" ] && echo "fluidd $(cat "$HOME_DIR/fluidd/.version")"
+    } 2>&1 | scrub > "$b/files-and-versions.txt"
+    [ "$TESTING" = 1 ] && return 0
+    curl -fsS -m 4 "$ms/printer/info" >/dev/null 2>&1 || { echo "Moonraker did not answer: no console or printer state in this bundle" > "$b/printer-state.txt"; return 0; }
+    curl -fsS -m 8 "$ms/server/gcode_store?count=300" 2>/dev/null | python3 -c 'import sys,json,time
+for x in json.load(sys.stdin)["result"]["gcode_store"]: print(time.strftime("%H:%M:%S", time.localtime(x.get("time", 0))), str(x.get("type", ""))[:4], x.get("message", ""))' 2>/dev/null | scrub > "$b/logs/console-last-300.txt"
+    {
+        curl -fsS -m 8 "$ms/printer/info" 2>/dev/null | python3 -c 'import sys,json
+r = json.load(sys.stdin)["result"]; print("Klipper:", r.get("state"), "-", " ".join(str(r.get("state_message", "")).split())[:400]); print("Klipper version:", r.get("software_version"))' 2>/dev/null
+        curl -fsS -m 10 "$ms/printer/objects/query?configfile&print_stats&idle_timeout&toolhead&ace&ace_instance_0&heater_bed&extruder" 2>/dev/null | python3 -c 'import sys,json
+r = json.load(sys.stdin)["result"]["status"]
+print("config warnings:", r.get("configfile", {}).get("warnings"))
+for k in ("print_stats", "idle_timeout", "heater_bed", "extruder"): print(k + ":", {a: b for a, b in r.get(k, {}).items() if a in ("state", "filename", "message", "total_duration", "target", "temperature")})
+print("toolhead:", {a: b for a, b in r.get("toolhead", {}).items() if a in ("homed_axes", "position", "extruder")})
+a = r.get("ace", {}); print("ace:", {x: y for x, y in a.items() if x in ("ace_instances", "current_index", "endless_spool_enabled", "toolchange_in_progress", "tool_map")})
+i = r.get("ace_instance_0", {}); print("ace instance 0:", {x: y for x, y in i.items() if x in ("status", "model", "firmware", "dryer_status", "feed_assist_slot", "protocol")})
+for sl in i.get("slots", []): print("  slot:", sl)' 2>/dev/null
+    } | scrub > "$b/printer-state.txt"
+}
 do_support_bundle() {
     print_header "Support bundle"
     progress_bar 0 4 "Bundle 1 of 4: system report"
@@ -3027,7 +3148,7 @@ do_support_bundle() {
         echo "computer: $(pi_model_line)"; uname -a; [ -r /etc/os-release ] && grep PRETTY /etc/os-release
         echo "python3: $(python3 --version 2>&1)"; [ -x "$HOME_DIR/klippy-env/bin/python" ] && echo "klippy-env: $("$HOME_DIR/klippy-env/bin/python" --version 2>&1)"
         echo "power flags: $(power_flags)"; df -h "$HOME_DIR" | tail -1; free -m | sed -n 2p
-        echo "--- services"; local s; for s in klipper moonraker nginx crowsnest; do printf '%-10s active=%s enabled=%s\n' $s "$(service_state $s)" "$(service_enabled $s)"; done
+        echo "--- services"; local s; for s in klipper moonraker nginx crowsnest wm-log-digest wm-blackbox wm-wifi-watchdog; do printf '%-16s active=%s enabled=%s\n' $s "$(service_state $s)" "$(service_enabled $s)"; done
         echo "--- usb"; lsusb 2>/dev/null
         echo "--- usb tree (hubs and what hangs on them)"; lsusb -t 2>/dev/null
         echo "--- serial ports in /dev (an ACE Pro should show as ttyACM*)"; ls -l /dev/ttyACM* /dev/ttyUSB* /dev/serial/by-id/* 2>&1 | head -20
@@ -3048,10 +3169,21 @@ do_support_bundle() {
     local lf; lf="$(ls -1t "$LOG_DIR"/installer-*.log 2>/dev/null | head -n1)"; [ -n "$lf" ] && scrub < "$lf" > "$b/logs/last-installer-run.log"
     for f in klippy moonraker crowsnest; do [ -f "$HOME_DIR/printer_data/logs/$f.log" ] && tail -n 400 "$HOME_DIR/printer_data/logs/$f.log" | scrub > "$b/logs/$f.log"; done
     for s in klipper moonraker nginx crowsnest; do (journalctl -u $s -n 120 --no-pager 2>/dev/null || sudo -n journalctl -u $s -n 120 --no-pager 2>/dev/null) | scrub > "$b/logs/journal-$s.txt"; done
+    bundle_extra_logs "$b"
     cat > "$b/README.txt" <<E
 This bundle was made by ./installer.sh --support-bundle. Passwords, tokens, keys, Wi-Fi names, private IP and MAC addresses
 were removed from the text files. Gcode files, calibration databases and backups are NOT included.
 Please look through it before sharing.
+
+Where to look first (logs/):
+  wm-events.log        one line per event: Klipper starts, config and macro errors, failed tool changes, load / unload steps, prints
+  wm-config-check.log  the config check after the last Klipper start (missing includes, doubled sections, unsupported tags ...)
+  wm-ace.log           the ACE Pro: its driver lines, console messages and when its USB port appeared or disappeared
+  wm-blackbox.log      the Pi every 10 s: power flags, temperature, load, kernel USB messages (an UNCLEAN stop line marks a crash)
+  klippy-real.log      the last klippy.log lines WITHOUT the config copy and the Stats lines
+  console-last-300.txt the last 300 console lines, as seen in Fluidd
+  ../printer-state.txt Klipper state, print state, config warnings, ACE status
+  ../files-and-versions.txt  date, size and checksum of every config file, program versions
 E
     progress_bar 3 4 "Bundle 4 of 4: packing the file"
     tar czf "$out" -C "$w" wm-support; rm -rf "$w"; chmod 600 "$out"
@@ -3115,6 +3247,8 @@ uninstall_system_files() {
     [ -f /etc/systemd/system/wm-pi-update.path ] && { SUDO systemctl stop wm-pi-update.path; SUDO systemctl disable wm-pi-update.path; }   # Fluidd's Update button helper
     [ -f /etc/systemd/system/wm-panel-update.path ] && { SUDO systemctl stop wm-panel-update.path; SUDO systemctl disable wm-panel-update.path; }   # the same for the Fluidd panel
     [ -f /etc/systemd/system/wm-wifi-watchdog.service ] && { SUDO systemctl stop wm-wifi-watchdog; SUDO systemctl disable wm-wifi-watchdog; }   # the Wi-Fi watchdog (Wi-Fi power saving stays off: a NetworkManager setting of your connection)
+    [ -f /etc/systemd/system/wm-log-digest.service ] && { SUDO systemctl stop wm-log-digest; SUDO systemctl disable wm-log-digest; }   # the troubleshooting logs (the log files stay)
+    [ -f /etc/systemd/system/wm-blackbox.service ] && { SUDO systemctl stop wm-blackbox; SUDO systemctl disable wm-blackbox; }   # the black box (its log in /var/log/wm-blackbox stays)
     local k v
     while read -r k v; do
         case "$k" in
@@ -3136,7 +3270,7 @@ uninstall_system_files() {
 # ============================================================================
 cleanup_name() {
     case "$1" in
-        backups) echo "settings backups (~/wm-backups)" ;; bundles) echo "support bundles (~/wm-support-*.tgz)" ;; logs) echo "installer logs (~/wm-install-logs)" ;;
+        backups) echo "settings backups (~/ultra-backup/settings)" ;; bundles) echo "support bundles (~/wm-support-*.tgz)" ;; logs) echo "installer logs (~/wm-install-logs)" ;;
         stage) echo "software copied from the old board (~/wm-stage)" ;; moved) echo "folders moved aside by installs" ;; fluiddcopies) echo "old Fluidd copies" ;;
         cfgcopies) echo "config safety copies (*.wm-*)" ;; downloads) echo "add-on download copies" ;; records) echo "installer records (~/wm-rpi-backup)" ;; *) echo "$1" ;;
     esac
@@ -3144,7 +3278,7 @@ cleanup_name() {
 cleanup_paths() {   # group -> the paths that exist (one per line)
     local cfgd d; cfgd="$(cfg_dir)"
     case "$1" in
-        backups) [ -d "$HOME_DIR/wm-backups" ] && echo "$HOME_DIR/wm-backups" ;;
+        backups) [ -d "$WMB" ] && echo "$WMB" ;;
         bundles) ls -1d "$HOME_DIR"/wm-support-*.tgz 2>/dev/null ;;
         logs)    [ -d "$LOG_DIR" ] && echo "$LOG_DIR" ;;
         stage)   [ -d "$HOME_DIR/wm-stage" ] && echo "$HOME_DIR/wm-stage" ;;
@@ -3160,7 +3294,7 @@ cleanup_paths() {   # group -> the paths that exist (one per line)
 }
 do_cleanup() {   # a page of installer-made files you can delete; your printer data is never in it
     local groups=(backups bundles logs stage moved fluiddcopies cfgcopies downloads records repo) g n paths sz cnt word
-    declare -A label=([backups]="Settings backups (~/wm-backups)" [bundles]="Support bundles (~/wm-support-*.tgz)" [logs]="Installer logs (~/wm-install-logs)" [stage]="Software copied from the old board (~/wm-stage)" [moved]="Folders moved aside by installs" [fluiddcopies]="Old Fluidd copies" [cfgcopies]="Config safety copies (*.wm-*)" [downloads]="Add-on download copies" [records]="Installer records (~/wm-rpi-backup)" [repo]="The installer folder itself")
+    declare -A label=([backups]="Settings backups (~/ultra-backup/settings)" [bundles]="Support bundles (~/wm-support-*.tgz)" [logs]="Installer logs (~/wm-install-logs)" [stage]="Software copied from the old board (~/wm-stage)" [moved]="Folders moved aside by installs" [fluiddcopies]="Old Fluidd copies" [cfgcopies]="Config safety copies (*.wm-*)" [downloads]="Add-on download copies" [records]="Installer records (~/wm-rpi-backup)" [repo]="The installer folder itself")
     declare -A help=([backups]="backup .tgz files and safety copies made before restores" [bundles]="logs bundles made for help requests" [logs]="the log of each run that changed something" [stage]="the copy of klipper, moonraker and data an install made from the old board; pull it again if you need it" [moved]="old klipper, moonraker, printer_data folders in ~/wm-rpi-backup/old-*" [fluiddcopies]="Fluidd saved before each panel update" [cfgcopies]="files like printer.cfg.wm-model-bak in your config folder" [downloads]="panel download cache, add-on sources that are not installed" [records]="saved answers and install record; after this the installer no longer knows what is installed" [repo]="$REPO_DIR (this script)")
     while true; do
         echo; echo "  Clean up installer files"; echo "  Files made by or for this installer. Your printer data (~/printer_data) is never in this list."
@@ -3361,14 +3495,14 @@ PY
         data)
             [ -d "$HOME_DIR/printer_data" ] || [ -d "$HOME_DIR/TM_T1" ] || { print_info "There is no ~/printer_data."; return 0; }
             echo "  This DELETES ~/printer_data and ~/TM_T1 (WonderMaker's factory settings): printer.cfg and all your config, calibration, the Moonraker database (history and settings), gcode files and logs."
-            echo "  A backup of your config and database is saved first in ~/wm-backups."
+            echo "  A backup of your config and database is saved first in ~/ultra-backup/settings."
             ask_yn "Delete my printer data?" n || { echo "Nothing changed."; return 0; }
             local word; read -r -p "  Type DELETE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = DELETE ] || { echo "Nothing changed."; return 0; }
-            ARG1="$HOME_DIR/wm-backups"; do_backup >/dev/null
+            ARG1="$WMB"; do_backup >/dev/null
             SUDO systemctl stop klipper; SUDO systemctl stop moonraker
             rm_path "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1"
-            print_success "Printer data deleted. The backup is in ~/wm-backups (newest file): copy it off the Pi." ;;
+            print_success "Printer data deleted. The backup is in ~/ultra-backup/settings (newest file): copy it off the Pi." ;;
         cleanup) do_cleanup ;;
         system)
             [ -f "$STATE" ] || { print_info "Nothing recorded to remove."; return 0; }
@@ -3565,7 +3699,7 @@ menu_fix() {
 menu_backup() {
     while true; do
         echo; echo "  Backup and restore"
-        menu_item 1 "Back up my settings" "Saves config, calibration and database to ~/wm-backups (copy it off the Pi)"
+        menu_item 1 "Back up my settings" "Saves config, calibration and database to ~/ultra-backup/settings (copy it off the Pi)"
         menu_item 2 "Restore a backup" "Pick one from the list; a safety copy is made first"
         menu_item 3 "Undo the last install" "Puts back the folders the installer moved aside"
         menu_item 0 "Back" ""
@@ -3580,7 +3714,7 @@ menu_backup() {
 }
 
 menu_restore() {   # shows where the backups are kept and lets you choose one by number
-    local dir="$HOME_DIR/wm-backups" files=() f n i extra
+    local dir="$WMB" files=() f n i extra
     echo; echo "  Restore a backup"
     echo "  Backups made by this installer are kept in: $dir"
     mapfile -t files < <(ls -1t "$dir"/wm-backup-*.tgz 2>/dev/null)
@@ -3665,7 +3799,7 @@ do_status() {   # read-only overview
     echo "  Add-ons:"
     local k; for k in screen network-manager webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere zr-tools; do printf '    %-18s %s\n' "$k" "$(addon_status "$k")"; done
     echo
-    local last; last="$(ls -1t "$HOME_DIR"/wm-backups/*.tgz 2>/dev/null | head -1)"
+    local last; last="$(ls -1t "$WMB"/*.tgz 2>/dev/null | head -1)"
     echo "  Newest backup: ${last:-none yet (./installer.sh --backup)}"
     last="$(ls -1t "$LOG_DIR"/installer-*.log 2>/dev/null | head -1)"
     echo "  Newest installer log: ${last:-none}"
@@ -3804,6 +3938,8 @@ case "$MODE" in
     hwtest)     do_hw_test; exit 0 ;;
     zrtools)    do_zr_tools; exit $? ;;
     pisensors)  guard_not_printing; step_pi_sensors; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
+    ultrabackup) step_ultrabackup; python3 -I "$(ultrabackup_dst)" status --home "$HOME_DIR" 2>/dev/null; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
+    logs)       step_logs; step_blackbox; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     wifi)       step_wifi; [ -n "$(wifi_dev)" ] || print_info "The Pi's network is not Wi-Fi: nothing to do."; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     rpicfg)     do_rpicfg; exit $? ;;
     light)      do_light; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
@@ -3851,9 +3987,10 @@ rpi_names_migrate
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_wifi; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
+step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_fluidd_categories
+step_ultrabackup   # last, after the panel and the add-ons, which write backups of their own
 restart_klipper_after
 self_test
 pi_sensors_in_flow

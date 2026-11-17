@@ -177,12 +177,12 @@ class WeighEndstopWrapper:
         self._calibration = calibration
         self._z_offset = config.getfloat('z offset', 0.)
         
-        # 为每个MCU创建独立的TriggerDispatch实例
+        # one TriggerDispatch instance of its own for every MCU
         self._dispatch1 = mcu.TriggerDispatch(self._sensor_helper.mcu)
         logging.info("ENDSTOPS:dispatch1: %s" % self._dispatch1)
         logging.info("ENDSTOPS:sensor_helper.mcu: %s" % self._sensor_helper.mcu)
 
-        # 检查并初始化第二个MCU
+        # check for and set up the second MCU
         if hasattr(self._sensor_helper, 'mcu2') and self._sensor_helper.mcu2 is not None:
             self._dispatch2 = mcu.TriggerDispatch(self._sensor_helper.mcu2)
             logging.info("ENDSTOPS:dispatch2: %s" % self._dispatch2)
@@ -191,7 +191,7 @@ class WeighEndstopWrapper:
             self._dispatch2 = None
             logging.info("ENDSTOPS:No second MCU available")
 
-        # 检查并初始化第三个MCU
+        # check for and set up the third MCU
         if hasattr(self._sensor_helper, 'mcu3') and self._sensor_helper.mcu3 is not None:
             self._dispatch3 = mcu.TriggerDispatch(self._sensor_helper.mcu3)
             logging.info("ENDSTOPS:dispatch3: %s" % self._dispatch3)
@@ -200,7 +200,7 @@ class WeighEndstopWrapper:
             self._dispatch3 = None
             logging.info("ENDSTOPS:No third MCU available")
 
-        # 检查并初始化第四个MCU
+        # check for and set up the fourth MCU
         if hasattr(self._sensor_helper, 'mcu4') and self._sensor_helper.mcu4 is not None:
             self._dispatch4 = mcu.TriggerDispatch(self._sensor_helper.mcu4)
             logging.info("ENDSTOPS:dispatch4: %s" % self._dispatch4)
@@ -208,7 +208,7 @@ class WeighEndstopWrapper:
         else:
             self._dispatch4 = None
             logging.info("ENDSTOPS:No fourth MCU available")
-        # 检查并初始化第五个MCU
+        # check for and set up the fifth MCU
         if hasattr(self._sensor_helper, 'mcu5') and self._sensor_helper.mcu5 is not None:
             self._dispatch5 = mcu.TriggerDispatch(self._sensor_helper.mcu5)
             logging.info("ENDSTOPS:dispatch5: %s" % self._dispatch5)
@@ -216,7 +216,7 @@ class WeighEndstopWrapper:
         else:
             self._dispatch5 = None
             logging.info("ENDSTOPS:No fifth MCU available")
-        # 检查并初始化第六个MCU
+        # check for and set up the sixth MCU
         if hasattr(self._sensor_helper, 'mcu6') and self._sensor_helper.mcu6 is not None:
             self._dispatch6 = mcu.TriggerDispatch(self._sensor_helper.mcu6)
             logging.info("ENDSTOPS:dispatch6: %s" % self._dispatch6)
@@ -227,12 +227,12 @@ class WeighEndstopWrapper:
 
         self._trigger_time = 0.
 
-        # z加速度配置
+        # Z acceleration setting
         self.gcode = self._printer.lookup_object('gcode')
         self.probe_accel = config.getfloat('probe_accel', 0., minval=0.)
 
-        # 这里是影响传感器采样的频率，为什么设置这个值，是因为用逻辑分析仪
-        # 补抓可以针对传感器完整采样
+        # this sets how often the sensor is sampled; the value was chosen because a logic analyser
+        # capture showed that the sensor is sampled completely with it
         self.freq_clock = .00005    
         self._gather = None
 
@@ -268,7 +268,7 @@ class WeighEndstopWrapper:
             return self._dispatch1
 
     def add_stepper(self, stepper):
-        # 为所有存在的dispatch添加stepper
+        # add the stepper to every dispatch that exists
         self._dispatch1.add_stepper(stepper)
         if self._dispatch2 is not None:
             self._dispatch2.add_stepper(stepper)
@@ -282,7 +282,7 @@ class WeighEndstopWrapper:
             self._dispatch6.add_stepper(stepper)
 
     def get_steppers(self):
-        # 返回当前dispatch的steppers
+        # return the steppers of the current dispatch
         return self._get_current_dispatch().get_steppers()
 
     def home_start(self, print_time, sample_time, sample_count, rest_time,
@@ -326,7 +326,7 @@ class WeighEndstopWrapper:
     def query_endstop(self, print_time):
         return False  # xxx
     def probing_move(self, pos, speed):
-        # 检查传感器是否正常/配置是否正确
+        # check that the sensor works and is configured correctly
         # self.home_check()
         phoming = self._printer.lookup_object('homing')
         return phoming.probing_move(self, pos, speed)

@@ -16,7 +16,7 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     svars = {'thr_number': 4, 'current_extruder': 0, 'fail_flag': 0, 'fail_tool': 99, 'is_nozzle_setting': 0}; svars.update(sv or {})
     printer = {'save_variables': {'variables': svars},
                'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': 'xyz'},
-               'configfile': {'settings': {h: {'control': control} for h in (HEAT[:5] + (HEAT[5:] if chamber else []))}}}
+               'configfile': {'settings': dict({'bed_mesh': {'probe_count': [9, 9]}}, **{h: {'control': control} for h in (HEAT[:5] + (HEAT[5:] if chamber else []))})}}
     for h in HEAT: printer[h] = {'target': (target or {}).get(h, 0.0), 'temperature': (temps or {}).get(h, 25.0)}
     cs = printer['configfile']['settings']
     for i, h in enumerate(HEAT[1:5]): cs[h]['nozzle_diameter'] = 0.4
@@ -24,6 +24,13 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     if shell: cs['gcode_shell_command wm_nozzle'] = {}
     if canids: cs['gcode_shell_command wm_canids'] = {}
     for i in range(4): cs['mcu t%d' % i] = {'canbus_uuid': (ids or ['ac8b57e80210', 'ac80ddd6ebe5', 'ac4068351d2c', 'ac6290884b96'])[i]}
+    for mm in [m_ for m_ in re.finditer(r'^\[gcode_macro (\S+)\]\n((?:(?!\[).*\n)*)', text, re.M) if m_.group(1) == name]:   # only the macro that runs: other macros must stay absent from the printer object
+        #\n((?:(?!\[).*\n)*)', text, re.M):   # the variable_ lines of every macro (the real macros keep their settings there)
+        vs = {}
+        for vl in re.finditer(r'^variable_(\w+):\s*([^#\n]*?)\s*(?:#.*)?$', mm.group(2), re.M):
+            try: vs[vl.group(1)] = eval(vl.group(2), {}, {})
+            except Exception: vs[vl.group(1)] = vl.group(2)
+        printer.setdefault('gcode_macro ' + mm.group(1), {}).update(vs)
     printer['gcode_macro _WM_MATCH_STATE'] = {'actual': [0, 1, 2, 3] if actual is None else actual, 'full': full}
     for i in range(4):
         cs['filament_switch_sensor docked%d' % i] = {}
@@ -33,7 +40,7 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     def raise_(m): raise Raise(m)
     info = []
     def respond_info(m): info.append(m); return ''
-    try: out = env.from_string(macros[name]).render(printer=printer, params=params or {}, action_raise_error=raise_, action_respond_info=respond_info)
+    try: out = env.from_string(macros[name]).render(printer=printer, params=params or {}, action_raise_error=raise_, action_respond_info=respond_info, **printer.get('gcode_macro ' + name, {}))
     except Raise as e: return ["INFO: " + x for x in info] + ["RAISE: " + str(e)]
     return [l.strip() for l in out.splitlines() if l.strip()]
 bad = []
@@ -152,6 +159,7 @@ for group, gname in ((ZO, "rpi_zoffset.cfg"), (UN, "rpi_unload.cfg"), (SA, "rpi_
         for line in body.splitlines():
             if "RESPOND" in line and 'MSG="' in line and "prompt_" not in line:
                 msg = line.split('MSG="', 1)[1]
+                msg = re.sub(r'\{[^{}]*\}', '', msg)   # what is inside { } is an expression, computed before the line is sent
                 if any(c in msg for c in ";#*"): bad.append("%s %s: a ; # or * inside a RESPOND message: %s" % (gname, n, line.strip()))
 want("window buttons close the screen window first", run("_WM_SAVE"), "action:prompt_end", "SAVE_CONFIG")
 want("cancel closes the window and says so", run("_WM_PROMPT_CLOSE", params={"MSG": "Cancelled"}), "action:prompt_end", "M118 Cancelled")

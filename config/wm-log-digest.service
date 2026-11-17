@@ -1,0 +1,14 @@
+[Unit]
+Description=WonderMaker log digest: wm-events.log, wm-config-check.log, wm-ace.log and wm-blackbox.log in the Fluidd logs folder
+After=network.target moonraker.service
+
+[Service]
+Type=simple
+User=t13dp
+ExecStart=/usr/bin/python3 /home/t13dp/printer_data/scripts/wm_log_digest.py
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

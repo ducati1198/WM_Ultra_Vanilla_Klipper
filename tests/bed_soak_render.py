@@ -1,9 +1,9 @@
-"""Renders the bed warp wait of rpi-cfg/rpi_bed_soak.cfg (Klipper-style jinja2, mock printer) and checks its rules.
+"""Renders the bed warp wait of rpi-cfg/rpi_base.cfg (Klipper-style jinja2, mock printer) and checks its rules.
 Run: python3 -I tests/bed_soak_render.py"""
 import os, re, sys
 import jinja2
 
-P = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rpi-cfg", "rpi_bed_soak.cfg")
+P = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rpi-cfg", "rpi_base.cfg")
 macros, cur, body = {}, None, None
 for line in open(P, encoding="utf-8"):
     m = re.match(r"^\[(gcode_macro|delayed_gcode)\s+(\S+)\]", line)

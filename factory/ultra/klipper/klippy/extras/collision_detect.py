@@ -12,7 +12,7 @@ class CollisionDetect:
         self.gcode = self.printer.lookup_object('gcode')
         self.reactor = self.printer.get_reactor()
         
-        # 配置参数 (单位: m/s²)
+        # settings (unit: m/s²)
         self.threshold = config.getfloat('threshold', default=15.0, above=0.0)
         self.window_size = config.getint('window_size', default=2, minval=1)
         self.warmup_time = config.getfloat('warmup_time', default=0.2, minval=0.0)
@@ -20,17 +20,17 @@ class CollisionDetect:
         self.action = config.get('action', default='shutdown').lower()
         self.sensor_name = config.get('sensor', default='lis2dw')
         
-        # 硬件与底层
+        # hardware and low level
         self.sensor_obj = None
         self.batch_bulk = None
         
-        # 运行状态
+        # run state
         self.is_monitoring = False
         self.is_debugging = False
         self.debug_end_time = 0.0
         self.debug_timer = None
         
-        # 算法与统计变量
+        # algorithm and statistics variables
         self.debug_peak = 0.0
         self.sample_counter = 0
         self.debug_samples = []
@@ -40,7 +40,7 @@ class CollisionDetect:
         self.start_time = 0.0
         self.is_handling_trigger = False
         
-        # 注册 G-Code 命令
+        # register the G-code commands
         self.gcode.register_command("COLLISION_DETECT_ENABLE", self.cmd_ENABLE)
         self.gcode.register_command("COLLISION_DETECT_DISABLE", self.cmd_DISABLE)
         self.gcode.register_command("SET_COLLISION_THRESHOLD", self.cmd_SET_THRESHOLD)
@@ -59,7 +59,7 @@ class CollisionDetect:
                     break
         
         if self.sensor_obj is None:
-            raise self.printer.config_error(f"[collision_detect] 未能定位到传感器: {self.sensor_name}")
+            raise self.printer.config_error(f"[collision_detect] sensor not found: {self.sensor_name}")
 
         if hasattr(self.sensor_obj, 'batch_bulk'):
             self.batch_bulk = self.sensor_obj.batch_bulk
@@ -67,14 +67,14 @@ class CollisionDetect:
             self.batch_bulk = self.sensor_obj.sensor.batch_bulk
             
         if self.batch_bulk is None:
-            raise self.printer.config_error(f"[collision_detect] 传感器未找到 batch_bulk 控制器")
+            raise self.printer.config_error(f"[collision_detect] the sensor has no batch_bulk controller")
 
         self.cmd_disable()
 
-    # 批处理核心回调函数
+    # main callback of the batch processing
     def _handle_sensor_batch(self, msg):
         if not self.is_monitoring:
-            # 告知 BatchBulkHelper 客户端已注销
+            # tell BatchBulkHelper that the client has signed off
             return False
 
         if self.is_handling_trigger:
@@ -88,15 +88,15 @@ class CollisionDetect:
 
         for pt in samples:
             self.sample_counter += 1
-            # 原始数据为 mm/s²，转换为 m/s² (1G ≈ 9.80665)
+            # raw data is in mm/s², convert to m/s² (1 G ≈ 9.80665)
             x = pt[1] / 1000.0
             y = pt[2] / 1000.0
             z = pt[3] / 1000.0
             
-            # 计算加速度合模长
+            # magnitude of the acceleration
             curr_mag = math.sqrt(x*x + y*y + z*z)
 
-            # 计算高频一阶差分 (冲击量 Jerk)
+            # first difference at high rate (impact, jerk)
             if self.prev_mag is None:
                 self.prev_mag = curr_mag
                 impact = 0.0
@@ -107,7 +107,7 @@ class CollisionDetect:
             if self.is_debugging:
                 if impact > self.debug_peak:
                     self.debug_peak = impact
-                # 记录 Top 样本
+                # keep the top samples
                 if len(self.debug_samples) < 300:
                     self.debug_samples.append((self.sample_counter, x, y, z, curr_mag, impact))
                 elif impact > (self.debug_peak * 0.5):
@@ -115,11 +115,11 @@ class CollisionDetect:
                     self.debug_samples.append((self.sample_counter, x, y, z, curr_mag, impact))
                 continue
 
-            # 启动热身滤波
+            # warm-up filter at the start
             if (curtime - self.start_time) < self.warmup_time:
                 continue
 
-            # 碰撞与堵转判定
+            # collision and stall decision
             if impact >= self.threshold:
                 self.consecutive_hits += 1
                 if self.consecutive_hits >= self.window_size:
@@ -130,7 +130,7 @@ class CollisionDetect:
             else:
                 self.consecutive_hits = 0
 
-        # 核心保证：显式返回 True 保持客户端连接
+        # important: return True explicitly to keep the client connected
         return True
 
     def _debug_timer_tick(self, eventtime):
@@ -150,11 +150,11 @@ class CollisionDetect:
         self.last_trigger_time = curtime
         self.cmd_disable()
         
-        msg = f"检测到异常碰撞/堵转冲击: {peak_val:.2f} m/s² ({peak_val/9.80665:.2f} G), 设定阈值: {self.threshold:.2f} m/s²"
+        msg = f"Abnormal collision / stall impact detected: {peak_val:.2f} m/s² ({peak_val/9.80665:.2f} G), set threshold: {self.threshold:.2f} m/s²"
         logging.error(f"[CollisionDetect] {msg}")
 
         if self.action == 'pause':
-            self.gcode.respond_raw(f"!! 碰撞拦截: {msg}，暂停打印...")
+            self.gcode.respond_raw(f"!! Collision stopped: {msg}, pausing the print...")
             pause_cmd = self.printer.lookup_object('pause_resume', None)
             if pause_cmd is not None:
                 pause_cmd.send_pause_command()
@@ -164,9 +164,9 @@ class CollisionDetect:
         else:
             self.printer.invoke_shutdown(
                 f"\n{'='*50}\n"
-                f"!! [碰撞急停已触发] !!\n"
+                f"!! [Collision emergency stop triggered] !!\n"
                 f"{msg}\n"
-                f"已中断动作并保护机械结构！\n"
+                f"Movement interrupted to protect the mechanics!\n"
                 f"{'='*50}"
             )
 
@@ -182,7 +182,7 @@ class CollisionDetect:
         self.is_handling_trigger = False
         self.is_monitoring = True
         
-        # 注册回调，自动触发 batch_bulk._start()
+        # register the callback, this starts batch_bulk._start() by itself
         if self.batch_bulk is not None:
             self.batch_bulk.add_client(self._handle_sensor_batch)
 
@@ -205,11 +205,11 @@ class CollisionDetect:
 
     def cmd_ENABLE(self, gcmd):
         self.cmd_enable()
-        gcmd.respond_info(f"碰撞检测已启用 (阈值: {self.threshold:.2f} m/s²)")
+        gcmd.respond_info(f"Collision detection enabled (threshold: {self.threshold:.2f} m/s²)")
 
     def cmd_DISABLE(self, gcmd):
         self.cmd_disable()
-        gcmd.respond_info("碰撞检测已禁用")
+        gcmd.respond_info("Collision detection disabled")
 
     def cmd_SET_THRESHOLD(self, gcmd):
         threshold = gcmd.get_float('THRESHOLD', None)
@@ -217,13 +217,13 @@ class CollisionDetect:
         action = gcmd.get('ACTION', None)
         if threshold is not None:
             self.threshold = float(threshold)
-            gcmd.respond_info(f"碰撞阈值已设为: {self.threshold:.2f} m/s² ({self.threshold/9.80665:.2f} G)")
+            gcmd.respond_info(f"Collision threshold set to: {self.threshold:.2f} m/s² ({self.threshold/9.80665:.2f} G)")
         if window is not None:
             self.window_size = int(window)
-            gcmd.respond_info(f"连续触发窗口已设为: {self.window_size}")
+            gcmd.respond_info(f"Consecutive trigger window set to: {self.window_size}")
         if action is not None:
             self.action = action.lower()
-            gcmd.respond_info(f"触发动作已设为: {self.action}")
+            gcmd.respond_info(f"Trigger action set to: {self.action}")
 
     def cmd_DEBUG(self, gcmd):
         seconds = gcmd.get_float('SECONDS', 5.0)
@@ -237,7 +237,7 @@ class CollisionDetect:
         self.debug_timer = self.reactor.register_timer(
             self._debug_timer_tick, self.reactor.monotonic() + 0.1)
             
-        gcmd.respond_info(f">>> [高频标定开启] 持续 {seconds:.1f} 秒！请在此期间【持续晃动或敲击工具头】...")
+        gcmd.respond_info(f">>> [High-rate calibration on] for {seconds:.1f} s! Keep shaking or tapping the tool head during this time...")
 
     def cmd_CALIBRATE_START(self, gcmd):
         self.cmd_enable()
@@ -245,11 +245,11 @@ class CollisionDetect:
         self.debug_peak = 0.0
         self.sample_counter = 0
         self.debug_samples = []
-        gcmd.respond_info(">>> 开始高频数据捕获...")
+        gcmd.respond_info(">>> Starting the high-rate data capture...")
 
     def cmd_CALIBRATE_END(self, gcmd):
         if not self.is_debugging:
-            gcmd.respond_info("未处于标定模式")
+            gcmd.respond_info("Not in calibration mode")
             return
             
         final_peak = self.debug_peak
@@ -262,19 +262,19 @@ class CollisionDetect:
 
         gcmd.respond_info(
             f"\n{'='*48}\n"
-            f"[LIS2DW 标定报告] (单位: m/s²)\n"
-            f"• 5秒捕获高频点数: {count} 点\n"
-            f"• 捕获最大冲击 (Peak): {final_peak:.2f} m/s² ({final_peak/9.80665:.2f} G)\n"
-            f"• ★ 推荐安全碰撞阈值: {safe_threshold:.2f} m/s² ({safe_threshold/9.80665:.2f} G)\n"
-            f"  (建议在 printer.cfg 设置 threshold: {safe_threshold:.2f})\n"
+            f"[LIS2DW calibration report] (unit: m/s²)\n"
+            f"• High-rate points captured in 5 s: {count}\n"
+            f"• Largest impact captured (peak): {final_peak:.2f} m/s² ({final_peak/9.80665:.2f} G)\n"
+            f"• ★ Recommended safe collision threshold: {safe_threshold:.2f} m/s² ({safe_threshold/9.80665:.2f} G)\n"
+            f"  (suggested setting in printer.cfg, threshold: {safe_threshold:.2f})\n"
             f"{'='*48}"
         )
         
         if collected:
             sorted_samples = sorted(collected, key=lambda x: x[5], reverse=True)[:10]
-            lines = ["===== 最大冲击点 Top 10 ====="]
+            lines = ["===== Top 10 largest impacts ====="]
             for s_idx, x, y, z, mag, imp in sorted_samples:
-                lines.append(f"#{s_idx:05d} | X:{x:6.2f} Y:{y:6.2f} Z:{z:6.2f} | 模长:{mag:5.2f} -> 冲击:{imp:5.2f} m/s²")
+                lines.append(f"#{s_idx:05d} | X:{x:6.2f} Y:{y:6.2f} Z:{z:6.2f} | magnitude:{mag:5.2f} -> impact:{imp:5.2f} m/s²")
             gcmd.respond_info("\n".join(lines))
 
 def load_config(config):

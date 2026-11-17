@@ -154,8 +154,28 @@ class Panel(ScreenPanel):
     def send(self, widget, gcode):
         self._screen._send_action(widget, "printer.gcode.script", {"script": gcode})
 
+    # ---- KlipperScreen shows every macro message ("echo:") as a green bar over the top of the screen, and the first
+    # tap there only closes the bar (B-051). While this page is open a green message goes into the page's own info
+    # text instead; red error messages stay as they are.
+    def wm_echo(self, text):
+        self.note = text if len(text) <= 110 else text[:107] + "..."
+        GLib.timeout_add(40, self.wm_close_echo)
+
+    def wm_close_echo(self):
+        scr = self._screen
+        try:
+            pop = getattr(scr, "popup_message", None)
+            if pop is not None and scr._cur_panels and scr._cur_panels[-1] == "wm_setter":
+                child = pop.get_child()
+                if child is not None and child.get_style_context().has_class("message_popup_echo"):
+                    scr.close_popup_message()
+        except Exception:
+            logging.exception("WM page: message bar")
+        return False
+
     def activate(self):
         self.wm_refresh(getattr(self._screen, "wm_setter_data", ""))
+        GLib.timeout_add(40, self.wm_close_echo)
 
     def process_update(self, action, data):
         try:
@@ -165,6 +185,9 @@ class Panel(ScreenPanel):
                         self._screen._menu_go_back()
                 elif "refused" in data and "Tool setter position" in data:
                     self.note = "Step refused: outside the limits (10 mm from saved X and Y, 3 mm under saved Z)"
+                    self.show_info()
+                elif data.startswith("echo: "):
+                    self.wm_echo(data[6:])
                     self.show_info()
             elif action == "notify_status_update" and "gcode_move" in data:
                 p = data["gcode_move"].get("gcode_position")

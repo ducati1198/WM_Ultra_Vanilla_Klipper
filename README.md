@@ -83,7 +83,7 @@ Run these in `~/WM_Ultra_Vanilla_Klipper` on the Pi.
 | **Update** to the latest version | `./installer.sh --get-latest && ./installer.sh --update` (works with or without git) | Kept: `printer_data`, calibration, settings |
 | Take a **new WonderMaker System release** (from their website, no screen board) | `python3 tools/wm-release/wm_release.py` then **1** → `web` | Plan first; your changes kept; backup before you type `APPLY`. See [Tools](#tools-new-wondermaker-releases-toolswm-release) |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
-| **Back up** my settings | `./installer.sh --backup` | Saved to `~/wm-backups/` as a private `.tgz`. Copy it off the Pi. |
+| **Back up** my settings | `./installer.sh --backup` | Saved to `~/ultra-backup/settings/` as a private `.tgz`. Copy it off the Pi. |
 | **Restore** a backup | `./installer.sh --restore FILE` | A safety copy is made first |
 | **Undo** the last install | `./installer.sh --undo` | Folders the installer moved aside come back (`~/wm-rpi-backup/`) |
 | **Uninstall** | `./installer.sh --uninstall` | Removes the services, nginx files and can0 rule it added. Your folders in `~` stay. |
@@ -124,7 +124,8 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 | Fluidd and SSH lost the printer, but the printer itself seems fine (on Wi-Fi) | The Pi's Wi-Fi can hang while the Pi keeps running. Wait about 3 minutes: the Wi-Fi watchdog restarts the Wi-Fi by itself. Still gone: switch the Pi off and on. See [Troubleshooting](#9-troubleshooting). |
 | Touchscreen stays on "Connecting to ..." after the Pi was gone | Since 2.13.0 it tries again by itself every 30 seconds until the Pi answers. On an older screen board version: tap **Retry**, or update the board. |
 | Not sure what is wrong | `./installer.sh --doctor`: it explains each problem and offers a fix. |
-| Asking someone for help | `./installer.sh --support-bundle` and send the `.tgz`. |
+| Asking someone for help | `./installer.sh --support-bundle` and send the `.tgz`. It holds the troubleshooting logs described in [Logs for troubleshooting](#logs-for-troubleshooting). |
+| Something happened and you want to see what | Fluidd > Configuration > Other Files > `wm-events.log` (one line per event), `wm-config-check.log` (config problems), `wm-ace.log` (ACE Pro). After a freeze or power dip: `wm-blackbox report` on the Pi, or `wm-blackbox.log` in the same Fluidd folder. |
 
 More in [Troubleshooting](#9-troubleshooting).
 
@@ -307,6 +308,8 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --pid-cfg` | checks that the PID settings of the hotends and the bed are in `printer.cfg`, where Klipper's `SAVE_CONFIG` can store a PID result, and fixes them. The chamber heater is left as `zru-s.cfg` has it (see `chamber_test/README.md`). A copy of every changed file is kept as `<file>.wm-before-pidcfg-<time>`. The install, `--update` and the Doctor do this too |
 | `./installer.sh --pi-sensors` | once Klipper is running: adds the chip temperature of every printer board and connects Klipper to the host MCU (`[mcu rpi]`, the Klipper-Mcu service). Klipper restarts; if it does not come back the change is undone. Details: [docs/HOST_MCU.md](docs/HOST_MCU.md). Also done at the end of an install and an update. |
 | `./installer.sh --wifi` | Pi on Wi-Fi with NetworkManager: turns Wi-Fi power saving off on the active connection and installs `wm-wifi-watchdog`, which restarts the Wi-Fi (then reloads the Wi-Fi driver) when the router stops answering. It never reboots the Pi and never touches Klipper. A Pi on a cable is left alone. Also done in every install and update; the doctor checks it. |
+| `./installer.sh --logs` | the troubleshooting logs and the black box: installs the small `wm-log-digest` service (it writes `wm-events.log`, `wm-config-check.log`, `wm-ace.log` and a copy of the black box into `~/printer_data/logs`, shown in Fluidd under Configuration > Other Files) and `wm-blackbox` (one line every 10 seconds about the Pi's power, temperature, load and USB messages, so a crash leaves a trace). Also done in every install and update; the doctor checks both. See [Logs for troubleshooting](#logs-for-troubleshooting) |
+| `./installer.sh --ultra-backup` | moves every backup into `~/ultra-backup`, sorted by type (`config`, `fluidd-page`, `fluidd-macros`, `settings`, `installer`, `drivers`, `other`), keeps the newest copy of each config file next to it, enforces the 400 MB limit and shows the sizes. Runs by itself at every install and update. |
 | `./installer.sh --light` | sets up the chamber light as the Moonraker power device `chamber_light` (the Fluidd card, the touchscreen buttons and `WM_CHAMBER_LIGHT` then always agree, and a print turns the light on at its start). Needs an installed screen board; an install and `--update` do it too |
 | `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_FIRST_RUN_CAL`, the Z offset tools `WM_FULL_OFFSET_CAL` and `WM_Z_TRIM_MENU`, the unload menu `WM_UNLOAD_MENU`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
@@ -318,7 +321,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --undo [DIR]` | puts back the folders the installer moved aside (latest by default) |
 | `./installer.sh --backup [DIR]` | saves config, calibration and database to a private `.tgz` (only when you run it) |
 | `./installer.sh --restore FILE` | restores such a backup after making a safety copy |
-| `./installer.sh --support-bundle` | scrubbed logs and config in one `.tgz` for asking for help (passwords, tokens, Wi-Fi, private IPs removed) |
+| `./installer.sh --support-bundle` | scrubbed logs and config in one `.tgz` for asking for help (passwords, tokens, Wi-Fi, private IPs removed). Holds the system report, config files, the new troubleshooting logs, the real klippy lines (without the config copy), the last 300 console lines, the Klipper and ACE state and a list of config files with date and checksum |
 | `./installer.sh --no-start` / `--force` | do not start Klipper at the end / ignore an active print |
 | `./installer.sh --disable-klipper` | stop Klipper and disable it |
 | `./installer.sh --uninstall` | remove what the installer added to the system |
@@ -515,17 +518,17 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
 - X and Y home at 80 mm/s (was 50). During a print `z_rise` does nothing (a print has its own Z clearance; it asked the endstops at every dock move, about 0.3 s each). The wait before the tool unlocks is 0.3 s (was 1 s), and the carriage backs off the dock at 12000 mm/min. Z speeds are unchanged (a faster Z tripped the Z stall detection).
 - `G28 X Z`, `G28 Y Z` and `G28 X Y Z` now home the axes named (before, they homed nothing).
 - **Idle timeout:** during a paused print only the nozzle heaters go off; the bed (keeps the part stuck), the chamber and the motors (keep the position, so RESUME still works) stay on. Outside a pause it turns off all heaters and the motors.
-- Since 2.10.0 these live in `rpi-cfg/rpi_homing.cfg` (printer.cfg keeps only the hardware settings and the `homing_speed`). A Pi that is already installed gets the file with the update; the printer.cfg merge (it asks first) takes the old sections out of `printer.cfg`, and the doctor reports them while both are there.
+- Since 2.10.0 these lived in `rpi-cfg/rpi_homing.cfg`; since 2.16.0 they are part of `rpi-cfg/rpi_base.cfg` (the old file is moved to `~/ultra-backup` by the update). printer.cfg keeps only the hardware settings and the `homing_speed`). A Pi that is already installed gets the file with the update; the printer.cfg merge (it asks first) takes the old sections out of `printer.cfg`, and the doctor reports them while both are there.
 
 ### 4.8 Bed warp wait before the bed mesh (2.11.0)
 
 When the bed heats, the plate keeps bending for a while after the thermistor reads the target. A mesh taken too early measures a shape the bed does not keep, and the first layer is uneven. Measured on a ZR Ultra-S at 60 C: the bed shape changes 0.024 to 0.046 mm, about 76 to 80 percent of it is done when the bed reaches the target, and nothing is measurable after about 6 minutes.
 
-- **The wait** (`rpi-cfg/rpi_bed_soak.cfg`, two lines in `START_PRINT`): after `M190`, before the wipe and the mesh, `START_PRINT` waits 2 s per degree of the target (110 s at 55 C, 120 s at 60 C), with a line every 15 s. A bed that was already warm waits only for the missing degrees; a bed at its target does not wait. Tested in a print on a ZR Ultra-S.
+- **The wait** (in `rpi-cfg/rpi_base.cfg` since 2.16.0, before that `rpi_bed_soak.cfg`; two lines in `START_PRINT`): after `M190`, before the wipe and the mesh, `START_PRINT` waits 2 s per degree of the target (110 s at 55 C, 120 s at 60 C), with a line every 15 s. A bed that was already warm waits only for the missing degrees; a bed at its target does not wait. Tested in a print on a ZR Ultra-S.
 - **On or off:** the switch `Bed_Warp_Stabilisation` (Fluidd Outputs, the Bed warp switch of the Toolheads card of the Fluidd panel, the Bed warp button on the touchscreen's ZR Tools page, `WM_BED_SOAK ENABLE=0|1`). On by default, kept after a restart.
 - **Measured waits:** `WM_BED_WARP_MEASURE [BED=60]` (window Start / Cancel; button "Measure Bed Warp") heats the bed and touches 5 spots every about 25 s for 20 to 25 minutes, then saves the wait for that bed temperature by itself (`wm_bed_soak_t60`). Prints at that temperature use it; other temperatures use the nearest measured one, scaled, never under 2 s per degree. `WM_BED_SOAK FORGET=1` forgets them. *The saving part is new and not yet run on a printer; the measurement itself was run twice.*
-- **Settings:** `_WM_BED_SOAK_PARAMS` at the top of `rpi_bed_soak.cfg` (multiplier, warm-bed fraction, message interval, ...), like `_START_END_PARAMS` on the Creality K1.
-- **Update from 2.10.0:** the file comes with the update; the two `START_PRINT` lines are added to WonderMaker's `macros.cfg` by the macro patch list (only while those lines are still the factory text). Without `rpi_bed_soak.cfg` the lines do nothing.
+- **Settings:** `_WM_BED_SOAK_PARAMS` at the top of its part in `rpi_base.cfg` (multiplier, warm-bed fraction, message interval, ...), like `_START_END_PARAMS` on the Creality K1.
+- **Update from 2.10.0:** the file comes with the update; the two `START_PRINT` lines are added to WonderMaker's `macros.cfg` by the macro patch list (only while those lines are still the factory text). Without the wait macros (an old Pi without `rpi_base.cfg`) the lines do nothing.
 
 ## 5. Fluidd (web panel and ZR Tools)
 
@@ -926,6 +929,37 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Pi gone from the network (no Fluidd, no SSH, ping fails) but the printer still runs | On a Pi on Wi-Fi the Wi-Fi chip can hang (seen on a Pi 400: `brcmfmac ... CMD53 sg block write failed -110` in the kernel log) while the Pi, Klipper and Moonraker keep running. The installer turns Wi-Fi power saving off and installs **wm-wifi-watchdog** (`./installer.sh --wifi`): every 30 s it pings the router; after 3 misses it turns the Wi-Fi off and on, 2 minutes later it reloads the Wi-Fi driver. It never reboots the Pi and never touches Klipper. So wait about 3 minutes before you power cycle. What it did: `journalctl -t wm-wifi-watchdog`. A network cable is the most reliable fix. |
 | Screen board: black or wrong screen | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` from SSH, or `--screen-driver fbdev` when installing. With no network: the rescue window (opens after 3 failed starts) or a USB stick with an empty file `WM-FACTORY` (section 7). |
 
+### Logs for troubleshooting
+
+`klippy.log` is mostly a copy of the whole config, written again at every Klipper start (about 9000 lines), so the real events are buried in it and the old days can be 100 to 260 MB. The installer therefore adds two small services. They only read; nothing in Klipper changes.
+
+| File in Fluidd > Configuration > Other Files | What it shows |
+|---|---|
+| `wm-events.log` | One line per event: Klipper starts, config errors, macro errors, MCU shutdowns, failed tool pickups, load, unload and purge steps, print start and end (with the tools used and the number of tool changes), commands typed by hand |
+| `wm-config-check.log` | The config check after every Klipper start: includes that are missing or listed twice, config below SAVE_CONFIG, a section defined twice, the Jinja tag `do` (this Klipper does not have it), `;` `#` `*` in RESPOND text, files nobody includes, Klipper's own warnings, the files changed in the last 24 hours |
+| `wm-ace.log` | The ACE Pro: its driver lines (without the RFID noise), the ACE messages and commands of the console, and when its USB port `/dev/ttyACM0` appears or disappears (a USB drop shows here) |
+| `wm-blackbox.log` | The last 3000 lines of the black box: every 10 seconds the Pi's power flags, temperature, core voltage, load, memory and whether Klipper and Moonraker run, plus kernel messages about USB, disk and power. The line `BOOT after an UNCLEAN stop` marks a crash or power loss. `wm-blackbox report` on the Pi prints the 25 lines before the last one |
+
+They cannot fill the disk: `wm-events.log` is rotated at 1 MB (two old files kept) and takes at most 120 lines a minute, `wm-ace.log` rotates at 500 KB (200 lines a minute), `wm-config-check.log` is rewritten each time (about 2 KB), the black box copy is the last 400 KB, and the black box itself rotates at 5 MB. The black box also keeps the system log on the disk (up to 200 MB, `/etc/systemd/journald.conf.d/50-wm-persistent.conf`) because the Raspberry Pi image keeps it in memory only. `./installer.sh --logs` installs or repairs both; `--doctor` checks them; `--uninstall` stops them and leaves the log files.
+
+### One folder for every backup
+
+Backups used to be spread over many folders: copies next to the config files (`rpi_base.cfg.wm-before-...`), `~/wm-backups`, `~/acepro-backup`, `~/fluidd_backup_...`. Now everything the installer saves lives in **`~/ultra-backup`**, sorted by type, with the date inside:
+
+| Folder | What is in it |
+|---|---|
+| `settings/` | the `.tgz` files of *Back up my settings* and the automatic backup before an update (the newest 5 are kept; the restore page lists these) |
+| `config/` | older copies of cfg files and the copies made by the installer's migrations (`rename-...`, `rpi-join-...`, `rpi-pi-...`) |
+| `fluidd-page/` | copies of the Fluidd web page |
+| `fluidd-macros/` | Fluidd macro lists (`.json`) |
+| `installer/`, `drivers/`, `other/` | old installer safety folders, Klipper driver copies, everything else |
+
+- **In `printer_data/config` the newest copy of each config file stays** (so the last change is easy to undo); all older ones are moved to `config/`.
+- **It cannot fill the disk.** The whole folder is limited to 400 MB (`config` 60 MB and 8 copies per file, `fluidd-page` 120 MB, `settings` 150 MB and 5 files, the rest 20 MB each). Beyond a limit the oldest go first. Nothing is written when the Pi has less than 2 GB free. Moving never deletes.
+- **`~/ultra-backup/INDEX.txt`** says where each backup came from (old place to new place) and what the size limit removed.
+- Never moved: `saved_variables.cfg.wm-good` (the safeguard copy), `crowsnest.conf.new`, `printer.cfg.wm-model-bak` and other copies the installer reads again, the records in `~/wm-rpi-backup`, and **the newest folder of each undo store** (`~/wm-rpi-backup/old-*` and `fluidd-*`, `~/acepro-backup/wm-*`, `~/fluidd_backup_*`): `--undo` restores from those, so only the older ones move. Git folders are never touched.
+- `./installer.sh --ultra-backup` does it on demand; the doctor says when backups are lying around.
+
 ## 10. Repository layout
 
 ```
@@ -934,7 +968,7 @@ factory/ultra/          WonderMaker ZR Ultra: upstream Klipper and Moonraker (+ 
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run Klipper on a Pi with no printer, see README-DEVBOX.md
 first-layer-stl/        flat test squares for the first layer check after WM_FULL_OFFSET_CAL (one per tool head, and a 5 patch bed test)
-rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_base.cfg (helpers, unload menu, load queue, live Z wrapper), rpi_calibration.cfg (calibration and Z offset tools), rpi_homing.cfg (homing, idle timeout), rpi_bed_soak.cfg (bed warp wait), rpi_nozzle.cfg (Nozzle Type, Extruder Setup), rpi_auto_speed.cfg (speed test); installed by the installer, which also writes rpi_pi.cfg (host MCU, temperatures, chamber light)
+rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_base.cfg (helpers, homing and idle timeout, bed warp wait, print start purge, unload menu, load queue, live Z wrapper), rpi_calibration.cfg (calibration and Z offset tools), rpi_nozzle.cfg (Nozzle Type, Extruder Setup), rpi_auto_speed.cfg (speed test); installed by the installer, which also writes rpi_pi.cfg (host MCU, temperatures, chamber light)
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                stage_from_repo.sh, wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
@@ -1013,7 +1047,7 @@ Three things get new versions on GitHub: this installer, the Fluidd panel (the A
 
 ## Backup before every update
 
-`./installer.sh --update` (and every add-on install from the menu) first saves your config, calibration and database to `~/wm-backups/wm-backup-<model>-before-update-<date>.tgz` and prints its path. The newest 5 of these are kept. Put one back with `./installer.sh --restore <file>` (Backup and restore in the menu). Skip it with `--no-backup`. It is private (mode 600); do not publish it.
+`./installer.sh --update` (and every add-on install from the menu) first saves your config, calibration and database to `~/ultra-backup/settings/wm-backup-<model>-before-update-<date>.tgz` and prints its path. The newest 5 of these are kept. Put one back with `./installer.sh --restore <file>` (Backup and restore in the menu). Skip it with `--no-backup`. It is private (mode 600); do not publish it.
 
 ## Status page and Network and system
 
@@ -1090,7 +1124,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
 - **Status on top:** the version, whether Klipper, Moonraker and nginx are running, and (if the Pi is online) whether GitHub has newer changes.
 - **A print stops changes:** while a print is running the menu says so and every entry that changes something refuses, as the command line does. Looking (status, quick check) still works.
 - **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command|shaketune|spoolman|acepro`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
-- **Backup and restore:** *Restore a backup* shows the folder the backups are kept in (`~/wm-backups`) and lists the backup files there, newest first, with size and date. Press the number of the one you want; a safety copy of the current settings is made before anything is replaced. The last number lets you type the path of a backup file somewhere else.
+- **Backup and restore:** *Restore a backup* shows the folder the backups are kept in (`~/ultra-backup/settings`) and lists the backup files there, newest first, with size and date. Press the number of the one you want; a safety copy of the current settings is made before anything is replaced. The last number lets you type the path of a backup file somewhere else.
 - **Uninstall** (menu entry 6) lists everything the installer puts on the Pi, each with `[installed]` or `[not installed]`. Pick a number to see what goes and confirm; nothing changes before you confirm. The same removals work from the command line with `./installer.sh --remove NAME`:
 
   | NAME | What it removes |
@@ -1115,7 +1149,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
 
   | Group | What it is | Confirmation |
   |---|---|---|
-  | Settings backups | `~/wm-backups` (backups and the safety copies made before a restore or a data delete) | type `DELETE` |
+  | Settings backups | `~/ultra-backup/settings` (backups and the safety copies made before a restore or a data delete) | type `DELETE` |
   | Support bundles | `~/wm-support-*.tgz` | y/n |
   | Installer logs | `~/wm-install-logs`, the log of each run that changed something | y/n |
   | Staged software | `~/wm-stage`, the copy of klipper, moonraker and data an install unpacked from (rebuilt on the next install) | type `DELETE` |

@@ -1,0 +1,15 @@
+[Unit]
+Description=WonderMaker black box: records the state of the Pi every 10 s so a crash leaves a trace
+After=local-fs.target systemd-journald.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/wm-blackbox
+Restart=always
+RestartSec=5
+Nice=10
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

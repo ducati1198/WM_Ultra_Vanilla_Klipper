@@ -9,7 +9,7 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0
-check() { if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; fi; }
+check() { if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; [ -z "${WM_FAIL_LOG:-}" ] || echo "$1" >> "$WM_FAIL_LOG"; fi; }
 
 mkstage() {  # make a fake WonderMaker tree and stage folder
     local s="$1" h="$T/src_home"; rm -rf "$h"
@@ -209,11 +209,11 @@ echo "== restore from a numbered list"
 RS="$T/rs"; mkdir -p "$RS"; mkstage "$T/stage_rs"; inst "$RS" --from-stage "$T/stage_rs" --screen off >/dev/null
 M '' "$RS" --backup >/dev/null; sleep 1; M '' "$RS" --backup >/dev/null
 OUT="$(M '5\n2\n0\n0\n0\n' $RS --menu)"
-check "restore page shows the folder and numbers the backups" "echo \"$OUT\" | grep -q 'kept in: .*wm-backups' && echo \"$OUT\" | grep -q '1) wm-backup-' && echo \"$OUT\" | grep -q '2) wm-backup-'"
+check "restore page shows the folder and numbers the backups" "echo \"$OUT\" | grep -q 'kept in: .*ultra-backup/settings' && echo \"$OUT\" | grep -q '1) wm-backup-' && echo \"$OUT\" | grep -q '2) wm-backup-'"
 check "restore page offers a file in another place" "echo \"$OUT\" | grep -q 'another place'"
 check "choosing a number restores that backup" "M '5\n2\n1\ny\n0\n0\n' $RS --menu | grep -q 'Restored from .*wm-backup-'"
 check "an unknown number is explained" "M '5\n2\n99\n0\n0\n' $RS --menu | grep -q 'Choose a number from the list'"
-check "with no backups the page says so" "mkdir -p $T/rs0 && cp -a $RS/. $T/rs0/ && rm -rf $T/rs0/wm-backups && M '5\n2\n0\n0\n' $T/rs0 --menu | grep -q 'no backups in that folder'"
+check "with no backups the page says so" "mkdir -p $T/rs0 && cp -a $RS/. $T/rs0/ && rm -rf $T/rs0/ultra-backup/settings && M '5\n2\n0\n0\n' $T/rs0 --menu | grep -q 'no backups in that folder'"
 
 echo "== uninstall section (--remove)"
 mkun() { local h="$1"; rm -rf "$h"; mkdir -p "$h"; mkstage "$T/stage_un"; inst "$h" --from-stage "$T/stage_un" --screen off --webcam on --timelapse on >/dev/null; printf '[server]\nport: 7125\n\n[timelapse]\noutput_path: ~/printer_data/timelapse\n\n[update_manager]\n' > "$h/printer_data/config/moonraker.conf"; }
@@ -225,7 +225,7 @@ check "uninstall: Fluidd web page and nginx site" "M 'y\n' $UN --remove fluidd |
 check "uninstall: Moonraker" "M 'y\n' $UN --remove moonraker | grep -q 'moonraker removed' && [ ! -e $UN/moonraker ] && [ -d $UN/printer_data ] && grep -q 'rm -f /etc/systemd/system/moonraker.service' $UN/.sudo.log"
 check "uninstall: Klipper" "M 'y\n' $UN --remove klipper | grep -q 'klipper removed' && [ ! -e $UN/klipper ] && [ -d $UN/printer_data ]"
 check "uninstall: printer data needs the word DELETE" "M 'y\nno\n' $UN --remove data | grep -q 'Nothing changed' && [ -d $UN/printer_data ]"
-check "uninstall: printer data (and TM_T1) is backed up, then deleted" "M 'y\nDELETE\n' $UN --remove data | grep -q 'Printer data deleted' && [ ! -e $UN/printer_data ] && [ ! -e $UN/TM_T1 ] && ls $UN/wm-backups/wm-backup-*.tgz"
+check "uninstall: printer data (and TM_T1) is backed up, then deleted" "M 'y\nDELETE\n' $UN --remove data | grep -q 'Printer data deleted' && [ ! -e $UN/printer_data ] && [ ! -e $UN/TM_T1 ] && ls $UN/ultra-backup/settings/wm-backup-*.tgz"
 check "uninstall: a name that is not installed is said so, not an error" "M '' $UN --remove klipper | grep -q 'not installed'"
 UA="$T/ua"; mkun "$UA"
 check "uninstall everything: wrong word changes nothing" "M 'nope\n' $UA --remove all | grep -q 'Nothing changed' && [ -d $UA/klipper ]"
@@ -241,7 +241,7 @@ check "erase: lists everything, says nothing is kept but the installer folder, a
 check "erase: a wrong word changes nothing" "M 'nope\n' $EX --remove erase | grep -q 'Nothing changed' && [ -d $EX/klipper ] && [ -d $EX/printer_data ]"
 OUT="$(M 'ERASE\n' $EX --remove erase)"
 check "erase: shows a progress bar that ends at 100 percent" "echo \"$OUT\" | grep -q 'Removing .* (step 1 of ' && echo \"$OUT\" | grep -q '100%  Done'"
-check "erase: removes programs, printer data, TM_T1, backups, bundles, the old-board copy and the records" "echo \"$OUT\" | grep -q 'Everything was erased' && for d in klipper moonraker fluidd crowsnest printer_data TM_T1 wm-backups wm-stage wm-rpi-backup wm-support-1.tgz; do [ ! -e $EX/\$d ] || { echo left \$d; exit 1; }; done"
+check "erase: removes programs, printer data, TM_T1, backups, bundles, the old-board copy and the records" "echo \"$OUT\" | grep -q 'Everything was erased' && for d in klipper moonraker fluidd crowsnest printer_data TM_T1 ultra-backup/settings wm-stage wm-rpi-backup wm-support-1.tgz; do [ ! -e $EX/\$d ] || { echo left \$d; exit 1; }; done"
 check "erase: switches NetworkManager back (it was switched by the installer)" "grep -q 'systemctl enable dhcpcd' $EX/.sudo.log"
 check "erase: keeps the installer folder" "[ -f $ROOT/installer.sh ]"
 check "menu: the Uninstall page has All programs and Erase everything" "M '6\n0\n0\n' $EX --menu | grep -q 'All programs' && M '6\n0\n0\n' $EX --menu | grep -q 'Erase everything'"
@@ -261,8 +261,8 @@ check "clean-up page lists each group with its size" "echo \"$OUT\" | grep -q 'S
 check "clean-up page never lists printer data" "! echo \"$OUT\" | grep -q 'Delete my printer data'"
 check "clean-up: support bundles after y" "M '2\ny\n0\n' $CU --remove cleanup | grep -q 'Deleted: Support bundles' && [ ! -e $CU/wm-support-1.tgz ]"
 check "clean-up: config safety copies after y" "M '7\ny\n0\n' $CU --remove cleanup | grep -q 'Deleted: Config safety' && [ ! -e $CU/printer_data/config/printer.cfg.wm-model-bak ] && [ -f $CU/printer_data/config/printer.cfg ]"
-check "clean-up: backups need the word DELETE" "M '1\nno\n0\n' $CU --remove cleanup | grep -q 'Nothing changed' && ls $CU/wm-backups/wm-backup-*.tgz"
-check "clean-up: backups deleted after DELETE" "M '1\nDELETE\n0\n' $CU --remove cleanup | grep -q 'Deleted: Settings backups' && [ ! -e $CU/wm-backups ]"
+check "clean-up: backups need the word DELETE" "M '1\nno\n0\n' $CU --remove cleanup | grep -q 'Nothing changed' && ls $CU/ultra-backup/settings/wm-backup-*.tgz"
+check "clean-up: backups deleted after DELETE" "M '1\nDELETE\n0\n' $CU --remove cleanup | grep -q 'Deleted: Settings backups' && [ ! -e $CU/ultra-backup/settings ]"
 check "clean-up: nothing-to-delete groups say so" "M '1\n0\n' $CU --remove cleanup | grep -q 'Nothing to delete'"
 OUT="$(M '9\nDELETE\n0\n' $CU --remove cleanup)"
 check "clean-up: installer records need DELETE and leave printer data" "echo \"$OUT\" | grep -q 'Update and the menu will say so' && [ ! -e $CU/wm-rpi-backup ] && [ -d $CU/printer_data/config ]"
@@ -446,7 +446,7 @@ for m in ultra ultra-s; do
   check "$m: M191 has the chamber limit, the fans, the nozzle preheat and the bed assist" "awk '/gcode_macro M191/{f=1} /gcode_macro _RGB_CLOSE/{f=0} f' $ROOT/factory/$m/config/macros.cfg | grep -q 'variable_max_chamber' && awk '/gcode_macro M191/{f=1} /gcode_macro _RGB_CLOSE/{f=0} f' $ROOT/factory/$m/config/macros.cfg | grep -q 'params.BED_TEMP' && awk '/gcode_macro M191/{f=1} /gcode_macro _RGB_CLOSE/{f=0} f' $ROOT/factory/$m/config/macros.cfg | grep -q 'auxiliary_fan' && grep -q 'variable_bed_assist_temp' $ROOT/factory/$m/config/macros.cfg"
 done
 for m in ultra ultra-s; do
-  check "$m: z_rise is the fixed one (reads stepper_z, no last_query.z test) in rpi_homing.cfg, and printer.cfg and the 4 variants no longer have it" "grep -q 'gcode_macro _z_rise_run' $ROOT/rpi-cfg/rpi_homing.cfg && grep -q 'q.stepper_z' $ROOT/rpi-cfg/rpi_homing.cfg && ! grep -q 'last_query.z==0' $ROOT/rpi-cfg/rpi_homing.cfg && (for f in $ROOT/factory/$m/config/printer.cfg $ROOT/factory/$m/config-variants/printer?.cfg; do ! grep -qE '^\\[(gcode_macro _z_rise_run|gcode_macro z_rise|homing_override|gcode_macro Z_HOMING|idle_timeout)\\]' \$f || exit 1; done)"
+  check "$m: z_rise is the fixed one (reads stepper_z, no last_query.z test) in rpi_base.cfg, and printer.cfg and the 4 variants no longer have it" "grep -q 'gcode_macro _z_rise_run' $ROOT/rpi-cfg/rpi_base.cfg && grep -q 'q.stepper_z' $ROOT/rpi-cfg/rpi_base.cfg && ! grep -q 'last_query.z==0' $ROOT/rpi-cfg/rpi_base.cfg && (for f in $ROOT/factory/$m/config/printer.cfg $ROOT/factory/$m/config-variants/printer?.cfg; do ! grep -qE '^\\[(gcode_macro _z_rise_run|gcode_macro z_rise|homing_override|gcode_macro Z_HOMING|idle_timeout)\\]' \$f || exit 1; done)"
   check "$m: z_rise runs first in _UNLOCK_TOOL, _LOCK_TOOL, WIPE_NOZZLE, EXTRUDE_FILAMENT, RETRACT_FILAMENT, filament_insert_gcode" "[ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/change_macros.cfg) = 2 ] && [ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/fz-wipe-nozzle.cfg) = 1 ] && ! grep -q WIPE_NOZZLE_SIMPLE $ROOT/factory/$m/config/fz-wipe-nozzle.cfg && [ \$(grep -c '^    z_rise\$' $ROOT/factory/$m/config/macros.cfg) = 3 ]"
 done
 check "the 5 compiled modules are in the repo and match their factory checksums" "cd $ROOT/factory/ultra-s/klipper && sha256sum -c ../modules.sha256"
@@ -471,15 +471,15 @@ check "rpi-cfg: rpi_base.cfg (switch pins, safety, print end, tool LEDs, head se
 MT="$T/mt"; rm -rf "$MT"; mkdir -p "$MT"; cp "$ROOT/tests/fixtures/moonraker_wm_style.conf" "$MT/old.conf"
 sed -i 's|^frame_path:.*|frame_path: /tmp/timelapse/|; /^camera:/d' "$MT/old.conf"
 check "moonraker: conf fix adds the K1 sections, frames folder and timelapse options, and is idempotent" "python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $MT/old.conf --write >/dev/null; [ \$? = 10 ]; grep -q '^frame_path: ~/printer_data/frames/' $MT/old.conf && grep -q '^camera: default' $MT/old.conf && grep -q '^parkpos: back_right' $MT/old.conf && grep -q '^\\[file_manager\\]' $MT/old.conf && grep -q '^\\[machine\\]' $MT/old.conf && python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $MT/old.conf >/dev/null"
-check "moonraker: the console keeps 5000 lines (data_store), your own value is kept" "grep -q '^\\[data_store\\]' $MT/old.conf && grep -q '^gcode_store_size: 5000' $MT/old.conf; printf '[data_store]\ngcode_store_size: 2000\n' > $MT/ds.conf; python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $MT/ds.conf --write >/dev/null; grep -q '^gcode_store_size: 2000' $MT/ds.conf"
+check "moonraker: the console keeps 1000 lines (data_store), your own value is kept" "grep -q '^\\[data_store\\]' $MT/old.conf && grep -q '^gcode_store_size: 1000' $MT/old.conf; printf '[data_store]\ngcode_store_size: 2000\n' > $MT/ds.conf; python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $MT/ds.conf --write >/dev/null; grep -q '^gcode_store_size: 2000' $MT/ds.conf"
 check "moonraker: your own timelapse values are not changed" "printf '[timelapse]\nframe_path: /mnt/x/\nparkpos: front_left\n' > $MT/own.conf; python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $MT/own.conf --write >/dev/null; grep -q '^frame_path: /mnt/x/' $MT/own.conf && grep -q '^parkpos: front_left' $MT/own.conf && [ \$(grep -c '^parkpos' $MT/own.conf) = 1 ]"
 check "moonraker: factory moonraker.conf (both models) is already complete" "( for m in ultra ultra-s; do python3 -I $ROOT/scripts/wm_moonraker_conf.py conf $ROOT/factory/\$m/config/moonraker.conf >/dev/null || exit 1; done )"
 check "moonraker: the timelapse step adds [update_manager timelapse] and the frames folder" "[ -d $HG/printer_data/frames ] && grep -q '^\\[update_manager timelapse\\]' $HG/printer_data/config/moonraker.conf"
 check "moonraker: the timelapse step also adds the [timelapse] section so the component loads" "grep -q '^\\[timelapse\\]' $HG/printer_data/config/moonraker.conf && grep -q '^frame_path: ~/printer_data/frames/' $HG/printer_data/config/moonraker.conf"
-check "rpi-cfg: rpi_homing.cfg (homing, z_rise, idle timeout) is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/rpi_homing.cfg $HG/printer_data/config/rpi_homing.cfg && grep -q '^\\[include rpi_homing.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/rpi_homing.cfg $HU/printer_data/config/rpi_homing.cfg && grep -q '^\\[include rpi_homing.cfg\\]' $HU/printer_data/config/printer.cfg && ! grep -q '^\\[homing_override\\]' $HG/printer_data/config/printer.cfg"
+check "rpi-cfg: rpi_base.cfg (homing, z_rise, idle timeout, bed warp wait) is installed and included, ultra-s and ultra, and no separate rpi_homing.cfg" "cmp $ROOT/rpi-cfg/rpi_base.cfg $HG/printer_data/config/rpi_base.cfg && grep -q '^\\[include rpi_base.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/rpi_base.cfg $HU/printer_data/config/rpi_base.cfg && grep -q '^\\[include rpi_base.cfg\\]' $HU/printer_data/config/printer.cfg && ! grep -q '^\\[homing_override\\]' $HG/printer_data/config/printer.cfg && [ ! -e $HG/printer_data/config/rpi_homing.cfg ]"
 check "rpi-cfg: calibration windows close on the screen too (prompt_end in the start, stop, save and cancel paths)" "W=$ROOT/rpi-cfg/rpi_calibration.cfg; sed -n '/^\\[gcode_macro _WM_CAL_PRECHECK\\]/,/^\\[gcode_macro _WM_CAL_ASK\\]/p' \$W | grep -q prompt_end && sed -n '/^\\[gcode_macro _WM_CAL_STOP\\]/,/^\\[gcode_macro _WM_PROMPT_CLOSE\\]/p' \$W | grep -q prompt_end && grep -q 'Save and Restart|_WM_SAVE|' \$W && grep -q 'Cancel|_WM_PROMPT_CLOSE' \$W && ! grep -q 'Cancel|M118' \$W"
 check "rpi-cfg: bed leveling, vibration compensation and bed PID say which step they are on" "W=$ROOT/rpi-cfg/rpi_calibration.cfg; for m in 'Bed leveling - step 2' 'Vibration compensation - step 2' 'Bed PID - heating'; do grep -q \"\$m\" \$W || exit 1; done"
-check "rpi-cfg: exactly one include line, and printer.cfg was saved first" "[ \$(grep -c 'include rpi_calibration.cfg' $HG/printer_data/config/printer.cfg) = 1 ] && ls $HG/printer_data/config/printer.cfg.wm-before-rpicfg-*"
+check "rpi-cfg: exactly one include line, and printer.cfg was saved first" "[ \$(grep -c 'include rpi_calibration.cfg' $HG/printer_data/config/printer.cfg) = 1 ] && [ -n \"\$(ls $HG/printer_data/config/printer.cfg.wm-before-rpicfg-* $HG/ultra-backup/config/*/printer.cfg.wm-before-rpicfg-* 2>/dev/null)\" ]"
 check "rpi-cfg: the include sits before the SAVE_CONFIG block, not after it" "! sed -n '/SAVE_CONFIG/,\$p' $HG/printer_data/config/printer.cfg | grep -q 'include rpi_calibration'"
 check "rpi-cfg: the macros render and behave (jinja2)" "python3 $ROOT/tests/rpi_cfg_render.py; r=\$?; [ \$r = 0 ] || [ \$r = 77 ]"
 check "rpi-cfg: every WonderMaker macro it calls exists in both factory folders" "for m in G29 PROBE_CALIBRATE CALIBRATE_OFFSET_ALL_RAPID_MODE NOZZLE_PREPARE NOZZLE_CALIBRATE_TOOL_OFFSET RAPID_MODE PARK_CURRENT_TOOL; do for d in ultra ultra-s; do grep -q \"^\\[gcode_macro \$m\\]\" $ROOT/factory/\$d/config/*.cfg || exit 1; done; done"
@@ -590,6 +590,9 @@ check "webcam: an existing crowsnest.conf is never overwritten; the explained co
 check "webcam: --webcam-setup rewrites the conf, keeps a copy, adds Camera 2" "inst $WCK --webcam-setup --cameras 2 --cam-resolution 480p --cam-fps 10 >/dev/null; [ \$(grep -c '^\[cam ' $WCK/printer_data/config/crowsnest.conf) = 2 ] && grep -q 'resolution: 640x480' $WCK/printer_data/config/crowsnest.conf && grep -q 'device: /dev/video9' $WCK/printer_data/config/crowsnest.conf.wm-before-webcam-setup-* && grep -q '^\[webcam Camera 2\]' $WCK/printer_data/config/moonraker.conf"
 check "webcam: --webcam-setup without the service installed says how to install it" "inst $T/wcbad --webcam-setup | grep -q 'not installed'"
 check "webcam: --dry-run --webcam-setup changes nothing" "inst $WCK --dry-run --webcam-setup --cameras 3 | grep -q 'would rewrite crowsnest.conf (3 camera' && [ \$(grep -c '^\[cam ' $WCK/printer_data/config/crowsnest.conf) = 2 ]"
+# B-060: "Set up the cameras again" in the menu must ask again, even when earlier answers (1 camera) were saved, and a second camera must be written
+WCQ="$T/wcq"; mkdir -p "$WCQ"; inst "$WCQ" --from-github --model ultra-s --screen off --cameras 1 --cam-resolution 1080p --cam-fps 30 >/dev/null
+check "webcam: --webcam-setup asks the questions again after 1 camera was saved, and writes the second camera (B-060)" "printf '2\\n1\\n10\\ny\\n' | WM_TEST_CAMERAS='[{\"kind\":\"usb\",\"path\":\"/dev/v4l/by-id/usb-A-video-index0\",\"name\":\"A\"},{\"kind\":\"usb\",\"path\":\"/dev/v4l/by-id/usb-B-video-index0\",\"name\":\"B\"}]' WM_HOME=$WCQ WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --webcam-setup >/dev/null 2>&1; [ \$(grep -c '^\[cam ' $WCQ/printer_data/config/crowsnest.conf) = 2 ] && grep -q '^\[webcam Camera 2\]' $WCQ/printer_data/config/moonraker.conf"
 
 echo "== model is applied to every source"
 H8="$T/h8"; mkdir -p "$H8"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; mkstage "$T/stage_s"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; tar czf "$T/stage_s/data.tgz" -C "$T/src_home" --exclude=printer_data/gcodes printer_data fluidd TM_T1
@@ -660,7 +663,7 @@ check "backup holds no gcodes or logs" "! tar tzf $BK | grep -Eq 'gcodes|logs/'"
 echo "# changed" >> "$G2/printer_data/config/printer.cfg"
 printf 'y\n' | WM_HOME="$G2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --restore "$BK" >/dev/null 2>&1
 check "restore brings the config back" "! grep -q '^# changed' $G2/printer_data/config/printer.cfg"
-check "restore made a safety copy" "ls $G2/wm-backups/wm-backup-*.tgz"
+check "restore made a safety copy" "ls $G2/ultra-backup/settings/wm-backup-*.tgz"
 check "restore refuses a wrong file" "! WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --restore $T/ans"
 
 echo "== repair, update, undo"
@@ -690,10 +693,10 @@ rm -f "$G2/printer_data/config/rpi_calibration.cfg"
 check "doctor reports a missing rpi_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'calibration macros file rpi_calibration.cfg is missing'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
 check "Fix everything puts rpi_calibration.cfg back" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $G2/printer_data/config/rpi_calibration.cfg"
-check "doctor names each rpi file by what it does: rpi_homing.cfg ok as the homing and Z drop file" "eval \"$D\" 2>&1 | grep -q 'homing and Z drop rpi_homing.cfg (included in printer.cfg, same as rpi-cfg)'"
-mv "$G2/printer_data/config/rpi_homing.cfg" "$T/rpi_homing.saved"
-check "doctor: a missing rpi_homing.cfg says what breaks (no bed drop, Unknown command z_rise)" "eval \"$D\" > $T/doc_homing.txt 2>&1; grep -q 'homing and Z drop file rpi_homing.cfg is missing' $T/doc_homing.txt && grep -q 'Unknown command z_rise' $T/doc_homing.txt"
-mv "$T/rpi_homing.saved" "$G2/printer_data/config/rpi_homing.cfg"
+check "doctor names the base file by what it does: rpi_base.cfg ok as the base helpers, homing and bed warp wait file" "eval \"$D\" 2>&1 | grep -q 'base helpers, homing and bed warp wait rpi_base.cfg (included in printer.cfg, same as rpi-cfg)'"
+mv "$G2/printer_data/config/rpi_base.cfg" "$T/rpi_base.saved"
+check "doctor: a missing rpi_base.cfg says what breaks (no bed drop, homing, idle timeout)" "eval \"$D\" > $T/doc_homing.txt 2>&1; grep -q 'file rpi_base.cfg is missing' $T/doc_homing.txt && grep -q 'the bed drop (z_rise)' $T/doc_homing.txt"
+mv "$T/rpi_base.saved" "$G2/printer_data/config/rpi_base.cfg"
 check "rpicfg_role: every file in rpi-cfg has its own name and effect text" "(source <(sed -n '/^rpicfg_role() {/,/^}/p' $ROOT/installer.sh); for f in $ROOT/rpi-cfg/*.cfg; do b=\$(basename \$f); [ \"\$(rpicfg_role \$b name)\" != 'Pi config' ] && [ \"\$(rpicfg_role \$b effect)\" != 'the macros in it do not exist' ] || exit 1; done)"
 sed -i '/include rpi_calibration.cfg/d' "$G2/printer_data/config/printer.cfg"
 check "doctor reports a missing include line" "eval \"$D\" 2>&1 | grep -q 'printer.cfg does not include rpi_calibration.cfg'"
@@ -728,8 +731,8 @@ check "rename: the old files are gone, the rpi_ files exist" "[ ! -e $CF/wm_cali
 check "rename: printer.cfg includes the new names, each once, none of the old" "[ \$(grep -c 'include rpi_calibration.cfg' $CF/printer.cfg) = 1 ] && [ \$(grep -c 'include rpi_nozzle.cfg' $CF/printer.cfg) = 1 ] && ! grep -qE 'include wm_(calibration|nozzle)' $CF/printer.cfg"
 check "rename: another config file's include line follows too" "grep -q '^\[include rpi_fan_guard.cfg\]' $CF/extra_include_test.cfg"
 check "rename: the content of the files is kept (the edited copy was refreshed from rpi-cfg, the old edit is saved)" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $CF/rpi_calibration.cfg && grep -q 'my edit of the old name' $CF/rpi_calibration.cfg.wm-before-rpicfg-*"
-check "rename: old and new both present: the new one is kept and the old one is saved" "! grep -q 'my fan guard' $CF/rpi_fan_guard.cfg && grep -q 'my fan guard' $G2/wm-backups/rename-*/wm_fan_guard.cfg"
-check "rename: copies of the old files and printer.cfg are in ~/wm-backups/rename-*" "ls $G2/wm-backups/rename-*/wm_fan_guard.cfg $G2/wm-backups/rename-*/printer.cfg >/dev/null"
+check "rename: old and new both present: the new one is kept and the old one is saved" "! grep -q 'my fan guard' $CF/rpi_fan_guard.cfg && grep -q 'my fan guard' $G2/ultra-backup/config/*/rename-*/wm_fan_guard.cfg"
+check "rename: copies of the old files and printer.cfg are in ~/ultra-backup/config/<date>/rename-*" "ls $G2/ultra-backup/config/*/rename-*/wm_fan_guard.cfg $G2/ultra-backup/config/*/rename-*/printer.cfg >/dev/null"
 check "rename: the SAVE_CONFIG block of printer.cfg is untouched" "[ \"\$(sed -n '/SAVE_CONFIG/,\$p' $CF/printer.cfg)\" = \"\$(sed -n '/SAVE_CONFIG/,\$p' $T/printer_before_rename.cfg)\" ]"
 check "rename: doctor is clean of the old-name problem" "! eval \"$D\" 2>&1 | grep -q 'still have the old wm_ names'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/ren2.out" 2>&1 </dev/null
@@ -747,7 +750,7 @@ check "match: --rpi-cfg puts wm_canids.py back" "cmp $ROOT/scripts/wm_canids.py 
 
 echo "== 2.8.0: Z offset tools, unload menu, safety check, virtual pins, chamber light, macro patches"
 CF2="$G2/printer_data/config"
-check "rpi-cfg 2.10.0: rpi_base.cfg, rpi_calibration.cfg and rpi_homing.cfg are installed and included once, the old separate files are not" "(for f in rpi_base.cfg rpi_calibration.cfg rpi_homing.cfg; do cmp $ROOT/rpi-cfg/\$f $CF2/\$f && [ \$(grep -c \"^\\[include \$f\\]\" $CF2/printer.cfg) = 1 ] || exit 1; done) && ! grep -qE 'include rpi_(zoffset|virtual_pins|unload|safety|tool_leds|print_end|head_sensors|mcu|mcu_temps|light)\.cfg' $CF2/printer.cfg"
+check "rpi-cfg 2.10.0: rpi_base.cfg and rpi_calibration.cfg are installed and included once, the old separate files are not" "(for f in rpi_base.cfg rpi_calibration.cfg; do cmp $ROOT/rpi-cfg/\$f $CF2/\$f && [ \$(grep -c \"^\\[include \$f\\]\" $CF2/printer.cfg) = 1 ] || exit 1; done) && ! grep -qE 'include rpi_(homing|bed_soak|zoffset|virtual_pins|unload|safety|tool_leds|print_end|head_sensors|mcu|mcu_temps|light)\.cfg' $CF2/printer.cfg"
 check "rpi-cfg 2.10.0: rpi_base.cfg is included above rpi_calibration.cfg (Klipper must read [wm_virtual_pins] first)" "[ \$(grep -n '^\\[include rpi_base.cfg\\]' $CF2/printer.cfg | cut -d: -f1) -lt \$(grep -n '^\\[include rpi_calibration.cfg\\]' $CF2/printer.cfg | cut -d: -f1) ]"
 check "rpi-cfg 2.8.0: the new includes sit before the SAVE_CONFIG block" "! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -qE 'include rpi_(base|calibration|homing|pi)'"
 check "virtual pins: the driver is in both factory folders, in their checksum lists, and in the installed Klipper" "(for m in ultra ultra-s; do grep -q 'klipper/klippy/extras/wm_virtual_pins.py' $ROOT/factory/\$m/SHA256SUMS && [ -f $ROOT/factory/\$m/klipper/klippy/extras/wm_virtual_pins.py ] || exit 1; done; [ ! -d $G2/klipper/klippy/extras ] || cmp $ROOT/factory/ultra-s/klipper/klippy/extras/wm_virtual_pins.py $G2/klipper/klippy/extras/wm_virtual_pins.py)"
@@ -755,7 +758,7 @@ check "virtual pins: rpi_calibration.cfg uses a wm_pin and rpi_base.cfg defines 
 check "first run calibration: the old name is gone from the macros, the screen panel and the docs of rpi-cfg" "! grep -rn 'WM_FULL_CALIBRATION' $ROOT/rpi-cfg/*.cfg $ROOT/zr_tools/*.py $ROOT/installer.sh"
 check "unload menu: the work macro is hidden, the menu and stop are not" "grep -q '^\\[gcode_macro _WM_UNLOAD_GO\\]' $ROOT/rpi-cfg/rpi_base.cfg && grep -q '^\\[gcode_macro WM_UNLOAD_MENU\\]' $ROOT/rpi-cfg/rpi_base.cfg && grep -q '^\\[gcode_macro WM_UNLOAD_STOP\\]' $ROOT/rpi-cfg/rpi_base.cfg && ! grep -q '^\\[gcode_macro WM_UNLOAD_GO\\]' $ROOT/rpi-cfg/rpi_base.cfg"
 check "factory macros (both models): trims and heat growth in _OFFSET_SET, pause guard, second wipe, light at print start, runout only while printing, TEST_W4 gone" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q 'wm_z_trim_t%d' \$d/change_macros.cfg && ! grep -q 'wm_z_trim_all' \$d/change_macros.cfg && grep -q 'wm_nozzle_growth' \$d/change_macros.cfg && grep -q '^\\[gcode_macro _WM_PAUSE_STATE\\]' \$d/macros.cfg && grep -q 'Nothing to resume' \$d/macros.cfg && grep -q 'WIPE_NOZZLE  .*right before the mesh' \$d/macros.cfg && grep -q 'WM_CHAMBER_LIGHT STATE=on' \$d/macros.cfg && ! grep -q 'TEST_W4' \$d/offset_calibrate.cfg && for n in 0 1 2 3; do grep -q 'print_stats.state == \"printing\"' \$d/extruder\$n.cfg || exit 1; done || exit 1; done)"
-check "macro patches: the list is up to date with the factory files of this version" "[ ! -d $ROOT/.git ] || python3 $ROOT/tools/make_macro_patches.py a134abf 2.15.0 --check"
+check "macro patches: the list is up to date with the factory files of this version" "[ ! -d $ROOT/.git ] || python3 $ROOT/tools/make_macro_patches.py 8e1cb46 2.16.0 --check"
 check "2.13.0: hub.cfg (both models): tangle messages, the pause stays, each sensor calls _WM_ENDLESS_TANGLE only when it exists" "(for m in ultra ultra-s; do f=$ROOT/factory/\$m/config/hub.cfg; [ \$(grep -c 'Filament tangle on T' \$f) = 4 ] && [ \$(grep -c '^pause_on_runout: True' \$f) = 4 ] && [ \$(grep -c '_WM_ENDLESS_TANGLE T=' \$f) = 4 ] && [ \$(grep -c 'gcode_macro _WM_ENDLESS_TANGLE\" in printer' \$f) = 4 ] && ! grep -q 'Filament runout on path' \$f || exit 1; done)"
 check "2.13.0: heat at the wipe position: the two macros in rpi_base.cfg, M109 and _WAIT_TOOL_TEMPERATURE call them around the wait only when they exist (both models)" "grep -q '^\\[gcode_macro _WM_HEAT_AT_WIPE\\]' $ROOT/rpi-cfg/rpi_base.cfg && grep -q '^\\[gcode_macro _WM_HEAT_BACK\\]' $ROOT/rpi-cfg/rpi_base.cfg && (for m in ultra ultra-s; do for f in macros.cfg change_macros.cfg; do g=$ROOT/factory/\$m/config/\$f; [ \$(grep -c '_WM_HEAT_AT_WIPE T=' \$g) = 1 ] && [ \$(grep -c '^ *_WM_HEAT_BACK\$' \$g) = 1 ] && [ \$(grep -c 'gcode_macro _WM_HEAT_AT_WIPE\\\" in printer' \$g) = 1 ] || exit 1; done; done)"
 check "2.13.0: heat at the wipe position renders: trip only in a print, for the tool on the carriage, when it is cold; back to the old spot; a left-over flag is cleared" "python3 -I $ROOT/tests/heat_wipe_render.py $ROOT/rpi-cfg/rpi_base.cfg"
@@ -801,14 +804,25 @@ check "speed test Save script: writes only max_accel and max_velocity of [printe
 check "speed test Save script: refuses values out of range and changes nothing" "cp $SL/printer_data/config/printer.cfg $SL/p0; HOME=$SL python3 $ROOT/scripts/wm_speed_limits.py 99999 700 | grep -q FAILED; cmp $SL/p0 $SL/printer_data/config/printer.cfg"
 check "removing the shell command extension also takes rpi_auto_speed.cfg out" "grep -q 'for own in rpi_nozzle.cfg rpi_auto_speed.cfg' $ROOT/installer.sh"
 check "factory extruder files (both models): the load mark for the head sensor queue, only when its macro exists" "(for m in ultra ultra-s; do for n in 0 1 2 3; do grep -q \"_WM_HEAD_MARK T=\$n\" $ROOT/factory/\$m/config/extruder\$n.cfg && grep -q 'gcode_macro _WM_HEAD_MARK\" in printer' $ROOT/factory/\$m/config/extruder\$n.cfg || exit 1; done; done)"
-check "factory printer.cfg (both models, all variants): X/Y homing 80; rpi_homing.cfg: z_rise skipped in a print, G28 X Z homes, idle timeout spares a paused print" "(for f in $ROOT/factory/*/config/printer.cfg $ROOT/factory/*/config-variants/printer?.cfg; do [ \$(grep -c '^homing_speed:80' \$f) = 2 ] || exit 1; done) && H=$ROOT/rpi-cfg/rpi_homing.cfg && grep -q 'a print has its own Z clearance' \$H && grep -q 'set hz = params.Z is defined' \$H && grep -q 'Idle timeout during a pause' \$H"
+check "factory printer.cfg (both models, all variants): X/Y homing 80; rpi_base.cfg: z_rise skipped in a print, G28 X Z homes, idle timeout spares a paused print" "(for f in $ROOT/factory/*/config/printer.cfg $ROOT/factory/*/config-variants/printer?.cfg; do [ \$(grep -c '^homing_speed:80' \$f) = 2 ] || exit 1; done) && H=$ROOT/rpi-cfg/rpi_base.cfg && grep -q 'a print has its own Z clearance' \$H && grep -q 'set hz = params.Z is defined' \$H && grep -q 'Idle timeout during a pause' \$H"
 check "factory macros (both models): live Z adjust per tool in _OFFSET_SET, one Z trim per tool, dead macros gone; START_PRINT has the guarded bed warp lines and ADAPTIVE as a number" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q '_WM_LIVEZ' \$d/change_macros.cfg && ! grep -q 'wm_z_trim_all' \$d/change_macros.cfg && ! grep -qE '_SAVE_SPEED|_RESTORE_SPEED|_OFFSET_RESET' \$d/change_macros.cfg && ! grep -qE '_START_PROBE|_RGB_CLOSE' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK_MARK\" in printer' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK\" in printer' \$d/macros.cfg && grep -q 'params.ADAPTIVE|int == 1' \$d/macros.cfg && ! grep -q _GANTRY_TRIGGER \$d/load_cell.cfg || exit 1; done)"
 check "screen 2.9.0: the KlipperScreen changes are applied at install and update, and wm_sensors.py is copied" "[ \$(grep -c 'patch_ks_wm' $ROOT/scripts/screen_board.sh) -ge 3 ] && grep -q 'wm_sensors.py' $ROOT/scripts/screen_board.sh && python3 -c \"import json; d=json.load(open('$ROOT/zr_tools/ks_wm_patches.json')); assert set(d) == {'extrude', 'job_status', 'fine_tune', 'prompts', 'screen', 'main_menu', 'temperature'}\""
 mkdir -p "$T/ksg"; printf 'class P:\n    def update_graph_visibility(self, force_hide=False):\n        if self.left_panel is None:\n            return\n' > "$T/ksg/main_menu.py"; printf 'class P:\n    def update_graph_visibility(self, force_hide=False):\n        count = 0\n' > "$T/ksg/temperature.py"
 check "screen 2.11.0: no temperature graph on the main menu and the Temperature page (changed once, a second run changes nothing)" "python3 $ROOT/zr_tools/patch_ks_wm.py main_menu $T/ksg/main_menu.py; [ \$? = 10 ] && python3 $ROOT/zr_tools/patch_ks_wm.py temperature $T/ksg/temperature.py; [ \$? = 10 ] && [ \$(grep -c '^        force_hide = True' $T/ksg/main_menu.py $T/ksg/temperature.py | grep -c ':1') = 2 ] && python3 $ROOT/zr_tools/patch_ks_wm.py main_menu $T/ksg/main_menu.py && python3 $ROOT/zr_tools/patch_ks_wm.py temperature $T/ksg/temperature.py && grep -q 'main_menu:panels/main_menu.py temperature:panels/temperature.py' $ROOT/scripts/screen_board.sh"
 check "screen 2.11.0: a KlipperScreen stop is a clean stop (start script traps SIGTERM, exit 0), ordered after the rescue window, old boards fixed at the update, every restart goes through ks_restart" "grep -q \"trap 'kill -TERM\" $ROOT/scripts/screen_board.sh && grep -q 'RESCUE_AFTER=\" wm-screen-rescue.service\"' $ROOT/scripts/screen_board.sh && grep -q '^    ks_stop_fix\$' $ROOT/scripts/screen_board.sh && grep -q 'SuccessExitStatus=1' $ROOT/scripts/screen_board.sh && [ \$(grep -c 'systemctl restart KlipperScreen' $ROOT/scripts/screen_board.sh) = 1 ]"
 check "bed warp wait 2.11.0: the rules (cold bed, warm bed, switch off, unheated bed, measured and scaled waits) render right" "python3 -I $ROOT/tests/bed_soak_render.py | tail -1 | grep -q 'failed: 0'"
-check "bed warp wait 2.11.0: rpi_bed_soak.cfg is installed and included once, below rpi_base.cfg (its switch is a wm_pin), above SAVE_CONFIG" "cmp $ROOT/rpi-cfg/rpi_bed_soak.cfg $CF2/rpi_bed_soak.cfg && [ \$(grep -c '^\[include rpi_bed_soak.cfg\]' $CF2/printer.cfg) = 1 ] && [ \$(grep -n '^\[include rpi_base.cfg\]' $CF2/printer.cfg | cut -d: -f1) -lt \$(grep -n '^\[include rpi_bed_soak.cfg\]' $CF2/printer.cfg | cut -d: -f1) ] && ! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -q 'include rpi_bed_soak'"
+check "bed warp wait: rpi_base.cfg carries it (no separate rpi_bed_soak.cfg), installed and included once, above SAVE_CONFIG" "grep -q '_WM_BED_SOAK' $CF2/rpi_base.cfg && [ ! -e $CF2/rpi_bed_soak.cfg ] && [ \$(grep -c '^\\[include rpi_base.cfg\\]' $CF2/printer.cfg) = 1 ] && ! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -q 'include rpi_base'"
+check "print start purge (F-105): START_PRINT of both models calls _WM_START_PURGE only when it exists, rpi_base.cfg defines it, wm_print_info is loaded by printer.cfg and has its driver" "(for m in ultra ultra-s; do grep -q '_WM_START_PURGE INITIAL_TOOL={INITIAL_TOOL} EXTRUDER={EXTRUDER}' $ROOT/factory/\$m/config/macros.cfg && grep -q 'gcode_macro _WM_START_PURGE' $ROOT/factory/\$m/config/macros.cfg && grep -q '^\\[wm_print_info\\]' $ROOT/factory/\$m/config/printer.cfg && [ -f $ROOT/factory/\$m/klipper/klippy/extras/wm_print_info.py ] && grep -q wm_print_info.py $ROOT/factory/\$m/SHA256SUMS || exit 1; done) && grep -q '^\\[gcode_macro _WM_START_PURGE\\]' $ROOT/rpi-cfg/rpi_base.cfg"
+# F-103/F-105: an older install (2.15.0 and before) has rpi_homing.cfg and rpi_bed_soak.cfg as separate included files: the update moves them to ultra-backup, drops the include lines, and copies the wm_print_info driver
+rm -rf "$T/hjoin"; cp -a "$G2" "$T/hjoin"
+printf '[homing_override]\naxes: z\n' > "$T/hjoin/printer_data/config/rpi_homing.cfg"; printf '[gcode_macro _OLD_SOAK]\ngcode:\n    M118 x\n' > "$T/hjoin/printer_data/config/rpi_bed_soak.cfg"
+sed -i '0,/^\[include rpi_base.cfg\]/s//[include rpi_homing.cfg]\n[include rpi_bed_soak.cfg]\n[include rpi_base.cfg]/' "$T/hjoin/printer_data/config/printer.cfg"
+rm -f "$T/hjoin/klipper/klippy/extras/wm_print_info.py"
+WM_HOME="$T/hjoin" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/hjoin.out" 2>&1 </dev/null
+HJ="$T/hjoin/printer_data/config"
+check "join 2.16.0: old rpi_homing.cfg and rpi_bed_soak.cfg are moved to ultra-backup, their include lines are gone, rpi_base.cfg is included once" "[ ! -e $HJ/rpi_homing.cfg ] && [ ! -e $HJ/rpi_bed_soak.cfg ] && ls $T/hjoin/ultra-backup/config/*/rpi-join-*/rpi_homing.cfg $T/hjoin/ultra-backup/config/*/rpi-join-*/rpi_bed_soak.cfg >/dev/null && ! grep -qE 'include rpi_(homing|bed_soak)' $HJ/printer.cfg && [ \$(grep -c '^\\[include rpi_base.cfg\\]' $HJ/printer.cfg) = 1 ] && cmp $ROOT/rpi-cfg/rpi_base.cfg $HJ/rpi_base.cfg"
+check "join 2.16.0: the wm_print_info driver is copied into Klipper's extras by the update" "cmp $ROOT/factory/ultra-s/klipper/klippy/extras/wm_print_info.py $T/hjoin/klipper/klippy/extras/wm_print_info.py || cmp $ROOT/factory/ultra/klipper/klippy/extras/wm_print_info.py $T/hjoin/klipper/klippy/extras/wm_print_info.py"
+rm -rf "$T/hjoin"
 check "bed warp wait 2.11.0: an update brings the START_PRINT lines and ADAPTIVE fix into a 2.10.0 macros.cfg, and a second run changes nothing" "rm -rf $T/mp && mkdir -p $T/mp && ( cd $ROOT && git show 72d16a2:factory/ultra-s/config/macros.cfg ) > $T/mp/macros.cfg 2>/dev/null || cp $ROOT/factory/ultra-s/config/macros.cfg $T/mp/macros.cfg; python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp --write --stamp t >/dev/null; cmp $T/mp/macros.cfg $ROOT/factory/ultra-s/config/macros.cfg && python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp >/dev/null"
 check "screen 2.11.0: the ZR Tools page has the calibration buttons and the Bed warp wait button" "grep -q 'WM_LIVE_Z_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'WM_OFFSETS_Z_HOT' $ROOT/zr_tools/zr_tools.py && grep -q 'Bed warp wait.*WM_BED_SOAK_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'wm_sensors' $ROOT/zr_tools/zr_views.py"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li0.out" 2>&1 </dev/null
@@ -862,16 +876,19 @@ for f in sys.argv[1:]:
         if line.startswith('['): cur = None; continue
         if cur and re.match(r'\s+[A-Za-z_][A-Za-z0-9_]*(\s|$)', line) and not line.lstrip().startswith(('#', 'RESPOND', 'SET_', 'SAVE_')):
             macros[cur].add(line.split()[0])
+# calls that only run in a branch that cannot lead back: _WM_SETTER_DOWN calls _WM_SETTER_FIND only while the full offset calibration owns the setter (cal=1); _WM_SETTER_FIND_FAIL reaches _WM_SETTER_MOVE only when cal=0 (F-097, tested on the printer)
+GUARDED = {('_WM_SETTER_DOWN', '_WM_SETTER_FIND')}
 bad = []
 def walk(n, path):
     for c in macros.get(n, ()):
+        if (n, c) in GUARDED: continue
         if c in path: bad.append(' -> '.join(path + [c])); continue
         if c in macros: walk(c, path + [c])
 for n in macros: walk(n, [n])
 print('\n'.join(bad)); sys.exit(1 if bad else 0)
 PY
 check "windows: no ';' inside a RESPOND message (Klipper cuts the line there: Malformed command)" "! grep -n 'RESPOND.*MSG=.*;' $ROOT/rpi-cfg/*.cfg"
-check "windows: no macro of ours calls itself, directly or through others (Klipper: called recursively)" "python3 -I $T/macro_cycle.py $ROOT/rpi-cfg/rpi_nozzle.cfg $ROOT/rpi-cfg/rpi_calibration.cfg $ROOT/rpi-cfg/rpi_base.cfg $ROOT/rpi-cfg/rpi_homing.cfg $ROOT/rpi-cfg/rpi_auto_speed.cfg"
+check "windows: no macro of ours calls itself, directly or through others (Klipper: called recursively)" "python3 -I $T/macro_cycle.py $ROOT/rpi-cfg/rpi_nozzle.cfg $ROOT/rpi-cfg/rpi_calibration.cfg $ROOT/rpi-cfg/rpi_base.cfg $ROOT/rpi-cfg/rpi_auto_speed.cfg"
 check "windows: the cycle test really catches a loop" "printf '[gcode_macro A]\ngcode:\n    B\n[gcode_macro B]\ngcode:\n    A\n' > $T/loop.cfg; ! python3 -I $T/macro_cycle.py $T/loop.cfg"
 check "windows: Extruder Setup matching goes from tool to tool through a delayed gcode" "grep -q '^\\[delayed_gcode _WM_MATCH_NEXT\\]' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q 'UPDATE_DELAYED_GCODE ID=_WM_MATCH_NEXT' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q '^variable_next: 0' $ROOT/rpi-cfg/rpi_nozzle.cfg"
 check "windows: both start checks show a Fluidd window before they stop" "python3 -I $ROOT/tests/check_windows.py checks"
@@ -1204,16 +1221,16 @@ echo "== backup before update / status / system page / Spoolman"
 mkstage "$T/stage_ns"; NS="$T/ns"; mkdir -p "$NS"; inst "$NS" --from-stage "$T/stage_ns" --screen off >/dev/null
 printf "[server]\n" > "$NS/printer_data/config/moonraker.conf"; printf "klippy_apis/printer/restart\nSpoolman_x\n" > "$NS/printer_data/moonraker.asvc"
 inst "$NS" --update >/dev/null
-check "--update saves a backup first" "ls $NS/wm-backups/wm-backup-*-before-update-*.tgz"
-check "the backup holds the config" "tar tzf \$(ls $NS/wm-backups/*before-update*.tgz | head -1) | grep -q printer_data/config/printer.cfg"
-check "the backup before an update holds TM_T1/factory_settings" "tar tzf \$(ls $NS/wm-backups/*before-update*.tgz | head -1) | grep -q TM_T1/factory_settings"
-for i in 1 2 3 4 5 6 7; do touch -d "2020-01-0$i" "$NS/wm-backups/wm-backup-ultra-s-before-update-2020010$i.tgz"; done
+check "--update saves a backup first" "ls $NS/ultra-backup/settings/wm-backup-*-before-update-*.tgz"
+check "the backup holds the config" "tar tzf \$(ls $NS/ultra-backup/settings/*before-update*.tgz | head -1) | grep -q printer_data/config/printer.cfg"
+check "the backup before an update holds TM_T1/factory_settings" "tar tzf \$(ls $NS/ultra-backup/settings/*before-update*.tgz | head -1) | grep -q TM_T1/factory_settings"
+for i in 1 2 3 4 5 6 7; do touch -d "2020-01-0$i" "$NS/ultra-backup/settings/wm-backup-ultra-s-before-update-2020010$i.tgz"; done
 inst "$NS" --update >/dev/null
-check "only the newest 5 automatic backups are kept" "[ \$(ls $NS/wm-backups/*before-update*.tgz | wc -l) -le 5 ]"
-rm -f $NS/wm-backups/*; inst "$NS" --update --no-backup >/dev/null
-check "--no-backup skips it" "[ -z \"\$(ls $NS/wm-backups 2>/dev/null)\" ]"
+check "only the newest 5 automatic backups are kept" "[ \$(ls $NS/ultra-backup/settings/*before-update*.tgz | wc -l) -le 5 ]"
+rm -f $NS/ultra-backup/settings/*; inst "$NS" --update --no-backup >/dev/null
+check "--no-backup skips it" "[ -z \"\$(ls $NS/ultra-backup/settings 2>/dev/null)\" ]"
 inst "$NS" --update --only-addon shaketune --shaketune on >/dev/null
-check "an add-on install saves a backup too" "ls $NS/wm-backups/*before-update*.tgz"
+check "an add-on install saves a backup too" "ls $NS/ultra-backup/settings/*before-update*.tgz"
 OUT="$(inst "$NS" --status)"
 check "--status shows services, add-ons and CAN ids" "echo \"$OUT\" | grep -q 'Status (changes nothing)' && echo \"$OUT\" | grep -q 'Add-ons:' && echo \"$OUT\" | grep -q 'CAN ids in the config' && echo \"$OUT\" | grep -q 'spoolman'"
 check "--status changes nothing" "[ -z \"\$(ls $NS/wm-install-logs 2>/dev/null)\" ]"
@@ -1406,8 +1423,55 @@ rm -f "$WF/.sudo.log"
 check "Wi-Fi: a second run changes nothing" "wifi wlan0 1 | grep -q 'power saving is off and the Wi-Fi watchdog runs' && [ ! -f $WF/.sudo.log ]"
 check "Wi-Fi: a Pi on a cable is left alone" "rm -f $WF/.wifi_powersave; wifi eth0 1 | grep -q 'not Wi-Fi: nothing to do' && [ ! -f $WF/.sudo.log ]"
 check "Wi-Fi without NetworkManager: nothing installed, it says why" "wifi wlan0 0 | grep -q 'needs NetworkManager' && [ ! -f $WF/.sudo.log ]"
-check "Wi-Fi: install and update run the step, uninstall stops the watchdog, the doctor checks it" "grep -q 'step_netmgr; step_wifi;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; fi' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-wifi-watchdog' $ROOT/installer.sh && grep -q 'offer_fix \"turn Wi-Fi power saving off' $ROOT/installer.sh"
+check "Wi-Fi: install and update run the step, uninstall stops the watchdog, the doctor checks it" "grep -q 'step_netmgr; step_wifi;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; step_logs' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-wifi-watchdog' $ROOT/installer.sh && grep -q 'offer_fix \"turn Wi-Fi power saving off' $ROOT/installer.sh"
 check "Wi-Fi watchdog: never reboots, never touches Klipper, restarts the Wi-Fi then reloads brcmfmac" "bash -n $ROOT/scripts/wm-wifi-watchdog && ! grep -vE '^\s*#' $ROOT/scripts/wm-wifi-watchdog | grep -qE '(^|[ ;])(reboot|shutdown)( |$)|systemctl (reboot|restart klipper)' && grep -q 'nmcli radio wifi off' $ROOT/scripts/wm-wifi-watchdog && grep -q 'modprobe -r brcmfmac' $ROOT/scripts/wm-wifi-watchdog && grep -q 'ExecStart=/usr/local/sbin/wm-wifi-watchdog' $ROOT/config/wm-wifi-watchdog.service"
+
+echo "== troubleshooting logs, black box and the support bundle (item 30, F-107, F-022)"
+LGX="$T/logsx"; mkdir -p "$LGX/printer_data/config" "$LGX/printer_data/logs"
+logsrun() { WM_HOME="$LGX" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1 </dev/null; }
+rm -f "$LGX/.sudo.log"; OUTL="$(logsrun --logs)"
+check "logs: --logs installs the digest script and its service, the black box and the on-disk system log" "cmp -s $ROOT/scripts/wm_log_digest.py $LGX/printer_data/scripts/wm_log_digest.py && grep -q 'wm-log-digest.service' $LGX/.sudo.log && grep -q 'blackbox installed' $LGX/.sudo.log && grep -q 'systemctl restart systemd-journald' $LGX/.sudo.log && grep -q 'systemctl enable wm-log-digest' $LGX/.sudo.log && grep -q 'systemctl enable wm-blackbox' $LGX/.sudo.log && echo \"\$OUTL\" | grep -q 'Troubleshooting logs installed' && echo \"\$OUTL\" | grep -q 'Black box installed'"
+rm -f "$LGX/.sudo.log"
+check "logs: a second run changes nothing" "logsrun --logs | grep -q 'are written' && logsrun --logs | grep -q 'Pi is recorded every 10 s' && [ ! -f $LGX/.sudo.log ]"
+check "logs: --dry-run shows the steps and changes nothing" "LGD=$T/logsd; mkdir -p \$LGD/printer_data/config; WM_HOME=\$LGD WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --logs --dry-run </dev/null 2>&1 | grep -q 'would install wm_log_digest.py' && [ ! -e \$LGD/printer_data/scripts/wm_log_digest.py ]"
+check "logs: an old script on the Pi is replaced at the next run" "echo '# old' > $LGX/printer_data/scripts/wm_log_digest.py; logsrun --logs | grep -q 'Troubleshooting logs installed' && cmp -s $ROOT/scripts/wm_log_digest.py $LGX/printer_data/scripts/wm_log_digest.py"
+check "logs: install and update run both steps, uninstall stops both services, the doctor checks both" "grep -q 'step_netmgr; step_wifi; step_logs; step_blackbox;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; step_logs; step_blackbox; fi' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-log-digest' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-blackbox' $ROOT/installer.sh && grep -q 'offer_fix \"install the troubleshooting logs\" step_logs' $ROOT/installer.sh && grep -q 'offer_fix \"install the black box\" step_blackbox' $ROOT/installer.sh"
+check "logs: the doctor says when they are missing" "LGM=$T/logsdoc; mkdir -p \$LGM/printer_data/config; WM_HOME=\$LGM WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor </dev/null 2>&1 | grep -q 'the troubleshooting log service is not installed'"
+check "logs: the service runs as t13dp and starts the script from printer_data/scripts" "grep -q '^User=t13dp' $ROOT/config/wm-log-digest.service && grep -q 'ExecStart=/usr/bin/python3 /home/t13dp/printer_data/scripts/wm_log_digest.py' $ROOT/config/wm-log-digest.service && grep -q 'Restart=on-failure' $ROOT/config/wm-log-digest.service"
+check "logs: the digest only reads (no write to Klipper files, no restart, no gcode sent)" "python3 -I -m py_compile $ROOT/scripts/wm_log_digest.py && ! grep -vE '^\s*#' $ROOT/scripts/wm_log_digest.py | grep -qE 'gcode/script|server/restart|printer/restart|firmware_restart|systemctl|subprocess|os\.system'"
+check "logs: the size limits are in the script (1 MB events, 500 KB ace, 120 and 200 lines a minute)" "grep -q '^MAX_BYTES = 1000000' $ROOT/scripts/wm_log_digest.py && grep -q '^ACE_MAX = 500000' $ROOT/scripts/wm_log_digest.py && grep -q '> 120' $ROOT/scripts/wm_log_digest.py && grep -q '> 200' $ROOT/scripts/wm_log_digest.py"
+check "black box: the script is valid, never reboots and never restarts Klipper, the unit restarts it" "bash -n $ROOT/scripts/wm-blackbox && ! grep -vE '^\s*#' $ROOT/scripts/wm-blackbox | grep -qE '(^[[:space:]]*|;[[:space:]]*|&&[[:space:]]*)(reboot|shutdown|systemctl (reboot|restart|stop)) ' && grep -q 'Restart=always' $ROOT/config/wm-blackbox.service && grep -q 'Storage=persistent' $ROOT/config/50-wm-persistent.conf"
+check "digest: python tests (rules, limits, rotation, config check)" "python3 -I -W ignore $ROOT/tests/test_log_digest.py"
+LGL="$LGX/printer_data/logs"
+printf '2026-11-17 09:00:00  START     Klipper started\n2026-11-17 09:00:05  CONFIG    token: abc123secret\n' > "$LGL/wm-events.log"
+printf 'WonderMaker config check\nResult: 0 problems\n' > "$LGL/wm-config-check.log"
+printf '2026-11-17 09:00:01  ACE[0] Disconnected\n' > "$LGL/wm-ace.log"
+printf '2026-11-17 09:00:00 up=10s power=0x0 ok temp=40.0 host=10.1.2.3\n' > "$LGL/wm-blackbox.log"
+printf 'Stats 1.0: gcodein=0\nStart printer at Tue (1.0 2.0)\n===== Config file =====\n[gcode_macro SECRETMACRO]\ngcode:\n\tM117 x\n=======================\nLoaded MCU mcu\nTransition to shutdown state: test\nStats 2.0: gcodein=0\n' > "$LGL/klippy.log"
+WM_HOME="$LGX" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --support-bundle >/dev/null 2>&1 </dev/null
+SBL="$(ls $LGX/wm-support-*.tgz | head -1)"
+check "support bundle: holds the new logs, the real klippy lines, the file list and says where to look" "tar tzf $SBL | grep -q 'logs/wm-events.log' && tar tzf $SBL | grep -q 'logs/wm-config-check.log' && tar tzf $SBL | grep -q 'logs/wm-ace.log' && tar tzf $SBL | grep -q 'logs/wm-blackbox.log' && tar tzf $SBL | grep -q 'logs/klippy-real.log' && tar tzf $SBL | grep -q 'files-and-versions.txt' && tar xzOf $SBL | grep -q 'Where to look first'"
+check "support bundle: klippy-real.log has the real lines but not the config copy or the Stats lines" "tar xzOf $SBL wm-support/logs/klippy-real.log | grep -q 'Transition to shutdown state: test' && ! tar xzOf $SBL wm-support/logs/klippy-real.log | grep -qE 'SECRETMACRO|^Stats'"
+check "support bundle: the new logs are scrubbed too" "! tar xzOf $SBL wm-support/logs/wm-events.log | grep -q abc123secret && ! tar xzOf $SBL wm-support/logs/wm-blackbox.log | grep -q '10.1.2.3'"
+check "support bundle: the service list in the report has the new services" "tar xzOf $SBL wm-support/system.txt | grep -q 'wm-log-digest' && tar xzOf $SBL wm-support/system.txt | grep -q 'wm-blackbox'"
+
+echo "== one folder for every backup (item 36)"
+UBX="$T/ubx"; mkdir -p "$UBX/printer_data/config" "$UBX/wm-backups" "$UBX/acepro-backup" "$UBX/fluidd_backup_a" "$UBX/fluidd_backup_b" "$UBX/wm-rpi-backup" "$UBX/repo/.git"
+for n in a b c; do echo $n > "$UBX/printer_data/config/rpi_base.cfg.wm-before-$n-2026111${#n}-100000"; sleep 0.01; done
+touch -d "2026-11-10" "$UBX/printer_data/config/rpi_base.cfg.wm-before-a-20261111-100000"; touch -d "2026-11-11" "$UBX/printer_data/config/rpi_base.cfg.wm-before-b-20261111-100000"
+echo g > "$UBX/printer_data/config/saved_variables.cfg.wm-good"; echo t > "$UBX/wm-backups/wm-backup-x.tgz"; echo j > "$UBX/acepro-backup/m.json"; echo c > "$UBX/fluidd_backup_a/config.json"; echo c > "$UBX/fluidd_backup_b/config.json"; touch -d "2026-11-10" "$UBX/fluidd_backup_a"; touch -d "2026-11-14" "$UBX/fluidd_backup_b"; echo r > "$UBX/wm-rpi-backup/install.conf"
+ubrun() { WM_HOME="$UBX" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1 </dev/null; }
+check "ultra backup: --ultra-backup --dry-run shows what would move and changes nothing" "ubrun --ultra-backup --dry-run | grep -q 'would move' && [ -f $UBX/wm-backups/wm-backup-x.tgz ] && [ ! -d $UBX/ultra-backup ]"
+OUTU="$(ubrun --ultra-backup)"
+check "ultra backup: old backups move into ~/ultra-backup, sorted by type" "[ -f $UBX/ultra-backup/settings/wm-backup-x.tgz ] && ls $UBX/ultra-backup/fluidd-macros/*/m.json >/dev/null && ls $UBX/ultra-backup/fluidd-page/*/fluidd_backup_a/config.json >/dev/null && [ ! -e $UBX/wm-backups ] && [ ! -e $UBX/acepro-backup ] && [ ! -e $UBX/fluidd_backup_a ] && [ -f $UBX/fluidd_backup_b/config.json ]"
+check "ultra backup: the newest copy of each config file stays, older ones move, the safeguard copy never moves" "ls $UBX/printer_data/config/rpi_base.cfg.wm-before-* | wc -l | grep -q '^1\$' && ls $UBX/ultra-backup/config/*/rpi_base.cfg.wm-before-* | wc -l | grep -q '^2\$' && [ -f $UBX/printer_data/config/saved_variables.cfg.wm-good ]"
+check "ultra backup: the installer records and git folders stay where they are" "[ -f $UBX/wm-rpi-backup/install.conf ] && [ -d $UBX/repo/.git ]"
+check "ultra backup: INDEX.txt says where each backup came from" "grep -q 'moved ~/wm-backups/wm-backup-x.tgz -> ~/ultra-backup/settings/wm-backup-x.tgz' $UBX/ultra-backup/INDEX.txt"
+check "ultra backup: a second run changes nothing" "ubrun --ultra-backup | grep -q 'Backups: all in ~/ultra-backup'"
+check "ultra backup: the helper is copied next to the other helpers and recorded" "cmp -s $ROOT/scripts/wm_ultra_backup.py $UBX/printer_data/wm-tools/wm_ultra_backup.py"
+check "ultra backup: the doctor says when backups are lying around, and fixes it" "UBD=$T/ubd; mkdir -p \$UBD/printer_data/config \$UBD/wm-backups; echo t > \$UBD/wm-backups/wm-backup-y.tgz; UBO=\$(WM_HOME=\$UBD WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor </dev/null 2>&1); echo \"\$UBO\" | grep -q 'Backups: some are outside ~/ultra-backup' && [ -f \$UBD/ultra-backup/settings/wm-backup-y.tgz ]"
+check "ultra backup: install, update and the --ultra-backup option run the step, the size limit is 400 MB" "grep -q '^step_ultrabackup   # last, after the panel and the add-ons' $ROOT/installer.sh && grep -q '\[ -n \"\$ONLY_ADDON\" \] || step_ultrabackup   # last, after the panel and the add-ons' $ROOT/installer.sh && grep -q 'ultrabackup) step_ultrabackup' $ROOT/installer.sh && grep -q '^TOTAL_LIMIT = 400 \* MB' $ROOT/scripts/wm_ultra_backup.py"
+check "ultra backup: python tests (moves, limits, records, disk guard)" "python3 -I -W ignore $ROOT/tests/test_ultra_backup.py"
 
 echo "== touchscreen board status for the Fluidd Toolheads card"
 check "screen board service: GET /status with version, latest, CPU, memory; uploaded every 60 s as wm_screen_status.json" "python3 -I - $ROOT/zr_tools/wm-chamber-light-http <<'PY'
