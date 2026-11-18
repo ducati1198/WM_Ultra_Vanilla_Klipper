@@ -15,7 +15,8 @@ Folders under ~/ultra-backup (by type, the date inside):
   drivers/       copies of Klipper driver files and ACE driver edits
   other/         anything else, and test leftovers
 
-Never touched: saved_variables.cfg.wm-good (the safeguard copy), printer.cfg.wm-model-bak and other copies the installer reads again,
+Never touched: installer/acepro-panel (the panel installer's undo folders and the saved original Fluidd: it prunes them itself, and --undo and
+--uninstall need them), saved_variables.cfg.wm-good (the safeguard copy), printer.cfg.wm-model-bak and other copies the installer reads again,
 crowsnest.conf.new, any git repository folder, the records in ~/wm-rpi-backup (install.conf, installed.manifest, panel.version), and the NEWEST
 folder of each undo store (~/wm-rpi-backup old-*/fluidd-*, ~/acepro-backup wm-*, ~/fluidd_backup_*): ./installer.sh --undo restores from those.
 Nothing is deleted by a move. Only the size limits delete, the oldest first. Not enough free disk space (under 2 GB): nothing is written.
@@ -32,6 +33,7 @@ MIN_FREE = 2048 * MB
 INDEX_MAX = 1 * MB
 COPY_RE = re.compile(r"^(?P<base>.+?)\.(?:wm-[A-Za-z0-9_-]*|bak|orig)(?:[-.]?\d{8}[-_]\d{6})?$")
 KEEP_NAMES = {"saved_variables.cfg.wm-good"}
+MANAGED = {"acepro-panel"}   # folders under installer/ that the panel installer manages itself (undo folders + the original Fluidd, never pruned here)
 KEEP_SUFFIX = (".wm-good", ".wm-model-bak", ".wm-keep")   # files the installer reads again: never moved
 
 
@@ -282,7 +284,7 @@ def prune(home, ult, dry):
     removed = 0
     allitems = []
     for cat, (cap, copies) in LIMITS.items():
-        items = sorted(entries(os.path.join(ult, cat)))   # oldest first
+        items = sorted(i for i in entries(os.path.join(ult, cat)) if os.path.basename(i[1]) not in MANAGED)   # oldest first
         if copies:   # newest N per base name
             by_base = {}
             for it in items:

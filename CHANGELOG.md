@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Panel backups (item 36b).** The ACE panel installer 1.16.0 writes its undo folders, the saved original Fluidd, its Fluidd copies and its macro lists straight into `~/ultra-backup` (`installer/acepro-panel`, `fluidd-page`, `fluidd-macros`) and moves its old folders there once. The backup helper never prunes `installer/acepro-panel` (new test), and **Remove > ACE Pro** looks for its saved copies there first (the old `~/acepro-backup` as fallback). README section "One folder for every backup" updated.
+
 ## 2.18.1
 
 - README: the false-touch text and the `samples_tolerance` troubleshooting row now say that most false touches are a broken read of the load cell board and point to firmware V2 (section 4.1b); the tolerance in the text is now 0.05 (it said 0.1).

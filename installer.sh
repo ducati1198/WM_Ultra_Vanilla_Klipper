@@ -3450,7 +3450,7 @@ do_remove_addon_core() {
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
         screen) do_screen_remove ;;
         acepro)
-            local adir bk; adir="$(ace_dir)"; bk="$HOME_DIR/acepro-backup"
+            local adir bk tl="~"; adir="$(ace_dir)"; bk="$HOME_DIR/ultra-backup/installer/acepro-panel"; [ -d "$bk" ] || bk="$HOME_DIR/acepro-backup"   # the panel installer keeps its undo folders in ~/ultra-backup since 1.16.0
             if ! ace_installed && [ ! -d "$adir" ] && [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ] && ! ls "$cfgd"/rpi_ace*.cfg "$cfgd"/rpi_endless.cfg "$cfgd"/rpi_stats.cfg >/dev/null 2>&1; then print_info "The ACE Pro is not installed."; return 0; fi
             echo "  This removes everything that belongs to the ACE Pro: its four config files (rpi_ace_driver.cfg, rpi_ace.cfg, rpi_endless.cfg, rpi_stats.cfg) and their include lines in printer.cfg (a copy is kept), the ACE links in Klipper's extras, and the downloaded project ~/wm-ultra-fluidd-acepro-panel."
             echo "  The Fluidd Toolheads panel stays (it works without an ACE; the ACE parts hide themselves). Klipper needs a restart afterwards."
@@ -3470,8 +3470,8 @@ do_remove_addon_core() {
             moonraker_drop_update_section wm-ultra-fluidd-acepro-panel
             if [ -d "$bk" ]; then
                 if [ "${REMOVE_DATA:-0}" = 1 ]; then rm_path "$bk"
-                elif [ "${REMOVE_CONFIRMED:-0}" != 1 ] && ask_yn "Also delete the saved copies of the files the ACE installer changed (~/acepro-backup)? They are the only way to bring the ACE install back." n; then rm_path "$bk"
-                else print_info "The saved copies were kept in ~/acepro-backup."; fi
+                elif [ "${REMOVE_CONFIRMED:-0}" != 1 ] && ask_yn "Also delete the saved copies of the files the ACE installer changed (${bk/#$HOME_DIR/$tl})? They are the only way to bring the ACE install back." n; then rm_path "$bk"
+                else print_info "The saved copies were kept in ${bk/#$HOME_DIR/$tl}."; fi
             fi
             WANT_ACEPRO=0; save_answers
             print_success "ACE Pro removed. Restart Klipper from Fluidd when you are ready." ;;

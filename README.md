@@ -962,12 +962,12 @@ Backups used to be spread over many folders: copies next to the config files (`r
 | `config/` | older copies of cfg files and the copies made by the installer's migrations (`rename-...`, `rpi-join-...`, `rpi-pi-...`) |
 | `fluidd-page/` | copies of the Fluidd web page |
 | `fluidd-macros/` | Fluidd macro lists (`.json`) |
-| `installer/`, `drivers/`, `other/` | old installer safety folders, Klipper driver copies, everything else |
+| `installer/`, `drivers/`, `other/` | old installer safety folders, Klipper driver copies, everything else. `installer/acepro-panel/` is where the panel installer (1.16.0 and later) keeps its undo folders and the saved original Fluidd: the size limits never delete it |
 
 - **In `printer_data/config` the newest copy of each config file stays** (so the last change is easy to undo); all older ones are moved to `config/`.
 - **It cannot fill the disk.** The whole folder is limited to 400 MB (`config` 60 MB and 8 copies per file, `fluidd-page` 120 MB, `settings` 150 MB and 5 files, the rest 20 MB each). Beyond a limit the oldest go first. Nothing is written when the Pi has less than 2 GB free. Moving never deletes.
 - **`~/ultra-backup/INDEX.txt`** says where each backup came from (old place to new place) and what the size limit removed.
-- Never moved: `saved_variables.cfg.wm-good` (the safeguard copy), `crowsnest.conf.new`, `printer.cfg.wm-model-bak` and other copies the installer reads again, the records in `~/wm-rpi-backup`, and **the newest folder of each undo store** (`~/wm-rpi-backup/old-*` and `fluidd-*`, `~/acepro-backup/wm-*`, `~/fluidd_backup_*`): `--undo` restores from those, so only the older ones move. Git folders are never touched.
+- Never moved: `saved_variables.cfg.wm-good` (the safeguard copy), `crowsnest.conf.new`, `printer.cfg.wm-model-bak` and other copies the installer reads again, the records in `~/wm-rpi-backup`, and **the newest folder of each undo store** (`~/wm-rpi-backup/old-*` and `fluidd-*`; for a panel installer older than 1.16.0 also `~/acepro-backup/wm-*` and `~/fluidd_backup_*`): `--undo` restores from those, so only the older ones move. The panel installer 1.16.0 and later writes straight into `~/ultra-backup` and moves its old folders there itself, so nothing of it is left in your home folder. Git folders are never touched.
 - `./installer.sh --ultra-backup` does it on demand; the doctor says when backups are lying around.
 
 ## 10. Repository layout

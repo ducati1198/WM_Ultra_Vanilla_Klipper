@@ -154,6 +154,17 @@ class Home(unittest.TestCase):
         f = self.files()
         self.assertIn("ultra-backup/settings/old.tgz", f); self.assertIn("ultra-backup/settings/new.tgz", f)
 
+    def test_panel_installer_folder_is_never_pruned(self):
+        # installer/acepro-panel holds the panel installer's undo folders and the saved original Fluidd: the size limits must not touch it
+        big = os.path.join(self.u, "installer", "acepro-panel", "original-fluidd", "assets", "app.js")
+        put(big, "x" * 2000); put(os.path.join(self.u, "installer", "acepro-panel", "wm-20261110_101010", "manifest.txt"))
+        put(os.path.join(self.u, "installer", "2026-11-10", "old-safety", "a.txt"), "y" * 2000, when=1)
+        U.LIMITS["installer"] = (1000, 0); U.TOTAL_LIMIT = 1000
+        self.run_cli("prune")
+        f = self.files()
+        self.assertIn("ultra-backup/installer/acepro-panel/original-fluidd/assets/app.js", f)
+        self.assertIn("ultra-backup/installer/acepro-panel/wm-20261110_101010/manifest.txt", f)
+
     def test_status_runs(self):
         self.assertEqual(self.run_cli("status"), 0)
 
