@@ -1114,7 +1114,7 @@ step_load_cell() {   # end of a full install: is the load cell board on firmware
         warn_later "The load cell board was not checked: Klipper does not answer for [mcu CELL]. When Klipper is ready: ./installer.sh --load-cell (menu option 1 flashes firmware V2)."
         return 0
     fi
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would check the board ($cur) and offer firmware V2${NC}"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}the board runs $cur; a real install downloads the project and offers firmware V2 only when the board is not on the newest one${NC}"; return 0; fi
     cell_get || { warn_later "The load cell board firmware could not be downloaded from github.com/$CELL_REPO (no internet?). Later: ./installer.sh --load-cell"; return 0; }
     latest="$(cell_latest)"
     case "$cur" in
