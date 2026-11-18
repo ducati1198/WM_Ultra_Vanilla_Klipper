@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Webcams: Moonraker restarts as soon as a new `[webcam Camera N]` section is written (F-135).** `installer.sh`, new `moonraker_reload_webcams`. On the dev Pi `crowsnest.conf` had two cameras and `moonraker.conf` had `[webcam Camera 2]`, but Fluidd listed one because Moonraker had started before the section was written. Moonraker is now restarted right after the write (when its service exists; not in a dry run). Test added (it also passes on the old code, so it guards the restart but does not reproduce the miss).
+
 - **Panel backups (item 36b).** The ACE panel installer 1.16.0 writes its undo folders, the saved original Fluidd, its Fluidd copies and its macro lists straight into `~/ultra-backup` (`installer/acepro-panel`, `fluidd-page`, `fluidd-macros`) and moves its old folders there once. The backup helper never prunes `installer/acepro-panel` (new test), and **Remove > ACE Pro** looks for its saved copies there first (the old `~/acepro-backup` as fallback). README section "One folder for every backup" updated.
 
 ## 2.18.1

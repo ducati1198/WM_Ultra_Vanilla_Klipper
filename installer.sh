@@ -1982,6 +1982,12 @@ crowsnest_conf_make() {   # a fresh crowsnest.conf with every option explained; 
         print_info "Your crowsnest.conf is kept as it is. A new copy that explains every option is next to it: crowsnest.conf.new"
     fi
 }
+moonraker_reload_webcams() {   # Moonraker reads moonraker.conf only when it starts: without this restart Fluidd keeps listing the old cameras (F-135)
+    [ "$DRY" = 1 ] && return 0
+    if [ "$TESTING" = 1 ] || [ -f /etc/systemd/system/moonraker.service ]; then
+        SUDO systemctl restart moonraker && { MOONRAKER_CHANGED=0; print_info "Moonraker restarted so Fluidd lists the new cameras."; }
+    fi
+}
 moonraker_webcams() {   # the cameras Fluidd lists: [webcam Camera], [webcam Camera 2], [webcam Camera 3] ... in moonraker.conf (existing ones are left alone)
     local conf="$HOME_DIR/printer_data/config/moonraker.conf" py n out rc
     py="$(cam_py)"; [ -f "$py" ] && [ -f "$conf" ] || return 0
@@ -1990,7 +1996,7 @@ moonraker_webcams() {   # the cameras Fluidd lists: [webcam Camera], [webcam Cam
     out="$(python3 -I "$py" moonraker "$conf" --count "$n")"; rc=$?
     if [ "$rc" = 10 ]; then
         cp -p "$conf" "$conf.wm-before-webcams-$STAMP"
-        python3 -I "$py" moonraker "$conf" --count "$n" --write >/dev/null && { print_success "moonraker.conf: ${out#would add: } now listed as webcams in Fluidd (copy: moonraker.conf.wm-before-webcams-$STAMP)"; MOONRAKER_CHANGED=1; }
+        python3 -I "$py" moonraker "$conf" --count "$n" --write >/dev/null && { print_success "moonraker.conf: ${out#would add: } now listed as webcams in Fluidd (copy: moonraker.conf.wm-before-webcams-$STAMP)"; MOONRAKER_CHANGED=1; moonraker_reload_webcams; }
     else print_success "moonraker.conf already lists the webcams"; fi
 }
 do_webcam_setup() {   # ./installer.sh --webcam-setup
