@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.17.1
+
+A better tip for the unload and a guard for its cooling. Tested on a ZR Ultra-S (T2 and T3, with and without the ACE Pro).
+
+- **ZR Tools: the filament tip is formed with a cooling step (F-119, B-069, B-070).** `zr_tools/zr_tools.cfg`, `_WM_UNLOAD_TIP` and `_WM_LOAD_SETTINGS`. The old tip had a long string and a thick blob, and one tip stuck in the tool. After the snap the heater now goes `cool_drop` (30 C) lower and the macro waits for that temperature, then `cool_s` (4 s) more, so the tip hardens before the slow pull; the pull is 45 mm at `pull_speed` 20 mm/s (was 10), and `tip_push_mm` is 0 (was 3). The cooling target is never lower than `min_extrude_temp` of the extruder plus 5 C (180 C on this printer): below `min_extrude_temp` Klipper refuses the pull and the unload stops with the filament held. Used by `ZR_RETRACT`, `ZR_UNLOAD` and the ACE unload of panel 1.15.0. Tested: ACE unload of T2 twice, `ZR_RETRACT` and `ZR_LOAD` of T2 with the ACE off; tip judged good.
+- The zr_tools.cfg of the Pi is replaced as before (an edited copy is kept as `zr_tools.cfg.zrbak_*`), so your own values of the tip settings are saved there.
+
 ## 2.17.0
 
 Tool offset calibration made safer and faster, the zr_tools pair without the Purge button, and two installer fixes.
