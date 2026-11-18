@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.19.1
+
+The Wi-Fi watchdog is removed.
+
+- **The Wi-Fi watchdog (`wm-wifi-watchdog`, 2.11.0 to 2.19.0, F-061/F-136) is gone.** On 2026-11-18 the Wi-Fi chip of the dev Raspberry Pi 4 dropped off its bus twice (07:22 and 10:23) and neither the Wi-Fi restart nor the driver reload could bring it back; only a reboot or power cycle did. `installer.sh`: `step_wifi` now only turns Wi-Fi power saving off on the NetworkManager connection (as before); at every install, update and `--wifi` an old watchdog is stopped and deleted (`wifi_wd_remove`); the doctor says so when one is still there. Deleted `scripts/wm-wifi-watchdog` and `config/wm-wifi-watchdog.service`. README: the troubleshooting row says that only a reboot or power cycle (or a network cable) helps. Tests changed.
+- Docs and comments: the dev Pi is a Raspberry Pi 4 (Wi-Fi chip BCM43455), not a Pi 400.
+
 ## 2.19.0
 
 The screen board shows the factory camera and has the new ZR Tools screens; the Wi-Fi watchdog, webcam restart and panel backups fixes are in too.

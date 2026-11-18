@@ -19,7 +19,7 @@
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
 # ./installer.sh --logs                the troubleshooting logs (wm-events.log, wm-config-check.log, wm-ace.log, wm-blackbox.log in Fluidd > Configuration > Other Files) and the black box that records the Pi every 10 s. Also done in every install and update; the doctor checks them; --support-bundle includes them
 # ./installer.sh --ultra-backup        move every backup into ~/ultra-backup (sorted by type, 400 MB limit) and show the sizes
-# ./installer.sh --wifi                Pi on Wi-Fi (NetworkManager): Wi-Fi power saving off and a watchdog that restarts the Wi-Fi when the router stops answering
+# ./installer.sh --wifi                Pi on Wi-Fi (NetworkManager): Wi-Fi power saving off (and an old Wi-Fi watchdog from 2.11 to 2.19.0 is removed)
 # ./installer.sh --light               set up the chamber light as a Moonraker power device (Fluidd, touchscreen and WM_CHAMBER_LIGHT then agree); needs an installed screen board
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FIRST_RUN_CAL, WM_FULL_OFFSET_CAL, WM_Z_TRIM_MENU, WM_UNLOAD_MENU, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
@@ -227,7 +227,7 @@ while [ $# -gt 0 ]; do
         --load-cell)    MODE=loadcell ;;     # the load cell board (CELL): its flash menu from the wm-load-cell-mcu repository
         --no-load-cell) WANT_CELL=0 ;;       # an install does not check or flash the load cell board
         --ultra-backup) MODE=ultrabackup ;;   # one folder for every backup (item 36)
-        --wifi)         MODE=wifi ;;         # Wi-Fi power saving off and the Wi-Fi watchdog (only when the Pi is on Wi-Fi with NetworkManager)   # board temperature sensors + the host MCU, once Klipper runs
+        --wifi)         MODE=wifi ;;         # Wi-Fi power saving off (only when the Pi is on Wi-Fi with NetworkManager); removes an old Wi-Fi watchdog   # board temperature sensors + the host MCU, once Klipper runs
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --light)        MODE=light ;;     # the chamber light as a Moonraker power device (needs an installed screen board)
         --fix-all)      FIXALL=1 ;;
@@ -1220,9 +1220,9 @@ step_netmgr() {
 }
 
 # Wi-Fi (B-041): the Raspberry Pi 4's Wi-Fi chip (BCM43455) can hang while the Pi keeps running (no Fluidd, no SSH, the touchscreen loses it).
-# Only on a Pi whose network is Wi-Fi through NetworkManager: power saving off on that connection, and a small watchdog
-# that restarts the Wi-Fi (then reloads its driver) when the router stops answering. It never reboots and never touches
-# Klipper. A Pi on a cable is left alone.
+# Only on a Pi whose network is Wi-Fi through NetworkManager: power saving is turned off on that connection. 2.19.1: the Wi-Fi watchdog
+# (2.11.0 to 2.19.0) is gone, it could not bring a chip back that had dropped off its bus; an old one is stopped and deleted at the next
+# install or update. A Pi on a cable is left alone.
 WIFI_WD_BIN=/usr/local/sbin/wm-wifi-watchdog; WIFI_WD_UNIT=/etc/systemd/system/wm-wifi-watchdog.service
 wifi_dev() {   # the interface of the default route, when it is Wi-Fi
     local d
@@ -1237,45 +1237,47 @@ wifi_powersave() {   # 2 = off (disable), 3 = on, 0 = default (on)
     [ "$TESTING" = 1 ] && { cat "$HOME_DIR/.wifi_powersave" 2>/dev/null || echo default; return 0; }
     nmcli -g 802-11-wireless.powersave connection show "$1" 2>/dev/null
 }
-wifi_ok() {   # 0 when there is nothing to do (no Wi-Fi, or both parts in place)
-    local dev con; dev="$(wifi_dev)"; [ -n "$dev" ] && nm_active || return 0
-    con="$(wifi_con "$dev")"; [ -n "$con" ] || return 0
-    [ "$(wifi_powersave "$con")" = disable ] || return 1
-    if [ "$TESTING" = 1 ]; then cmp -s "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$HOME_DIR/.wifiwd/wm-wifi-watchdog"; return; fi
-    cmp -s "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$WIFI_WD_BIN" && cmp -s "$SCRIPT_DIR/config/wm-wifi-watchdog.service" "$WIFI_WD_UNIT" || return 1
-    [ "$(service_state wm-wifi-watchdog)" = active ] || return 1
+wifi_wd_present() {   # an old Wi-Fi watchdog (2.11.0 to 2.19.0) is still installed
+    if [ "$TESTING" = 1 ]; then [ -e "$HOME_DIR/.wifiwd/wm-wifi-watchdog" ]; return; fi
+    [ -e "$WIFI_WD_BIN" ] || [ -e "$WIFI_WD_UNIT" ]
+}
+wifi_ok() {   # 0 when there is nothing to do (no Wi-Fi, or power saving off and no old watchdog)
+    local dev con; dev="$(wifi_dev)"; [ -n "$dev" ] && nm_active || { wifi_wd_present && return 1; return 0; }
+    con="$(wifi_con "$dev")"
+    if [ -n "$con" ] && [ "$(wifi_powersave "$con")" != disable ]; then return 1; fi
+    wifi_wd_present && return 1
     return 0
+}
+wifi_wd_remove() {   # stop and delete the old Wi-Fi watchdog
+    wifi_wd_present || return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would stop and delete the old wm-wifi-watchdog${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then rm -rf "$HOME_DIR/.wifiwd"; echo "[test] wifi watchdog removed" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    SUDO systemctl stop wm-wifi-watchdog 2>/dev/null; SUDO systemctl disable wm-wifi-watchdog 2>/dev/null
+    SUDO rm -f "$WIFI_WD_UNIT" "$WIFI_WD_BIN" /var/lib/wm-wifi-watchdog.reboot
+    SUDO systemctl daemon-reload
+    print_success "The old Wi-Fi watchdog was stopped and deleted."
 }
 step_wifi() {   # every install and update, and ./installer.sh --wifi
     local dev con ps bk
+    wifi_wd_remove                                              # an old watchdog goes first, on any kind of network
     dev="$(wifi_dev)"
-    [ -n "$dev" ] || return 0                                   # cable (or no network): nothing to do
-    if ! nm_active; then print_info "The Pi is on Wi-Fi without NetworkManager: the Wi-Fi watchdog needs NetworkManager, so it is not installed."; return 0; fi
+    [ -n "$dev" ] || return 0                                   # cable (or no network): nothing more to do
+    if ! nm_active; then print_info "The Pi is on Wi-Fi without NetworkManager: Wi-Fi power saving was left as it is."; return 0; fi
     con="$(wifi_con "$dev")"
     [ -n "$con" ] || { print_info "No active NetworkManager connection on $dev: the Wi-Fi was left as it is."; return 0; }
-    wifi_ok && { print_success "Wi-Fi: power saving is off and the Wi-Fi watchdog runs"; return 0; }
-    print_header "Wi-Fi: power saving off and a watchdog"
-    why "The Pi's Wi-Fi chip can hang while the Pi itself keeps running: Fluidd, SSH and the touchscreen lose the printer until a power cycle. With power saving off this is rarer, and the watchdog restarts the Wi-Fi by itself (it never reboots the Pi and never touches Klipper). A network cable is still the most reliable."
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would turn Wi-Fi power saving off on \"$con\" and install the wm-wifi-watchdog service${NC}"; return 0; fi
     ps="$(wifi_powersave "$con")"
-    if [ "$ps" != disable ]; then
-        bk="$BACKUP_ROOT/wifi-$STAMP"; mkdir -p "$bk"
-        if [ "$TESTING" = 1 ]; then echo "[test] wifi powersave off ($con, was $ps)" >> "$HOME_DIR/.sudo.log"; echo disable > "$HOME_DIR/.wifi_powersave"
-        else
-            SUDO cp -p "/etc/NetworkManager/system-connections/$con.nmconnection" "$bk/" 2>/dev/null
-            echo "$con $ps" > "$bk/powersave-before"
-            SUDO nmcli connection modify "$con" 802-11-wireless.powersave 2 || { warn_later "Wi-Fi power saving could not be turned off on $con."; }
-        fi
-        print_success "Wi-Fi power saving off on \"$con\" (was $ps). It takes effect at the next reconnect or reboot. Copy: $bk"
+    [ "$ps" = disable ] && { print_success "Wi-Fi: power saving is off"; return 0; }
+    print_header "Wi-Fi: power saving off"
+    why "The Pi's Wi-Fi chip can hang while the Pi itself keeps running: Fluidd, SSH and the touchscreen lose the printer until a power cycle. With power saving off this is rarer. A network cable is the most reliable."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would turn Wi-Fi power saving off on \"$con\"${NC}"; return 0; fi
+    bk="$BACKUP_ROOT/wifi-$STAMP"; mkdir -p "$bk"
+    if [ "$TESTING" = 1 ]; then echo "[test] wifi powersave off ($con, was $ps)" >> "$HOME_DIR/.sudo.log"; echo disable > "$HOME_DIR/.wifi_powersave"
+    else
+        SUDO cp -p "/etc/NetworkManager/system-connections/$con.nmconnection" "$bk/" 2>/dev/null
+        echo "$con $ps" > "$bk/powersave-before"
+        SUDO nmcli connection modify "$con" 802-11-wireless.powersave 2 || { warn_later "Wi-Fi power saving could not be turned off on $con."; }
     fi
-    if [ "$TESTING" = 1 ]; then mkdir -p "$HOME_DIR/.wifiwd"; cp "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$HOME_DIR/.wifiwd/"; echo "[test] wifi watchdog installed" >> "$HOME_DIR/.sudo.log"; return 0; fi
-    SUDO install -o root -g root -m 755 "$SCRIPT_DIR/scripts/wm-wifi-watchdog" "$WIFI_WD_BIN"
-    SUDO install -o root -g root -m 644 "$SCRIPT_DIR/config/wm-wifi-watchdog.service" "$WIFI_WD_UNIT"
-    record "FILE $WIFI_WD_BIN"; record "FILE $WIFI_WD_UNIT"
-    SUDO systemctl daemon-reload
-    SUDO systemctl enable wm-wifi-watchdog
-    SUDO systemctl restart wm-wifi-watchdog
-    print_success "Wi-Fi watchdog installed and running (journalctl -t wm-wifi-watchdog shows what it did)"
+    print_success "Wi-Fi power saving off on \"$con\" (was $ps). It takes effect at the next reconnect or reboot. Copy: $bk"
 }
 
 # ---------------------------------------------------------------------------
@@ -3147,8 +3149,8 @@ do_doctor() {
         doc_bad "printer.cfg still has its own homing / idle timeout sections, and rpi_base.cfg has them too" "They live in rpi_base.cfg; the ones in printer.cfg win. Run ./installer.sh --cfg-merge to take them out of printer.cfg (it asks first)."
     fi
     if [ -n "$(wifi_dev)" ] && nm_active; then
-        if wifi_ok; then doc_ok "Wi-Fi: power saving off and the Wi-Fi watchdog runs (journalctl -t wm-wifi-watchdog)"
-        else doc_bad "Wi-Fi: power saving is on or the Wi-Fi watchdog is not running" "The Pi's Wi-Fi chip can hang while the Pi keeps running; then Fluidd and SSH lose it until a power cycle."; offer_fix "turn Wi-Fi power saving off and install the Wi-Fi watchdog" step_wifi; fi
+        if wifi_ok; then doc_ok "Wi-Fi: power saving is off"
+        else doc_bad "Wi-Fi: power saving is on, or an old Wi-Fi watchdog is still installed" "The Pi's Wi-Fi chip can hang while the Pi keeps running; then Fluidd and SSH lose it until a power cycle. The Wi-Fi watchdog of 2.11.0 to 2.19.0 is gone."; offer_fix "turn Wi-Fi power saving off and remove the old Wi-Fi watchdog" step_wifi; fi
     fi
     if logs_ok; then doc_ok "Logs: the log digest runs (wm-events.log, wm-config-check.log, wm-ace.log in Fluidd > Configuration > Other Files)"
     else doc_bad "Logs: the troubleshooting log service is not installed or not running" "Without it klippy.log is the only place to look, and it is mostly a copy of the config."; offer_fix "install the troubleshooting logs" step_logs; fi
@@ -3282,7 +3284,7 @@ do_support_bundle() {
         echo "computer: $(pi_model_line)"; uname -a; [ -r /etc/os-release ] && grep PRETTY /etc/os-release
         echo "python3: $(python3 --version 2>&1)"; [ -x "$HOME_DIR/klippy-env/bin/python" ] && echo "klippy-env: $("$HOME_DIR/klippy-env/bin/python" --version 2>&1)"
         echo "power flags: $(power_flags)"; df -h "$HOME_DIR" | tail -1; free -m | sed -n 2p
-        echo "--- services"; local s; for s in klipper moonraker nginx crowsnest wm-log-digest wm-blackbox wm-wifi-watchdog; do printf '%-16s active=%s enabled=%s\n' $s "$(service_state $s)" "$(service_enabled $s)"; done
+        echo "--- services"; local s; for s in klipper moonraker nginx crowsnest wm-log-digest wm-blackbox; do printf '%-16s active=%s enabled=%s\n' $s "$(service_state $s)" "$(service_enabled $s)"; done
         echo "--- usb"; lsusb 2>/dev/null
         echo "--- usb tree (hubs and what hangs on them)"; lsusb -t 2>/dev/null
         echo "--- serial ports in /dev (an ACE Pro should show as ttyACM*)"; ls -l /dev/ttyACM* /dev/ttyUSB* /dev/serial/by-id/* 2>&1 | head -20
