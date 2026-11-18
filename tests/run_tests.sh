@@ -662,6 +662,45 @@ WM_TEST_CANQUERY="$T/can_t2.txt" WM_HOME="$G7" WM_INSTALLER_TEST=1 WM_ASSUME_YES
 check "--can-ids says all fine when every id answers" "grep -q 'Every id in the config answers' $T/canids2.out"
 check "--can-ids set T1 writes the id (lower case) and keeps a copy" "WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T1 AABBCCDDEEFF >/dev/null 2>&1 && grep -qx 'canbus_uuid: aabbccddeeff' $C7/wm_zru_thr1.cfg"
 check "--can-ids set refuses an unknown board name and a bad id" "! WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T9 aabbccddeeff >/dev/null 2>&1 && ! WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T1 xyz >/dev/null 2>&1 && grep -qx 'canbus_uuid: aabbccddeeff' $C7/wm_zru_thr1.cfg"
+echo "== CAN boards found by their firmware name (2.20.0), Extruder Setup is forced"
+CM="$T/cm"; mkdir -p "$CM"
+fw() { printf '"%s":["Klipper","%s"]' "$1" "$2"; }
+{ echo '{'; fw aa0000000001 KLP_MCU_WM_ZRU_20260408_185504; echo ,; fw ae0000000002 KLP_HUB_WM_ZRU_20251114_151549; echo ,; fw ad0000000003 KLP_EXT_WM_ZRU_20251114_151429; echo ,; fw af0000000004 KLP_CELL_WM_ZRU_RPI_V2_20261117; echo ,
+  fw ac0000000009 KLP_THR_WM_ZRU_20251114_151129; echo ,; fw ac0000000007 KLP_THR_WM_ZRU_20251114_151129; echo ,; fw ac0000000005 KLP_THR_WM_ZRU_20251114_151129; echo ,; fw ac0000000008 KLP_THR_WM_ZRU_20251114_151129; echo '}'; } > "$CM/ok.json"
+mkcfg() { rm -rf "$1"; mkdir -p "$1"; local n; for n in mcu hub ext load_cell thr0 thr1 thr2 thr3; do printf '[mcu X]\ncanbus_uuid: b00000000000\n' > "$1/wm_zru_$n.cfg"; done; }
+mkcfg "$CM/cfg"
+check "canmatch: all 8 boards found, exit 0, nothing written without --apply" "WM_CANMATCH_FAKE=$CM/ok.json python3 $ROOT/scripts/wm_canmatch.py run --config-dir $CM/cfg --backup-dir $CM/bk > $CM/o1.txt && grep -q 'RESULT ok' $CM/o1.txt && ! grep -q aa0000000001 $CM/cfg/wm_zru_mcu.cfg"
+check "canmatch: the load cell with the V2 name is told apart (KLP_CELL), the four KLP_THR are tool heads" "grep -q 'af0000000004.*load cell board' $CM/o1.txt && [ \$(grep -c 'tool head' $CM/o1.txt) = 4 ]"
+check "canmatch --apply: main, hub, ext and load cell get their own id" "WM_CANMATCH_FAKE=$CM/ok.json python3 $ROOT/scripts/wm_canmatch.py run --config-dir $CM/cfg --backup-dir $CM/bk --apply >/dev/null && grep -q 'aa0000000001' $CM/cfg/wm_zru_mcu.cfg && grep -q 'ae0000000002' $CM/cfg/wm_zru_hub.cfg && grep -q 'ad0000000003' $CM/cfg/wm_zru_ext.cfg && grep -q 'af0000000004' $CM/cfg/wm_zru_load_cell.cfg"
+check "canmatch --apply: the four tool heads are written in id order" "grep -q ac0000000005 $CM/cfg/wm_zru_thr0.cfg && grep -q ac0000000007 $CM/cfg/wm_zru_thr1.cfg && grep -q ac0000000008 $CM/cfg/wm_zru_thr2.cfg && grep -q ac0000000009 $CM/cfg/wm_zru_thr3.cfg"
+check "canmatch --apply: the copies of the old files are OUTSIDE the config folder (tools that read every file there must not find them)" "[ -f $CM/bk/wm_zru_thr0.cfg ] && grep -q b00000000000 $CM/bk/wm_zru_thr0.cfg && [ \$(ls $CM/cfg | wc -l) = 8 ]"
+mkcfg "$CM/cfg2"; sed 's/"ae0000000002":\["Klipper","KLP_HUB_WM_ZRU_20251114_151549"\],\?//' "$CM/ok.json" | tr -d '\n' | sed 's/,,/,/; s/,}/}/' > "$CM/nohub.json"
+check "canmatch: a missing board (no hub) is reported, exit 1, nothing written" "! WM_CANMATCH_FAKE=$CM/nohub.json python3 $ROOT/scripts/wm_canmatch.py run --config-dir $CM/cfg2 --backup-dir $CM/bk2 --apply > $CM/o2.txt; grep -q 'RESULT unclear' $CM/o2.txt && grep -q 'hub: 0 found' $CM/o2.txt && grep -q b00000000000 $CM/cfg2/wm_zru_mcu.cfg"
+printf '{"aa0000000001":["Klipper","KLP_MCU_X"],"aa0000000009":["Klipper","KLP_MCU_X"],"ae0000000002":["Klipper","KLP_HUB_X"],"ad0000000003":["Klipper","KLP_EXT_X"],"af0000000004":["Klipper","KLP_CELL_X"],"ac0000000001":["Klipper","KLP_THR_X"],"ac0000000002":["Klipper","KLP_THR_X"],"ac0000000003":["Klipper","KLP_THR_X"],"ac0000000004":["Klipper","KLP_THR_X"]}' > "$CM/two_main.json"
+check "canmatch: two main boards on the bus: not guessed, nothing written" "! WM_CANMATCH_FAKE=$CM/two_main.json python3 $ROOT/scripts/wm_canmatch.py run --config-dir $CM/cfg2 --backup-dir $CM/bk2 --apply > $CM/o3.txt; grep -q 'main board: 2 found' $CM/o3.txt && grep -q b00000000000 $CM/cfg2/wm_zru_mcu.cfg"
+printf '{"af0000000004":["Katapult",null],"aa0000000001":["Klipper","KLP_MCU_X"]}' > "$CM/boot.json"
+check "canmatch: a board that only answers from its bootloader is not guessed" "! WM_CANMATCH_FAKE=$CM/boot.json python3 $ROOT/scripts/wm_canmatch.py run --config-dir $CM/cfg2 --backup-dir $CM/bk2 --apply > $CM/o4.txt; grep -q 'only the bootloader' $CM/o4.txt && grep -q 'RESULT unclear' $CM/o4.txt"
+echo '{}' > "$CM/empty.json"
+check "canmatch: nothing on the bus gives exit 2" "WM_CANMATCH_FAKE=$CM/empty.json python3 $ROOT/scripts/wm_canmatch.py run --config-dir $CM/cfg2 --backup-dir $CM/bk2 > $CM/o5.txt; [ \$? = 2 ] && grep -q 'RESULT none' $CM/o5.txt"
+check "the load cell lookup only reads real *.cfg files (a copy of the old file next to it holds the old id)" "grep -q \"mcu CELL.*cell_uuid\\|cell_uuid()\" $ROOT/installer.sh && grep -A3 'cell_uuid() ' $ROOT/installer.sh | grep -qF -e \"--include='*.cfg'\""
+# the installer: first start finds the boards by firmware name, then Extruder Setup is forced
+(for u in aa0000000001 ae0000000002 ad0000000003 af0000000004 ac0000000009 ac0000000007 ac0000000005 ac0000000008; do echo "Found canbus_uuid=$u, Application: Klipper"; done) > "$CM/bus8.txt"
+cmrun() { WM_TEST_CANQUERY="$CM/bus8.txt" WM_TEST_CANMATCH="$CM/ok.json" "$@"; }
+G12="$T/g12"; mkdir -p "$G12"; inst "$G12" --from-github --model ultra-s --no-start >/dev/null; C12="$G12/printer_data/config"
+check "no WM_TEST_CANMATCH: the old behaviour is unchanged (placeholders reported)" "WM_TEST_CANQUERY=$CM/bus8.txt WM_HOME=$G12 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --first-start 2>&1 | grep -q 'placeholder CAN id\\|not on the bus'"
+cmrun env WM_HOME="$G12" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --first-start > "$T/cm1.out" 2>&1
+check "first start: finds the boards by firmware name and writes all ids" "grep -q 'found by its firmware name' $T/cm1.out && grep -q aa0000000001 $C12/wm_zru_mcu.cfg && grep -q af0000000004 $C12/wm_zru_load_cell.cfg && grep -q ac0000000005 $C12/wm_zru_thr0.cfg"
+check "first start: copies of the old files are in the backup folder, not in the config folder" "ls $G12/wm-rpi-backup/uuid-*/wm_zru_thr0.cfg >/dev/null && ! ls $C12 | grep -q 'wm_zru_thr0.cfg\\.'"
+check "first start: Extruder Setup could not be run unattended: it says so and stays pending" "grep -q 'Extruder Setup was NOT done' $T/cm1.out && [ -f $G12/printer_data/.wm-extruder-setup-pending ]"
+check "doctor reports the pending Extruder Setup" "WM_HOME=$G12 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor < /dev/null 2>&1 | grep -q 'Extruder Setup has not been done'"
+WM_TEST_MATCH=stop WM_TEST_MATCH_ARG="After the pick of T1 no dock sensor shows an empty dock." WM_HOME="$G12" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --extruder-setup > "$T/cm2.out" 2>&1
+check "--extruder-setup: a stopped run says why, writes nothing, stays pending" "grep -q 'did not finish: After the pick of T1' $T/cm2.out && [ -f $G12/printer_data/.wm-extruder-setup-pending ] && grep -q ac0000000005 $C12/wm_zru_thr0.cfg"
+check "--extruder-setup: the warning to look at the printer and the docks is always shown" "grep -q 'IMPORTANT: look at the printer now' $T/cm2.out && grep -q 'All four tool heads must hang in their docks' $T/cm2.out"
+WM_TEST_MATCH=apply WM_TEST_MATCH_ARG="ID0=ac0000000008 ID1=ac0000000009 ID2=ac0000000005 ID3=ac0000000007" WM_HOME="$G12" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --extruder-setup > "$T/cm3.out" 2>&1
+check "--extruder-setup: the dock order found by the printer is written into thr0..thr3, then it is done" "grep -q ac0000000008 $C12/wm_zru_thr0.cfg && grep -q ac0000000009 $C12/wm_zru_thr1.cfg && grep -q ac0000000005 $C12/wm_zru_thr2.cfg && grep -q ac0000000007 $C12/wm_zru_thr3.cfg && grep -q 'dock order now' $T/cm3.out && [ ! -f $G12/printer_data/.wm-extruder-setup-pending ]"
+WM_TEST_MATCH=same WM_HOME="$G12" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --extruder-setup > "$T/cm4.out" 2>&1
+check "--extruder-setup: every tool came out of its own dock: nothing changes, done" "grep -q 'own dock: the ids are right' $T/cm4.out && [ ! -f $G12/printer_data/.wm-extruder-setup-pending ] && grep -q ac0000000008 $C12/wm_zru_thr0.cfg"
+check "the installer README and header list --extruder-setup" "grep -q -- '--extruder-setup' $ROOT/README.md && grep -q -- '--extruder-setup' $ROOT/installer.sh"
 G6="$T/g6"; mkdir -p "$G6"; WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G6" --from-github --model ultra-s --no-start >/dev/null
 sed -i 's/^\[include zru-s.cfg\]/# [include zru-s.cfg]/' "$G6/printer_data/config/printer.cfg"
 check "validator: ultra-s with zru-s off is an error" "! WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G6 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --first-start"

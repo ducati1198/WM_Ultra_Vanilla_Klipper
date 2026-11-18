@@ -14,6 +14,7 @@
 # ./installer.sh --free-space          list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # ./installer.sh --zr-tools            check the ZR Tools macros (for the screen board), install them when missing
 # ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
+# ./installer.sh --extruder-setup        Extruder Setup: picks up T0-T3 and puts the tool head CAN ids in dock order (required after the ids were found by firmware name)
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
@@ -219,6 +220,7 @@ while [ $# -gt 0 ]; do
         --free-space)   MODE=freespace ;;   # list what is safe to erase, erase what you pick and confirm
         --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
         --cfg-merge)    MODE=cfgmerge ;;  # WonderMaker's printer.cfg changes merged into the Pi's printer.cfg
+        --extruder-setup) MODE=extsetup ;;   # Extruder Setup (pick up T0-T3, put the tool head ids in dock order); forced after the ids were found by firmware name
         --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
         --import-settings) MODE=importset; IMPORT_HOST="${2:-}"; [ $# -gt 1 ] && shift ;;
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
@@ -1101,7 +1103,7 @@ cell_version() {   # the firmware name the board reports to Klipper (empty when 
     api_get '/printer/objects/query?mcu%20CELL' | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["status"]["mcu CELL"]["mcu_version"])' 2>/dev/null
 }
 cell_uuid() {   # the CAN id in [mcu CELL] (empty when none or only the installer's placeholder)
-    local u; u="$(grep -rhA8 '^\[mcu CELL\]' "$(cfg_dir)" 2>/dev/null | awk -F': *' '/canbus_uuid/{print $2; exit}' | tr -d ' \r')"
+    local u; u="$(grep -rhA8 --include='*.cfg' '^\[mcu CELL\]' "$(cfg_dir)" 2>/dev/null | awk -F': *' '/canbus_uuid/{print $2; exit}' | tr -d ' \r')"
     case "$u" in ""|??0000000000) return 0 ;; esac; echo "$u"
 }
 step_load_cell() {   # end of a full install: is the load cell board on firmware V2? if not, offer the flash (wm-load-cell-mcu asks once itself)
@@ -2226,7 +2228,7 @@ fill_blank_uuids() {  # the factory files ship empty "canbus_uuid:" for T0-T3 an
         sed -i -E "s/^([[:space:]]*canbus_uuid[[:space:]]*:)[[:space:]]*(#.*)?\r?$/\1 b${n}0000000000/" "$f"
         changed=$((changed+1))
     done
-    [ "$changed" = 0 ] || print_info "$changed device(s) had an empty canbus_uuid, which makes Klipper stop with 'Duplicate canbus_uuid'. Each now has a placeholder (b00000000000, b10000000000, ... b40000000000 for the load cell). Set the real one once the toolhead is connected: scripts/read_write_can_id.sh <0-3> 1 <uuid>, or Fluidd (a copy of the old files: $BACKUP_ROOT/uuid-$STAMP)."
+    [ "$changed" = 0 ] || print_info "$changed device(s) had an empty canbus_uuid, which makes Klipper stop with 'Duplicate canbus_uuid'. Each now has a placeholder (b00000000000, b10000000000, ... b40000000000 for the load cell). Run ./installer.sh --can-ids once the boards are connected: it finds the real ids by the firmware name each board reports (a copy of the old files: $BACKUP_ROOT/uuid-$STAMP)."
 }
 found_uuids() { can_query_raw | grep -oiE 'canbus_uuid=[0-9a-f]{12}' | cut -d= -f2 | tr 'A-F' 'a-f' | sort -u; }
 found_uuids_retry() {   # right after can0 comes up the first query can come back empty: ask up to 3 times, 2 s apart (no waiting in tests)
@@ -2485,6 +2487,96 @@ fix_all_dev_uuids() {  # $1 = ids on the bus : every device whose config id is n
     [ "$fixed" -gt 0 ] && echo "  Klipper reads the ids when it starts: restart it (sudo systemctl restart klipper) for the change to count."
     return $rc
 }
+canmatch_py() { echo "$SCRIPT_DIR/scripts/wm_canmatch.py"; }
+canmatch_pending() { echo "$HOME_DIR/printer_data/.wm-extruder-setup-pending"; }   # exists from the moment the tool head ids were written in id order until Extruder Setup has put them in dock order
+can_match_boards() {  # finds every board by the firmware name it reports and writes all ids (copies go to $BACKUP_ROOT/uuid-*). 0 = written. Klipper must not be running.
+    local py="$HOME_DIR/klippy-env/bin/python" out rc
+    [ -f "$(canmatch_py)" ] || return 1
+    if [ "$TESTING" = 1 ]; then [ -n "${WM_TEST_CANMATCH:-}" ] || return 1; py=python3; fi
+    [ -x "$py" ] || py=python3
+    if [ "$DRY" = 1 ]; then print_info "dry run: the boards would be looked up by the firmware name each one reports"; return 1; fi
+    echo "  Looking the boards up by the firmware name each one reports (about 1 minute) ..."
+    out="$(WM_CANMATCH_FAKE="${WM_TEST_CANMATCH:-}" "$py" "$(canmatch_py)" run --config-dir "$(cfg_dir)" --backup-dir "$BACKUP_ROOT/uuid-$STAMP" --klipper-dir "$HOME_DIR/klipper" --python "$HOME_DIR/klippy-env/bin/python" --apply 2>&1)"; rc=$?
+    echo "$out" | grep -v '^RESULT' | sed 's/^/  /'
+    [ "$rc" = 0 ] || return 1
+    mkdir -p "$HOME_DIR/printer_data"; : > "$(canmatch_pending)"
+    return 0
+}
+extruder_setup_outcome() {  # $1 = start time (epoch): reads Fluidd's console since then. Prints "wait|", "same|", "apply|ID0=.. ID1=.. ID2=.. ID3=..", "dup|text", "stop|reason" or "error|text"
+    api_get '/server/gcode_store?count=120' | python3 -c '
+import sys, json, re
+t0 = float(sys.argv[1]); out = ("wait", ""); stop = False
+for m in json.load(sys.stdin)["result"]["gcode_store"]:
+    if m["time"] < t0: continue
+    s = m["message"]
+    if "_WM_MATCH_APPLY ID0=" in s:
+        g = re.search(r"(ID0=\S+ ID1=\S+ ID2=\S+ ID3=\S+)", s); out = ("apply", g.group(1) if g else "")
+    elif "prompt_text Every tool came out of its own dock" in s: out = ("same", "")
+    elif "would get the same CAN id" in s: out = ("dup", s.split("prompt_text ", 1)[-1])
+    elif "action:prompt_begin Matching stopped" in s: stop = True
+    elif stop and "action:prompt_text" in s: out = ("stop", s.split("prompt_text ", 1)[-1]); stop = False
+    elif s.startswith("!!") and out[0] == "wait": out = ("error", s)
+print(out[0] + "|" + out[1])' "$1" 2>/dev/null
+}
+step_extruder_setup() {  # REQUIRED after the ids were found by firmware name: the four tool head ids are in id order, not in dock order. The user can only accept the warning and look at the printer.
+    [ -f "$(canmatch_pending)" ] || return 0
+    print_header "Extruder Setup (required)"
+    why "The four tool heads report the same firmware name, so the installer could not tell which id belongs to which tool head. Extruder Setup picks up T0 to T3 one after another, sees which dock each one came out of and puts the ids in the right order."
+    local interactive=1
+    if [ "$TESTING" = 1 ]; then [ -n "${WM_TEST_MATCH:-}" ] || interactive=0
+    elif [ "${WM_ASSUME_YES:-0}" = 1 ] || [ ! -t 0 ]; then interactive=0; fi
+    if [ "$interactive" = 0 ]; then
+        print_warning "Extruder Setup was NOT done: it moves the printer, so it needs you at the printer. Look at the printer, hang all four tool heads in their docks, then run it in Fluidd (WM_EXTRUDER_SETUP, button Set Up) or run ./installer.sh --extruder-setup."
+        warn_later "Extruder Setup is still to do (the tool head ids are in id order, not in dock order): hang all four tool heads in their docks, then ./installer.sh --extruder-setup"
+        return 1
+    fi
+    if [ "$TESTING" != 1 ] && [ "$(klippy_state)" != ready ]; then   # the throw-away connections of the board matching can leave the main board in a shutdown state: one firmware restart clears it
+        echo "  Klipper is '$(klippy_state)': restarting the firmware once ..."
+        curl -s -m 20 -X POST http://127.0.0.1:7125/printer/firmware_restart >/dev/null 2>&1; sleep 5
+        wait_klipper_ready || { print_error "Klipper does not become ready (state: ${WAIT_ST:-unknown}), so Extruder Setup cannot run."; warn_later "Extruder Setup is still to do, Klipper was not ready: fix that, then ./installer.sh --extruder-setup"; return 1; }
+    fi
+    echo
+    echo -e "  ${RED}IMPORTANT: look at the printer now.${NC}"
+    echo "    - All four tool heads must hang in their docks. No tool head on the carriage."
+    echo "    - Heaters off, the tool heads cold, nothing in the way of the carriage."
+    echo "    - The printer will home, then pick up T0, T1, T2 and T3 one after another (about 2 minutes). Do not touch it while it runs."
+    echo
+    if [ "$TESTING" != 1 ]; then read -r -p "  Press Enter when you have looked at the printer and all four tool heads hang in their docks: " _ || true; fi
+    local t0 res kind arg i
+    t0="$(date +%s)"
+    if [ "$TESTING" = 1 ]; then res="${WM_TEST_MATCH}|${WM_TEST_MATCH_ARG:-}"
+    else
+        ( curl -s -m 900 -X POST "http://127.0.0.1:7125/printer/gcode/script?script=_WM_MATCH_RUN" >/dev/null 2>&1 & )
+        echo "  Extruder Setup is running ..."
+        res="wait|"
+        for i in $(seq 1 200); do
+            sleep 3; res="$(extruder_setup_outcome "$t0")"; [ "${res%%|*}" = wait ] || break
+            [ $(( i % 10 )) -eq 0 ] && echo -e "  ${DIM}... still running ($(( i * 3 )) s)${NC}"
+        done
+    fi
+    kind="${res%%|*}"; arg="${res#*|}"
+    case "$kind" in
+        same) print_success "Every tool head came out of its own dock: the ids are right." ;;
+        apply)
+            echo "  The tool heads did not come out in id order: writing the right order and restarting the firmware ..."
+            if [ "$TESTING" = 1 ]; then python3 "$SCRIPT_DIR/scripts/wm_canids.py" --config "$(cfg_dir)" apply $(echo "$arg" | sed -E 's/ID[0-3]=//g') >/dev/null 2>&1
+            else curl -s -m 60 -G -X POST --data-urlencode "script=_WM_MATCH_APPLY $arg" http://127.0.0.1:7125/printer/gcode/script >/dev/null 2>&1; sleep 5; wait_klipper_ready || true; fi
+            print_success "The tool head ids are in dock order now." ;;
+        *)
+            print_error "Extruder Setup did not finish${arg:+: $arg}"
+            echo "  Nothing was written. Look at the printer (a tool head may still be on the carriage), hang all four in their docks, then run ./installer.sh --extruder-setup"
+            warn_later "Extruder Setup did not finish${arg:+ ($arg)}: ./installer.sh --extruder-setup"
+            return 1 ;;
+    esac
+    rm -f "$(canmatch_pending)"
+    return 0
+}
+do_extruder_setup_cmd() {  # --extruder-setup
+    guard_not_printing
+    [ "$(klippy_state)" = ready ] || [ "$TESTING" = 1 ] || die_with_fix "Klipper is not ready (state: $(klippy_state))." "./installer.sh --first-start, then run this again."
+    : > "$(canmatch_pending)"   # the setup is required: the file stays until it has finished
+    step_extruder_setup
+}
 do_can_ids() {  # --can-ids [set NAME UUID] : show which config ids answer on the CAN bus, offer to correct wrong ones, or set one by hand
     guard_not_printing
     print_header "CAN ids of the boards"
@@ -2512,9 +2604,13 @@ do_can_ids() {  # --can-ids [set NAME UUID] : show which config ids answer on th
             else printf '  %-16s %s   NOT on the bus\n' "$(can_dev_name "$f")" "$u"; fi
         done < <(cfg_uuids)
         if [ -z "$(can_missing_devs "$found")" ]; then print_success "Every id in the config answers."
-        else fix_all_dev_uuids "$found" || true; fi
+        else
+            if ask_yn "Find every board by the firmware name it reports and write all ids? (recommended, about 1 minute)" y && can_match_boards; then
+                print_success "The ids were found by firmware name and written. The tool head order still has to be fixed by Extruder Setup."
+            else fix_all_dev_uuids "$found" || true; fi
+        fi
     fi
-    if [ "$restart" = 1 ]; then SUDO systemctl start klipper; echo "Klipper started again."; fi
+    if [ "$restart" = 1 ]; then SUDO systemctl start klipper; echo "Klipper started again."; [ -f "$(canmatch_pending)" ] && { wait_klipper_ready || true; step_extruder_setup || true; }; fi
     return 0
 }
 
@@ -2544,9 +2640,13 @@ hw_checks() {  # $1 = quiet header flag
         if [ -z "$found" ]; then chk_fail "nothing answers on the CAN bus" "Main board powered? Toolhead hub powered? CAN cable?"
         else
             chk_ok "CAN devices answering: $(echo $found | tr ' ' ',')"
-            local mcu="$(cfg_dir)/wm_zru_mcu.cfg" have
+            local mcu="$(cfg_dir)/wm_zru_mcu.cfg" have matched=0
             have="$(awk '{print $2}' < <(cfg_uuids | grep "/wm_zru_mcu.cfg "))"
-            if [ -z "$have" ]; then chk_warn "wm_zru_mcu.cfg has no canbus_uuid"
+            if [ -n "$(can_missing_devs "$found")" ] || ! echo "$found" | grep -qx "${have:-none}"; then   # an id in the config is not on the bus (placeholders always are): find every board by its firmware name
+                if can_match_boards; then matched=1; chk_ok "every board was found by its firmware name and its id written (copies: $BACKUP_ROOT/uuid-$STAMP). The tool head order is fixed by Extruder Setup right after Klipper starts."; fi
+            fi
+            if [ "$matched" = 1 ]; then :
+            elif [ -z "$have" ]; then chk_warn "wm_zru_mcu.cfg has no canbus_uuid"
             elif echo "$found" | grep -qx "$have"; then chk_ok "main board uuid $have matches the config"
             else fix_main_uuid "$have" "$found"; fi
             local f u; while read -r f u; do
@@ -2575,13 +2675,14 @@ start_all_services() {
         crowsnest_follow_camera || print_info "No camera found, so the webcam service stays off. Plug one in and run First start again."
     fi
     SUDO systemctl enable klipper; SUDO systemctl restart klipper
-    if [ "$TESTING" = 1 ] || [ "$DRY" = 1 ]; then print_success "Klipper enabled and started (test)"; return 0; fi
+    if [ "$TESTING" = 1 ] || [ "$DRY" = 1 ]; then print_success "Klipper enabled and started (test)"; [ "$DRY" = 1 ] || step_extruder_setup || true; return 0; fi
     local st=""; wait_klipper_ready; st="$WAIT_ST"
     case "$st" in
         ready) print_success "Klipper is ready: the printer is connected." ;;
         startup|"") print_warning "Klipper is still starting (state: ${st:-unknown}). Watch: journalctl -u klipper -f" ;;
         *) print_warning "Klipper reports '$st'. Look at Fluidd or: journalctl -u klipper -n 40"; warn_later "Klipper state after start: $st" ;;
     esac
+    step_extruder_setup || true   # only when the board matching wrote the tool head ids: required, the user can only accept the warning
 }
 
 do_first_start() {
@@ -3147,6 +3248,10 @@ do_doctor() {
     fi
     if rpicfg_included rpi_base.cfg && grep -qE '^\[(homing_override|idle_timeout|gcode_macro z_rise)\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; then
         doc_bad "printer.cfg still has its own homing / idle timeout sections, and rpi_base.cfg has them too" "They live in rpi_base.cfg; the ones in printer.cfg win. Run ./installer.sh --cfg-merge to take them out of printer.cfg (it asks first)."
+    fi
+    if [ -f "$(canmatch_pending)" ]; then
+        doc_bad "Extruder Setup has not been done since the CAN ids were found by firmware name: the tool head ids may be in the wrong order" "Hang all four tool heads in their docks first. It picks up T0 to T3 and puts the ids in dock order."
+        offer_fix "run Extruder Setup now (the printer moves: all four tool heads must hang in their docks)" step_extruder_setup
     fi
     if [ -n "$(wifi_dev)" ] && nm_active; then
         if wifi_ok; then doc_ok "Wi-Fi: power saving is off"
@@ -4085,6 +4190,7 @@ case "$MODE" in
     pidcfg)     do_pidcfg; exit $? ;;
     importset)  do_import_settings; exit $? ;;
     canids)     do_can_ids; exit $? ;;
+    extsetup)   do_extruder_setup_cmd; exit $? ;;
     cfgmerge)   do_cfgmerge; exit $? ;;
     freespace)  do_free_space; exit $? ;;
     doctor)     do_doctor; exit $? ;;
@@ -4134,6 +4240,7 @@ self_test
 pi_sensors_in_flow
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi   # last: enabling and starting the services
 step_load_cell   # after Klipper runs: the load cell board on firmware V2? (a full install only, never an update)
+[ -f "$(canmatch_pending)" ] && warn_later "Extruder Setup has NOT been done yet, so the tool head ids may be in the wrong order: hang all four tool heads in their docks, then ./installer.sh --extruder-setup (or WM_EXTRUDER_SETUP in Fluidd)"
 
 print_header "Done"
 [ "$PROG_STEPS" -gt 0 ] && progress_bar 100 100 "All $PROG_STEPS steps finished"

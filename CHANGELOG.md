@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.20.0
+
+The installer finds the CAN ids of every board by itself, and Extruder Setup is required after it.
+
+- **CAN boards are matched by the firmware name each board reports (F-140).** `scripts/wm_canmatch.py` (new) asks the bus which ids answer (five scans, because the load cell answers only now and then), connects to each id with a throw-away Klipper and reads the firmware name from its log: `KLP_MCU_` main board, `KLP_HUB_` hub, `KLP_EXT_` extruder board, `KLP_CELL_` load cell (factory firmware and V2 both), `KLP_THR_` tool head. The first start (when an id in the config is not on the bus, placeholders always are) and `--can-ids` now write the main board, hub, extruder board and load cell ids and the four tool head ids in id order, with no stored id and no factory screen. If a board is missing, two look the same, or a board answers only from its bootloader, nothing is written and the problem board is named. A copy of every changed file goes to `~/wm-rpi-backup/uuid-<time>/`.
+- **Extruder Setup is required after that, and cannot be skipped (new `--extruder-setup`).** The four tool heads report the same firmware name, so their order is not known. Right after Klipper starts the installer shows a warning (look at the printer, all four tool heads in their docks, heaters off and cold, nothing in the way) and you can only press Enter; then it runs the screen's Extruder Setup (`_WM_MATCH_RUN`), waits for the result, and writes the dock order itself (`_WM_MATCH_APPLY`) when the tools did not come out in id order. It also restarts the firmware once when the main board is "shutdown" from the throw-away connections. A run that stops writes nothing and says why. Until it is done, `--doctor` and the end of the install say so (marker file `~/printer_data/.wm-extruder-setup-pending`). Unattended runs (`--yes`, Fluidd's Update) never move the printer: they say it is still to do.
+- **The load cell lookup (`cell_uuid`) reads only real `*.cfg` files**, not the copies named `*.cfg.wm-before-...` next to them (a copy with the old placeholder was found first on the dev Pi and the CELL scripts used the wrong id).
+- Tests: 20 new checks (matching, missing/duplicate/bootloader-only boards, copies outside the config folder, first start, forced Extruder Setup, doctor).
+
 ## 2.19.1
 
 The Wi-Fi watchdog is removed.
