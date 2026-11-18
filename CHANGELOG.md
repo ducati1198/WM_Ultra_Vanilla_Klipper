@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.18.0
 
 - **Load cell board firmware V2 in the install (item 45).** A full install now ends with a check of the load cell board (CELL): when the board is not on the newest patched firmware of the project [wm-load-cell-mcu](https://github.com/ducati1198/wm-load-cell-mcu), the installer downloads that project into `~/wm-load-cell-mcu` and runs its flash script (it shows the plan and asks once; a factory bootloader is replaced in software first). A board that already runs V2 is left alone. Never in an update, never without an answer (`--yes` and Fluidd's Update button only note it), skipped with `--no-load-cell`. New `./installer.sh --load-cell` and **Advanced → Load cell board** open the project's menu (flash V2, factory firmware, restore the original bootloader, check the bootloader, update). New functions `step_load_cell`, `do_load_cell`, `cell_get`; 9 new tests.
 
