@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Wi-Fi watchdog can now recover a hung Wi-Fi chip (F-136).** `scripts/wm-wifi-watchdog`. On 2026-11-18 the radio command timed out and the driver reload failed with `Module brcmfmac is in use` (NetworkManager and wpa_supplicant held wlan0), so the Pi stayed off the network until a power cycle. The radio commands are now time-limited; the driver reload stops NetworkManager and wpa_supplicant first, removes `brcmfmac_wcc` and `brcmfmac`, unbinds and rebinds the SDIO host, and always starts NetworkManager again. New `sudo wm-wifi-watchdog --reload-now` runs the reload once. Tested on a Pi 400 (Wi-Fi back in about 10 s); a real chip hang could not be forced.
+
 - **Webcams: Moonraker restarts as soon as a new `[webcam Camera N]` section is written (F-135).** `installer.sh`, new `moonraker_reload_webcams`. On the dev Pi `crowsnest.conf` had two cameras and `moonraker.conf` had `[webcam Camera 2]`, but Fluidd listed one because Moonraker had started before the section was written. Moonraker is now restarted right after the write (when its service exists; not in a dry run). Test added (it also passes on the old code, so it guards the restart but does not reproduce the miss).
 
 - **Panel backups (item 36b).** The ACE panel installer 1.16.0 writes its undo folders, the saved original Fluidd, its Fluidd copies and its macro lists straight into `~/ultra-backup` (`installer/acepro-panel`, `fluidd-page`, `fluidd-macros`) and moves its old folders there once. The backup helper never prunes `installer/acepro-panel` (new test), and **Remove > ACE Pro** looks for its saved copies there first (the old `~/acepro-backup` as fallback). README section "One folder for every backup" updated.
