@@ -578,13 +578,30 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
 moonraker_py() { echo "$SCRIPT_DIR/scripts/wm_moonraker_conf.py"; }
 light_py() { echo "$SCRIPT_DIR/scripts/wm_light_conf.py"; }
 light_url() { [ -f "$(light_py)" ] && python3 -I "$(light_py)" url "$HOME_DIR/printer_data/config/rpi_chamber_light.json" 2>/dev/null; }
+step_light_watch() {   # the screen board announces its chamber light (rpi_chamber_light.json) some minutes after an install, when its own service has started: wm-light.path sees the file and runs ./installer.sh --light --yes, so nobody has to remember it
+    [ -f "$SCRIPT_DIR/installer.sh" ] || return 0
+    local user cfg pth svc; user="$(id -un)"; cfg="$HOME_DIR/printer_data/config/rpi_chamber_light.json"; pth="$(mktemp)"; svc="$(mktemp)"
+    printf '[Unit]\nDescription=Set up the chamber light when the screen board announces it\n\n[Path]\nPathChanged=%s\nUnit=wm-light.service\n\n[Install]\nWantedBy=multi-user.target\n' "$cfg" > "$pth"
+    printf '[Unit]\nDescription=WM Ultra installer: chamber light for the screen board (log: ~/wm-light.log)\n\n[Service]\nType=oneshot\nUser=%s\nEnvironment=HOME=%s\nWorkingDirectory=%s\nExecStart=/bin/bash -c "./installer.sh --light --yes >> %s/wm-light.log 2>&1"\n' "$user" "$HOME_DIR" "$SCRIPT_DIR" "$HOME_DIR" > "$svc"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm-light.path (sets up the chamber light by itself when the screen board announces it)${NC}"; rm -f "$pth" "$svc"; return 0; fi
+    if [ "$TESTING" = 1 ]; then mkdir -p "$HOME_DIR/.wm-units"; cp "$pth" "$HOME_DIR/.wm-units/wm-light.path"; cp "$svc" "$HOME_DIR/.wm-units/wm-light.service"; fi
+    if ! cmp -s "$pth" /etc/systemd/system/wm-light.path 2>/dev/null || ! cmp -s "$svc" /etc/systemd/system/wm-light.service 2>/dev/null || [ "$TESTING" = 1 ]; then
+        SUDO install -m 644 "$pth" /etc/systemd/system/wm-light.path
+        SUDO install -m 644 "$svc" /etc/systemd/system/wm-light.service
+        record "FILE /etc/systemd/system/wm-light.path"; record "FILE /etc/systemd/system/wm-light.service"
+        SUDO systemctl daemon-reload
+    fi
+    SUDO systemctl enable --now wm-light.path
+    rm -f "$pth" "$svc"
+}
 step_light() {   # ./installer.sh --light, and in every install and update: the chamber light as a Moonraker power device
     print_header "Chamber light"
+    step_light_watch
     why "The chamber light hangs on the screen board. As the Moonraker power device chamber_light it is switched by the Fluidd Toolheads card, by the Light buttons on the touchscreen and by the macro WM_CHAMBER_LIGHT, and all three always show the same state. A print turns it on at its start. The board tells the Pi its address by itself (rpi_chamber_light.json), so this step only works once a screen board is installed and has started."
     local cd="$HOME_DIR/printer_data/config" conf="$HOME_DIR/printer_data/config/moonraker.conf" cfg="$HOME_DIR/printer_data/config/printer.cfg" url rc
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [power chamber_light] to moonraker.conf and WM_CHAMBER_LIGHT (rpi_pi.cfg) when a screen board has announced its light service${NC}"; return 0; fi
     url="$(light_url)"
-    if [ -z "$url" ]; then print_info "No screen board has announced its chamber light yet (rpi_chamber_light.json is not in the config folder): nothing to set up. After the screen board is installed run ./installer.sh --light"; return 0; fi
+    if [ -z "$url" ]; then print_info "The screen board has not announced its chamber light yet (rpi_chamber_light.json is not in the config folder). Nothing to do: the Pi sets the light up by itself when the board announces it (wm-light.path; log ~/wm-light.log)."; return 0; fi
     [ -f "$conf" ] && [ -f "$cfg" ] && [ -f "$SCRIPT_DIR/config/rpi_light.cfg" ] || { print_info "moonraker.conf, printer.cfg or config/rpi_light.cfg is missing: chamber light not set up"; return 0; }
     python3 -I "$(light_py)" conf "$conf" "$url"; rc=$?
     case "$rc" in
@@ -1078,8 +1095,11 @@ step_can() {
     why "The main board shows up as can0 (1 Mbit). This rule brings it up when the board is plugged in."
     SUDO install -m 644 "$SCRIPT_DIR/config/99-wm-can0.rules" /etc/udev/rules.d/99-wm-can0.rules
     record "FILE /etc/udev/rules.d/99-wm-can0.rules"
+    SUDO install -m 644 "$SCRIPT_DIR/config/99-wm-no-modemmanager.rules" /etc/udev/rules.d/99-wm-no-modemmanager.rules
+    record "FILE /etc/udev/rules.d/99-wm-no-modemmanager.rules"
     SUDO udevadm control --reload-rules
     print_success "can0 rule installed"
+    print_success "ModemManager is told to leave the ACE Pro and the Klipper boards alone (it probed the ACE every 3.5 s while Klipper was stopped)"
 }
 
 
@@ -2110,12 +2130,16 @@ step_start() {
     fi
 }
 
-step_fluidd_categories() {   # the ACE Pro project sets the Fluidd macro categories through Moonraker; at its install step Moonraker is not running yet, so it is repeated here (it never changes categories you set yourself)
-    [ "$WANT_ACEPRO" = 1 ] && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ -f "$(ace_dir)/installer.sh" ] || return 0
+step_fluidd_categories() {   # runs once Klipper is up (the macro names are only known after Klipper has loaded them). The ACE Pro project does the work through Moonraker; it creates Fluidd's macro settings itself when Fluidd was never opened.
+    { [ "$WANT_ACEPRO" = 1 ] || ace_installed; } && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ -f "$(ace_dir)/installer.sh" ] || return 0
     print_header "Fluidd macro categories"
-    why "Moonraker is running now, so the macro categories can be set up (they could not be at the ACE Pro step). A macro you moved, recoloured, renamed or hid yourself is never changed."
-    if ace_run_installer --fluidd-categories >/dev/null 2>&1 && api_get "/server/database/item?namespace=fluidd&key=macros" | grep -q '"stored"'; then print_success "Fluidd macro categories set up"
-    else warn_later "The Fluidd macro categories were not stored (Fluidd creates its settings when it is opened for the first time). Open Fluidd once, then run: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh --fluidd-categories"; fi
+    why "Fluidd lists every macro in one long row. Klipper is running now, so the macros are known and can be put into coloured categories. Nothing needs to be opened in Fluidd first. A macro you moved, recoloured, renamed or hid yourself is never changed."
+    if [ "$(klippy_state)" != ready ]; then
+        warn_later "The Fluidd macro categories are not set up: Klipper is not ready. When it is, run: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh --fluidd-categories"; return 0
+    fi
+    local out; out="$(ace_run_installer --fluidd-categories 2>&1)"; echo "$out" | tail -4 | sed 's/^/  /'
+    if api_get "/server/database/item?namespace=fluidd&key=macros" | grep -q '"stored"'; then print_success "Fluidd macro categories set up"
+    else warn_later "The Fluidd macro categories were not stored. Run: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh --fluidd-categories"; fi
 }
 
 questions() {
@@ -2186,6 +2210,7 @@ can_query_raw() {
 power_flags() { [ "$TESTING" = 1 ] && { echo "${WM_TEST_THROTTLED:-0x0}"; return; }; vcgencmd get_throttled 2>/dev/null | sed 's/.*=//'; }
 ntp_ok()      { [ "$TESTING" = 1 ] && { return 0; }; [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ]; }
 api_get() {  # path -> body (empty on failure)
+    if [ "$TESTING" = 1 ] && [ -n "${WM_TEST_STORE:-}" ] && [ "${1#/server/gcode_store}" != "$1" ]; then cat "$WM_TEST_STORE"; return 0; fi   # test: a recorded Fluidd console
     if [ "$TESTING" = 1 ]; then [ "${WM_TEST_MOONRAKER:-1}" = 1 ] && echo '{"result":{"klippy_state":"'"${WM_TEST_KLIPPY:-ready}"'","moonraker_version":"test"}}'; return 0; fi
     curl -fsS -m 4 "http://127.0.0.1:7125$1" 2>/dev/null
 }
@@ -2510,7 +2535,7 @@ for m in json.load(sys.stdin)["result"]["gcode_store"]:
     if m["time"] < t0: continue
     s = m["message"]
     if "_WM_MATCH_APPLY ID0=" in s:
-        g = re.search(r"(ID0=\S+ ID1=\S+ ID2=\S+ ID3=\S+)", s); out = ("apply", g.group(1) if g else "")
+        g = re.search(r"(ID0=[0-9a-f]{12} ID1=[0-9a-f]{12} ID2=[0-9a-f]{12} ID3=[0-9a-f]{12})", s, re.I); out = ("apply", g.group(1) if g else "")
     elif "prompt_text Every tool came out of its own dock" in s: out = ("same", "")
     elif "would get the same CAN id" in s: out = ("dup", s.split("prompt_text ", 1)[-1])
     elif "action:prompt_begin Matching stopped" in s: stop = True
@@ -2523,7 +2548,7 @@ step_extruder_setup() {  # REQUIRED after the ids were found by firmware name: t
     print_header "Extruder Setup (required)"
     why "The four tool heads report the same firmware name, so the installer could not tell which id belongs to which tool head. Extruder Setup picks up T0 to T3 one after another, sees which dock each one came out of and puts the ids in the right order."
     local interactive=1
-    if [ "$TESTING" = 1 ]; then [ -n "${WM_TEST_MATCH:-}" ] || interactive=0
+    if [ "$TESTING" = 1 ]; then [ -n "${WM_TEST_MATCH:-}${WM_TEST_STORE:-}" ] || interactive=0
     elif [ "${WM_ASSUME_YES:-0}" = 1 ] || [ ! -t 0 ]; then interactive=0; fi
     if [ "$interactive" = 0 ]; then
         print_warning "Extruder Setup was NOT done: it moves the printer, so it needs you at the printer. Look at the printer, hang all four tool heads in their docks, then run it in Fluidd (WM_EXTRUDER_SETUP, button Set Up) or run ./installer.sh --extruder-setup."
@@ -2544,7 +2569,8 @@ step_extruder_setup() {  # REQUIRED after the ids were found by firmware name: t
     if [ "$TESTING" != 1 ]; then read -r -p "  Press Enter when you have looked at the printer and all four tool heads hang in their docks: " _ || true; fi
     local t0 res kind arg i
     t0="$(date +%s)"
-    if [ "$TESTING" = 1 ]; then res="${WM_TEST_MATCH}|${WM_TEST_MATCH_ARG:-}"
+    if [ "$TESTING" = 1 ] && [ -n "${WM_TEST_STORE:-}" ]; then res="$(extruder_setup_outcome 0)"
+    elif [ "$TESTING" = 1 ]; then res="${WM_TEST_MATCH}|${WM_TEST_MATCH_ARG:-}"
     else
         ( curl -s -m 900 -X POST "http://127.0.0.1:7125/printer/gcode/script?script=_WM_MATCH_RUN" >/dev/null 2>&1 & )
         echo "  Extruder Setup is running ..."
@@ -2561,7 +2587,16 @@ step_extruder_setup() {  # REQUIRED after the ids were found by firmware name: t
             echo "  The tool heads did not come out in id order: writing the right order and restarting the firmware ..."
             if [ "$TESTING" = 1 ]; then python3 "$SCRIPT_DIR/scripts/wm_canids.py" --config "$(cfg_dir)" apply $(echo "$arg" | sed -E 's/ID[0-3]=//g') >/dev/null 2>&1
             else curl -s -m 60 -G -X POST --data-urlencode "script=_WM_MATCH_APPLY $arg" http://127.0.0.1:7125/printer/gcode/script >/dev/null 2>&1; sleep 5; wait_klipper_ready || true; fi
-            print_success "The tool head ids are in dock order now." ;;
+            local want got a b ok=1   # the ids really are in the files now? (the first install test printed "done" while the shell command had refused the ids)
+            got="$(python3 "$SCRIPT_DIR/scripts/wm_canids.py" --config "$(cfg_dir)" show 2>/dev/null | awk '{print $2}' | tr '\n' ' ')"
+            want="$(echo "$arg" | sed -E 's/ID[0-3]=//g') "
+            [ "$got" = "$want" ] || ok=0
+            if [ "$ok" = 1 ]; then print_success "The tool head ids are in dock order now."
+            else
+                print_error "The ids were NOT written. The files say: ${got:-nothing}  Expected: $want"
+                warn_later "Extruder Setup did not register the new tool head ids: run ./installer.sh --extruder-setup again, or WM_EXTRUDER_SETUP in Fluidd (Set Up, then Apply and restart)"
+                return 1
+            fi ;;
         *)
             print_error "Extruder Setup did not finish${arg:+: $arg}"
             echo "  Nothing was written. Look at the printer (a tool head may still be on the carriage), hang all four in their docks, then run ./installer.sh --extruder-setup"
@@ -2677,12 +2712,20 @@ start_all_services() {
     SUDO systemctl enable klipper; SUDO systemctl restart klipper
     if [ "$TESTING" = 1 ] || [ "$DRY" = 1 ]; then print_success "Klipper enabled and started (test)"; [ "$DRY" = 1 ] || step_extruder_setup || true; return 0; fi
     local st=""; wait_klipper_ready; st="$WAIT_ST"
+    if [ "$st" = error ] || [ "$st" = shutdown ]; then   # the throw-away connections of the board matching leave the main board in a shutdown state: one firmware restart clears it, so it is not reported as a failed start
+        echo "  Klipper is '$st' (normal after the board matching): restarting the firmware once ..."
+        curl -s -m 20 -X POST http://127.0.0.1:7125/printer/firmware_restart >/dev/null 2>&1; sleep 5
+        wait_klipper_ready; st="$WAIT_ST"
+    fi
     case "$st" in
         ready) print_success "Klipper is ready: the printer is connected." ;;
         startup|"") print_warning "Klipper is still starting (state: ${st:-unknown}). Watch: journalctl -u klipper -f" ;;
         *) print_warning "Klipper reports '$st'. Look at Fluidd or: journalctl -u klipper -n 40"; warn_later "Klipper state after start: $st" ;;
     esac
     step_extruder_setup || true   # only when the board matching wrote the tool head ids: required, the user can only accept the warning
+    if [ "$TESTING" != 1 ] && [ "$(klippy_state)" = ready ]; then   # the state may have changed since the check above: the last word is the state NOW
+        local keep=() w; for w in "${WARNINGS[@]}"; do case "$w" in "Klipper state after start:"*) ;; *) keep+=("$w") ;; esac; done; WARNINGS=("${keep[@]}")
+    fi
 }
 
 do_first_start() {
@@ -3306,6 +3349,40 @@ do_doctor() {
         [ "$hc" = 200 ] && doc_ok "Fluidd page opens" || { doc_bad "Fluidd page answers HTTP ${hc:-none}" "403 means nginx cannot read your home folder (Debian 12 makes it private)."; offer_fix "let nginx pass through the home folder" bash -c "chmod o+x '$HOME_DIR' && sudo systemctl reload nginx"; }
     fi
     [ -n "$(api_get /server/info)" ] && doc_ok "Moonraker API answers" || doc_bad "Moonraker API does not answer" "Last log lines: $(tail -n 3 "$HOME_DIR/printer_data/logs/moonraker.log" 2>/dev/null | tr '\n' ' ')"
+    if [ "$TESTING" != 1 ] && [ -d "$(ace_dir)" ] && ace_installed && [ "$(klippy_state)" = ready ]; then   # Fluidd macro categories (set by the ACE Pro project's script)
+        local fm; fm="$(api_get "/server/database/item?namespace=fluidd&key=macros" | python3 -c 'import sys,json;v=json.load(sys.stdin)["result"]["value"];print(len([c for c in v.get("categories",[]) if c.get("name")]))' 2>/dev/null)"
+        if [ "${fm:-0}" -gt 0 ] 2>/dev/null; then
+            local dr; dr="$(python3 -I "$(ace_dir)/scripts/wm_fluidd_categories.py" apply --dry-run --url http://127.0.0.1:7125 2>&1)"
+            case "$dr" in *"nothing new to sort"*) doc_ok "Fluidd macro categories are set" ;;
+                *"dry run"*) doc_bad "Fluidd macros: some macros are not in a category yet ($dr)" "Fluidd lists them in one long row."; offer_fix "sort the macros into categories" step_fluidd_categories ;;
+                *) doc_ok "Fluidd macro categories: could not be checked ($dr)" ;; esac
+        else doc_bad "Fluidd macro categories are not set up" "Fluidd lists every macro in one long row."; offer_fix "sort the macros into categories" step_fluidd_categories; fi
+    fi
+    # saved_variables safeguard: the timer runs and the script is the one of this repository
+    if [ "$TESTING" = 1 ] || { systemctl is-active --quiet wm-sv-guard.timer && cmp -s "$SCRIPT_DIR/scripts/wm_sv_guard.sh" "$HOME_DIR/printer_data/scripts/wm_sv_guard.sh"; }; then doc_ok "saved_variables safeguard: the timer runs (one good copy of saved_variables.cfg every 10 minutes)"
+    else doc_bad "saved_variables safeguard: the timer is not running, or its script is not the current one" "A power cut can leave saved_variables.cfg empty and Klipper then starts with no tool offsets."; offer_fix "install the safeguard" step_svguard; fi
+    # ModemManager must leave the ACE Pro and the Klipper boards alone
+    if [ "$TESTING" = 1 ] || cmp -s "$SCRIPT_DIR/config/99-wm-no-modemmanager.rules" /etc/udev/rules.d/99-wm-no-modemmanager.rules; then doc_ok "ModemManager is told to leave the ACE Pro and the Klipper boards alone"
+    else doc_bad "the udev rule that keeps ModemManager away from the ACE Pro and the Klipper boards is missing" "ModemManager probed the ACE Pro every 3.5 s while Klipper was stopped (the ACE kept reconnecting)."; offer_fix "install the rule" step_can; fi
+    if [ "$TESTING" = 1 ] || systemctl is-active --quiet wm-light.path; then doc_ok "chamber light: wm-light.path waits for the screen board's announcement (or the light is set up)"
+    else doc_bad "chamber light: wm-light.path is not running, so the light is not set up by itself when the screen board announces it" "The Light buttons would do nothing until you run ./installer.sh --light."; offer_fix "install it" step_light_watch; fi
+    # the board matching tool (a fresh install finds the CAN ids with it)
+    [ -f "$(canmatch_py)" ] && doc_ok "wm_canmatch.py (finds the CAN boards by firmware name) is in this folder" || doc_bad "scripts/wm_canmatch.py is missing from this folder" "A fresh install cannot tell the CAN boards apart. Run ./installer.sh --get-latest."
+    if [ "$TESTING" != 1 ]; then
+        local ks; ks="$(klippy_state)"
+        [ "$ks" = ready ] && doc_ok "Klipper is ready" || doc_bad "Klipper is '${ks:-not answering}'" "Look at Fluidd or: journalctl -u klipper -n 40. After a board matching: FIRMWARE_RESTART once."
+        if ace_installed; then
+            lsusb 2>/dev/null | grep -qi "28e9:018a" && doc_ok "ACE Pro found on USB" || doc_bad "the ACE Pro is installed in the config but no ACE Pro (28e9:018a) is on USB" "Plugged in? Powered? USB cable?"
+        fi
+        if [ -n "$(cell_uuid)" ] && [ "$ks" = ready ]; then
+            local cv; cv="$(cell_version)"
+            case "$cv" in
+                "") doc_ok "load cell board: firmware not readable now" ;;
+                *RPI_V2*) doc_ok "load cell board: firmware V2 ($cv)" ;;
+                *) doc_bad "load cell board runs $cv, not firmware V2" "The factory firmware can give a broken reading (false touches while calibrating tool offsets)."; offer_fix "flash firmware V2 (the load cell menu)" do_load_cell ;;
+            esac
+        fi
+    fi
     if can_exists && can_is_up && [ "$(service_state klipper)" != active ]; then
         local cf; cf="$(found_uuids)"
         if [ -z "$cf" ]; then echo -e "  ${DIM}[skip]${NC}    CAN ids not checked: nothing answers on the bus (printer off?)"
@@ -3485,6 +3562,7 @@ uninstall_system_files() {
     SUDO systemctl disable klipper; SUDO systemctl disable moonraker
     [ -f /etc/systemd/system/klipper-mcu.service ] && { SUDO systemctl stop klipper-mcu; SUDO systemctl disable klipper-mcu; }   # the host MCU this installer built
     [ -f /etc/systemd/system/wm-sv-guard.timer ] && { SUDO systemctl stop wm-sv-guard.timer; SUDO systemctl disable wm-sv-guard.timer; }   # the saved_variables.cfg safeguard
+    [ -f /etc/systemd/system/wm-light.path ] && { SUDO systemctl stop wm-light.path; SUDO systemctl disable wm-light.path; }   # the chamber light watcher
     [ -f /etc/systemd/system/wm-pi-update.path ] && { SUDO systemctl stop wm-pi-update.path; SUDO systemctl disable wm-pi-update.path; }   # Fluidd's Update button helper
     [ -f /etc/systemd/system/wm-panel-update.path ] && { SUDO systemctl stop wm-panel-update.path; SUDO systemctl disable wm-panel-update.path; }   # the same for the Fluidd panel
     [ -f /etc/systemd/system/wm-wifi-watchdog.service ] && { SUDO systemctl stop wm-wifi-watchdog; SUDO systemctl disable wm-wifi-watchdog; }   # the Wi-Fi watchdog (Wi-Fi power saving stays off: a NetworkManager setting of your connection)
@@ -4233,13 +4311,14 @@ PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
 step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
-step_fluidd_categories
-step_ultrabackup   # last, after the panel and the add-ons, which write backups of their own
+step_ultrabackup   # after the panel and the add-ons, which write backups of their own
 restart_klipper_after
 self_test
 pi_sensors_in_flow
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi   # last: enabling and starting the services
 step_load_cell   # after Klipper runs: the load cell board on firmware V2? (a full install only, never an update)
+step_fluidd_categories   # again, now that Klipper runs: the macro names are only known once Klipper has loaded them (the first try above runs before Klipper starts)
+step_ultrabackup   # again: the board matching, the load cell flash and the Wi-Fi step wrote backups after the first sweep
 [ -f "$(canmatch_pending)" ] && warn_later "Extruder Setup has NOT been done yet, so the tool head ids may be in the wrong order: hang all four tool heads in their docks, then ./installer.sh --extruder-setup (or WM_EXTRUDER_SETUP in Fluidd)"
 
 print_header "Done"

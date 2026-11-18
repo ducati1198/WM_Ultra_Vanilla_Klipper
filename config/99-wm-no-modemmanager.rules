@@ -1,0 +1,6 @@
+# WonderMaker: ModemManager must not probe the boards of the printer. It probed the ACE Pro (USB 28e9:018a) every 3.5 s while no Klipper held its port.
+# 28e9 = the ACE Pro and the MKS CAN adapter, 1d50 = boards running Klipper.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="28e9", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="28e9", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1d50", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1d50", ENV{ID_MM_DEVICE_IGNORE}="1"

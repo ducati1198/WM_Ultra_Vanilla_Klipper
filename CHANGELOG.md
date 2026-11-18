@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.20.1
+
+Found by the first fresh-SD install test (F-141): the end of the install told the truth too early, the Fluidd categories were not set up, and the doctor did not check them.
+
+- **Extruder Setup in the installer now writes the ids it found (F-141).** The ids were read from Fluidd's button line, which ends in `|primary`, so the last id was `ac...|primary`; the writer refused it, the installer restarted the firmware anyway and said "in dock order now" while nothing was written. Now only 12-digit ids are read, and after the apply the files are read back: when they do not hold the new ids it says so, warns and keeps Extruder Setup pending. 2 new tests use the real button line.
+- **The Fluidd macro categories are set up after Klipper is ready** (new place at the very end of the install). Before, they ran while Klipper was still stopped, so the macro names were unknown ("Moonraker did not answer (Not Found)") and the install said "open Fluidd once". Fluidd does not have to be opened first: the sorter creates Fluidd's macro settings itself. The panel's `--fluidd-categories` now waits up to 60 s for Klipper (panel 1.16.1).
+- **The doctor checks the Fluidd categories** and offers to sort the macros. New doctor checks: saved_variables safeguard (timer and current script), ModemManager rule, `wm_canmatch.py` present, Klipper state, ACE Pro on USB, load cell on firmware V2 (offers the load cell menu).
+- **Klipper's first state is no longer reported as an error.** The throw-away connections of the board matching leave the main board in a shutdown state; the start now does one firmware restart before it reports, and the last warning is dropped when Klipper is ready at the end (it said "error" although the printer was fine).
+- **`wm_sv_guard.sh` uses a temp file of its own and runs one at a time** (a lock). The install and the 10-minute timer both wrote `saved_variables.cfg.wm-good.tmp` and one failed with "File exists".
+- **New udev rule `99-wm-no-modemmanager.rules`:** ModemManager probed the ACE Pro (USB 28e9:018a) every 3.5 s while no Klipper held its port (258 reconnects in 10 minutes on the test Pi). The rule tells it to leave the ACE Pro, the MKS CAN adapter and Klipper boards (1d50) alone.
+- **The backup folder is swept a second time at the very end** of the install: the board matching and the Wi-Fi step write backups after the first sweep, and the doctor then reported "some backups are outside ~/ultra-backup" right after a fresh install.
+- **The chamber light is set up by itself (no doctor needed).** The screen board announces its light (`rpi_chamber_light.json`) some minutes after the install, when its own service has started, so the install found nothing. The installer now adds `wm-light.path`: it watches that file and runs `./installer.sh --light --yes` when it appears or changes (log `~/wm-light.log`). The doctor checks that it runs; the uninstall removes it.
+- **First Run Calibration no longer contains Extruder Setup (F-142).** It has 6 stages (bed leveling, rapid offsets, hot Z offsets, vibration compensation, bed and hotend PID, nozzle temperature) and asks for Save and Restart once, at the very end. The CAN ids of the tool heads are set by the installer's Extruder Setup (`WM_EXTRUDER_SETUP` when you need it again). The old second stage after a firmware restart (`_WM_FIRST_RUN_CAL_REST`, `variable_full`) is gone.
+- Tests: 16 new checks.
+
 ## 2.20.0
 
 The installer finds the CAN ids of every board by itself, and Extruder Setup is required after it.

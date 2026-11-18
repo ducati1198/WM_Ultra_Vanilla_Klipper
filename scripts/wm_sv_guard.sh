@@ -11,11 +11,15 @@ healthy() {   # a real file: over 1000 bytes and holding WonderMaker's tool posi
     [ -f "$1" ] && [ "$(stat -c %s "$1")" -gt 1000 ] && grep -q "^t0_position" "$1" && grep -q "^box_modify_t0 " "$1"
 }
 say() { mkdir -p "$(dirname "$LOG")" 2>/dev/null; echo "$(date "+%F %T") $*" >> "$LOG"; }
+# the install, the 10-minute timer and Klipper's stop can overlap: one run at a time, and a temp name of its own
+LOCK="${HOME}/printer_data/.wm_sv_guard.lock"
+if command -v flock >/dev/null 2>&1; then exec 9>"$LOCK" && flock -w 30 9; fi
 case "${1:-}" in
   backup)
     healthy "$F" || { say "backup skipped: live file not healthy"; exit 0; }
     cmp -s "$F" "$G" && exit 0
-    if cp "$F" "$G.tmp" && healthy "$G.tmp"; then mv -f "$G.tmp" "$G" && sync && say "backup saved"; else rm -f "$G.tmp"; say "backup failed"; fi
+    T="$(mktemp "$G.tmp.XXXXXX")" || { say "backup failed: no temp file"; exit 0; }
+    if cp "$F" "$T" && healthy "$T"; then mv -f "$T" "$G" && sync && say "backup saved"; else rm -f "$T"; say "backup failed"; fi
     ;;
   restore)
     healthy "$F" && exit 0

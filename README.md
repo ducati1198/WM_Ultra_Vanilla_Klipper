@@ -118,6 +118,7 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 | What you see | What to do |
 |---|---|
 | Fluidd shows `ZRU-B001: Screen–Mainboard communication error` | Expected while the main board is not connected or powered (section 4). |
+| Fluidd macros are in one long row | `./installer.sh --doctor` and accept the fix, or `cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh --fluidd-categories` (Klipper must be running; Fluidd does not have to be opened first). |
 | Fluidd page shows 403 | `./installer.sh --doctor` and accept the home-folder fix. |
 | Fluidd shows "PolKit warnings detected" | Open the menu (or run `./installer.sh --repair`): it installs PackageKit and Moonraker's PolicyKit rule. `--doctor` also fixes it |
 | Screen board: KlipperScreen will not start | A rescue window opens by itself after 3 failed starts. No screen? USB stick with an empty file `WM-FACTORY`, reboot (section 7). |
@@ -300,7 +301,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --screen-remove` | removes KlipperScreen from the Pi (Klipper, Moonraker, Fluidd stay) |
 | `./installer.sh --first-start` | checks with the main board connected, fixes `canbus_uuid` (asks, keeps a copy), then enables and starts Klipper and the other services |
 | `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
-| `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
+| `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first). It checks the services, the config, the CAN ids, the ACE Pro, the load cell firmware, the saved_variables safeguard, ModemManager, the backups and the Fluidd macro categories |
 | `./installer.sh --repair` | puts back services, nginx files, can0 rule, groups; your data is untouched |
 | `./installer.sh --free-space` | lists what is safe to erase (sizes and a warning for each), erases only what you pick and confirm. The install offers it when the SD card is nearly full (about 2500 MB needed) |
 | `./installer.sh --cfg-merge` | when this repository holds a newer WonderMaker version, brings the changes in its factory `printer.cfg` (and new `saved_variables.cfg` keys) into the Pi's `printer.cfg` with a 3-way merge: old factory file, new factory file, yours. WonderMaker's new settings are added; your own lines, sections, `[include]` lines and the SAVE_CONFIG block stay; a setting you both changed differently is asked one by one. A copy is kept as `printer.cfg.wm-before-cfgmerge-<time>`. `--update` does this too. The release tool does the same for a release from the board or from WonderMaker's site |
@@ -509,7 +510,7 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
 - **`WM_UNLOAD_MENU`** (Fluidd and the touchscreen): pick one tool or all tools, confirm, and the filament is unloaded at the tool's saved temperature. With an ACE Pro it uses `ACE_WM_UNLOAD`, without one `ZR_RETRACT`. Tools go one after the other, a tool with nothing loaded is skipped, and it refuses while a print runs or is paused. `WM_UNLOAD_STOP` drops the rest of the list.
 - **Pause and resume guards:** a second `PAUSE` while the print is already paused does nothing and says so, `RESUME` outside a pause says "Nothing to resume", and the tool map of the print is kept for the resume.
 - **Start-up safety check:** if an interrupted filament insert left the grip check off, it is switched on again 8 s after Klipper starts, with a message.
-- **Chamber light:** with a WonderMaker screen board the light is the Moonraker power device `chamber_light`. The Fluidd Toolheads card, the Light buttons on the touchscreen and `WM_CHAMBER_LIGHT STATE=on|off|toggle` all switch it and always show the same state. A print turns it on at its start. Set up by `./installer.sh --light` (an install and `--update` do it too, once the screen board has started).
+- **Chamber light:** with a WonderMaker screen board the light is the Moonraker power device `chamber_light`. The Fluidd Toolheads card, the Light buttons on the touchscreen and `WM_CHAMBER_LIGHT STATE=on|off|toggle` all switch it and always show the same state. A print turns it on at its start. Set up by `./installer.sh --light` (an install and `--update` do it too). The screen board announces its light some minutes after an install, so the installer also adds `wm-light.path`: it watches `rpi_chamber_light.json` and runs `./installer.sh --light --yes` by itself when it appears (log `~/wm-light.log`).
 
 ### 4.5 Filament sensors of the docked tools, and the load queue
 

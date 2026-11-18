@@ -700,6 +700,23 @@ WM_TEST_MATCH=apply WM_TEST_MATCH_ARG="ID0=ac0000000008 ID1=ac0000000009 ID2=ac0
 check "--extruder-setup: the dock order found by the printer is written into thr0..thr3, then it is done" "grep -q ac0000000008 $C12/wm_zru_thr0.cfg && grep -q ac0000000009 $C12/wm_zru_thr1.cfg && grep -q ac0000000005 $C12/wm_zru_thr2.cfg && grep -q ac0000000007 $C12/wm_zru_thr3.cfg && grep -q 'dock order now' $T/cm3.out && [ ! -f $G12/printer_data/.wm-extruder-setup-pending ]"
 WM_TEST_MATCH=same WM_HOME="$G12" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --extruder-setup > "$T/cm4.out" 2>&1
 check "--extruder-setup: every tool came out of its own dock: nothing changes, done" "grep -q 'own dock: the ids are right' $T/cm4.out && [ ! -f $G12/printer_data/.wm-extruder-setup-pending ] && grep -q ac0000000008 $C12/wm_zru_thr0.cfg"
+python3 - "$T/store.json" <<'PYE'
+import json, sys, time
+now = time.time() + 5
+msgs = ["_WM_MATCH_RUN", "// action:prompt_text T0: x -> y",
+        "// action:prompt_button Apply and restart|_WM_MATCH_APPLY ID0=ac000000000a ID1=ac000000000b ID2=ac000000000c ID3=ac000000000d|primary"]
+json.dump({"result": {"gcode_store": [{"time": now, "type": "command", "message": m} for m in msgs]}}, open(sys.argv[1], "w"))
+PYE
+WM_TEST_STORE="$T/store.json" WM_HOME="$G12" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --extruder-setup > "$T/cm5.out" 2>&1
+check "--extruder-setup: the ids are read from Fluidd's real button line (it ends in |primary) and written to the files (the first install test wrote nothing)" "grep -q ac000000000a $C12/wm_zru_thr0.cfg && grep -q ac000000000d $C12/wm_zru_thr3.cfg && ! grep -q 'primary' $C12/wm_zru_thr3.cfg && grep -q 'dock order now' $T/cm5.out"
+python3 - "$T/store2.json" <<'PYE'
+import json, sys, time
+now = time.time() + 5
+msgs = ["_WM_MATCH_RUN", "// action:prompt_button Apply and restart|_WM_MATCH_APPLY ID0=ac000000000a ID1=ac000000000a ID2=ac000000000c ID3=ac000000000d|primary"]
+json.dump({"result": {"gcode_store": [{"time": now, "type": "command", "message": m} for m in msgs]}}, open(sys.argv[1], "w"))
+PYE
+WM_TEST_STORE="$T/store2.json" WM_HOME="$G12" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --extruder-setup > "$T/cm6.out" 2>&1
+check "--extruder-setup: when the ids were refused (two the same) it does not say done, says the ids were NOT written and stays pending" "grep -q 'ids were NOT written' $T/cm6.out && ! grep -q 'dock order now' $T/cm6.out && [ -f $G12/printer_data/.wm-extruder-setup-pending ]"
 check "the installer README and header list --extruder-setup" "grep -q -- '--extruder-setup' $ROOT/README.md && grep -q -- '--extruder-setup' $ROOT/installer.sh"
 G6="$T/g6"; mkdir -p "$G6"; WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G6" --from-github --model ultra-s --no-start >/dev/null
 sed -i 's/^\[include zru-s.cfg\]/# [include zru-s.cfg]/' "$G6/printer_data/config/printer.cfg"
@@ -887,7 +904,7 @@ rm -rf "$T/hjoin"
 check "bed warp wait 2.11.0: an update brings the START_PRINT lines and ADAPTIVE fix into a 2.10.0 macros.cfg, and a second run changes nothing" "rm -rf $T/mp && mkdir -p $T/mp && ( cd $ROOT && git show 72d16a2:factory/ultra-s/config/macros.cfg ) > $T/mp/macros.cfg 2>/dev/null || cp $ROOT/factory/ultra-s/config/macros.cfg $T/mp/macros.cfg; python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp --write --stamp t >/dev/null; cmp $T/mp/macros.cfg $ROOT/factory/ultra-s/config/macros.cfg && python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp >/dev/null"
 check "screen 2.11.0: the ZR Tools page has the calibration buttons and the Bed warp wait button" "grep -q 'WM_LIVE_Z_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'WM_OFFSETS_Z_HOT' $ROOT/zr_tools/zr_tools.py && grep -q 'Bed warp wait.*WM_BED_SOAK_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'wm_sensors' $ROOT/zr_tools/zr_views.py"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li0.out" 2>&1 </dev/null
-check "chamber light: without a screen board nothing is set up" "grep -q 'No screen board has announced its chamber light yet' $T/li0.out && ! grep -q 'power chamber_light' $CF2/moonraker.conf && ! python3 $ROOT/scripts/wm_rpi_pi.py has $CF2 light"
+check "chamber light: without a screen board nothing is set up" "grep -q 'The screen board has not announced its chamber light yet' $T/li0.out && ! grep -q 'power chamber_light' $CF2/moonraker.conf && ! python3 $ROOT/scripts/wm_rpi_pi.py has $CF2 light"
 echo '{"url": "http://10.0.0.9:8765"}' > "$CF2/rpi_chamber_light.json"
 check "chamber light: dry run changes nothing" "WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --light --dry-run >/dev/null 2>&1 </dev/null; ! grep -q 'power chamber_light' $CF2/moonraker.conf && ! python3 $ROOT/scripts/wm_rpi_pi.py has $CF2 light"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li1.out" 2>&1 </dev/null
@@ -1781,7 +1798,7 @@ done
 check "requirements are the exact lists of the tested Pi (Klipper 3.9 list, Moonraker list)" "grep -q '^msgspec==0.19.0' $ROOT/config/klippy-requirements.txt && grep -q '^dbus-fast==' $ROOT/config/moonraker-requirements.txt && ! grep -qi 'wonderMaker' $ROOT/config/klippy-requirements.txt"
 check "Moonraker's environment is built with the system Python, Klipper's with Python 3.9" "grep -q 'python3 -m venv \"\$HOME_DIR/moonraker-env\"' $ROOT/installer.sh && grep -q '\"\$PY39\" -m venv \"\$HOME_DIR/klippy-env\"' $ROOT/installer.sh"
 check "--version names this project, VERSION is 2.x" "bash $ROOT/installer.sh --version | grep -q 'WM_Ultra_Vanilla_Klipper installer 2\\.' && grep -q '^2\\.' $ROOT/VERSION"
-check "the install starts the services last: board sensors and Fluidd categories come before do_first_start auto, which is the last step" "l(){ grep -n \"\$1\" $ROOT/installer.sh | tail -1 | cut -d: -f1; }; a=\$(l '^step_fluidd_categories\$'); b=\$(l '^pi_sensors_in_flow\$'); c=\$(l 'do_first_start auto || true'); d=\$(l '^print_header \"Done\"'); [ -n \"\$a\" ] && [ \"\$a\" -lt \"\$b\" ] && [ \"\$b\" -lt \"\$c\" ] && [ \"\$c\" -lt \"\$d\" ]"
+check "the install starts the services last: board sensors come before do_first_start auto; the Fluidd categories follow it (Klipper must run for them) and come before Done" "l(){ grep -n \"\$1\" $ROOT/installer.sh | tail -1 | cut -d: -f1; }; a=\$(l '^step_fluidd_categories   # again'); b=\$(l '^pi_sensors_in_flow\$'); c=\$(l 'do_first_start auto || true'); d=\$(l '^print_header \"Done\"'); [ -n \"\$a\" ] && [ \"\$b\" -lt \"\$c\" ] && [ \"\$c\" -lt \"\$a\" ] && [ \"\$a\" -lt \"\$d\" ]"
 check "the install flow adds the board sensors and host MCU without a Klipper restart when Klipper is not running yet (--pi-sensors alone still needs Klipper)" "grep -q 'Klipper loads it when it starts' $ROOT/installer.sh && grep -q 'PISENS_INSTALL=1 step_pi_sensors' $ROOT/installer.sh && grep -q 'PISENS_INSTALL:-0}\" != 1' $ROOT/installer.sh"
 check "the first-start CAN check asks up to 3 times (the bus needs a moment after can0 comes up)" "grep -q 'found=\"\$(found_uuids_retry)\"' $ROOT/installer.sh"
 check "README: OrcaSlicer section, its three screenshots exist, and every README image link points to a file" "grep -q '^### 4.2 Slicer: use OrcaSlicer' $ROOT/README.md && for f in start-end timelapse pause; do [ -s $ROOT/docs/img/orca-machine-gcode-\$f.png ] || exit 1; done; for i in \$(grep -o 'docs/img/[A-Za-z0-9_.-]*' $ROOT/README.md | sort -u); do [ -s $ROOT/\$i ] || { echo missing \$i; exit 1; }; done"
@@ -1813,5 +1830,26 @@ check "load cell: --no-load-cell skips the whole step" "! cellinst $CL KLP_CELL_
 check "load cell: an update never touches the load cell board" "! cellinst $CI KLP_CELL_WM_ZRU_20251223_162212 --update --no-backup | grep -q 'Load cell board (CELL)'"
 check "load cell: the step comes after the first start and before Done, and the Advanced menu has it" "l(){ grep -n \"\$1\" $ROOT/installer.sh | tail -1 | cut -d: -f1; }; a=\$(l 'do_first_start auto || true'); b=\$(l '^step_load_cell '); c=\$(l '^print_header \"Done\"'); [ \"\$a\" -lt \"\$b\" ] && [ \"\$b\" -lt \"\$c\" ] && grep -q 'menu_item 7 \"Load cell board\"' $ROOT/installer.sh && grep -q 'menu_run --load-cell' $ROOT/installer.sh"
 check "load cell: --help lists --load-cell and --no-load-cell" "bash $ROOT/installer.sh --help | grep -q -- '--load-cell' && grep -q -- '--no-load-cell' $ROOT/installer.sh"
+
+echo "== 2.20.1: state at the end, saved_variables temp file, Fluidd categories after start, ModemManager, doctor checks"
+SH2="$T/sg2"; mkdir -p "$SH2/printer_data/config" "$SH2/printer_data/logs"; mksv "$SH2/printer_data/config/saved_variables.cfg"
+for i in 1 2 3 4 5 6; do HOME="$SH2" bash "$ROOT/scripts/wm_sv_guard.sh" backup & done; wait
+check "guard: six backups at the same moment leave no temp file and one good copy" "[ ! -e $SH2/printer_data/config/saved_variables.cfg.wm-good.tmp ] && ! ls $SH2/printer_data/config/saved_variables.cfg.wm-good.tmp.* >/dev/null 2>&1 && cmp -s $SH2/printer_data/config/saved_variables.cfg $SH2/printer_data/config/saved_variables.cfg.wm-good"
+check "ModemManager rule: ACE Pro, MKS adapter and Klipper boards are ignored" "grep -q 'ATTRS{idVendor}==\"28e9\".*ID_MM_DEVICE_IGNORE' $ROOT/config/99-wm-no-modemmanager.rules && grep -q 'ATTRS{idVendor}==\"1d50\".*ID_MM_DEVICE_IGNORE' $ROOT/config/99-wm-no-modemmanager.rules && grep -q '99-wm-no-modemmanager.rules' $ROOT/installer.sh"
+check "start: a first start in error/shutdown gets one firmware restart before it is reported" "grep -q 'normal after the board matching): restarting the firmware once' $ROOT/installer.sh"
+check "start: the warning 'Klipper state after start' is dropped when Klipper is ready at the end" "grep -q 'Klipper state after start:\"\*) ;;' $ROOT/installer.sh"
+check "Fluidd categories: run after the first start and the load cell step, not before Klipper runs" "l(){ grep -n \"\$1\" $ROOT/installer.sh | tail -1 | cut -d: -f1; }; a=\$(l '^step_load_cell   # after Klipper'); b=\$(l '^step_fluidd_categories   # again'); c=\$(l '^step_ultrabackup   # again'); [ \$a -lt \$b ] && [ \$b -lt \$c ] && ! grep -q '^step_fluidd_categories\$' $ROOT/installer.sh"
+check "backups: swept again at the very end of an install" "grep -q '^step_ultrabackup   # again' $ROOT/installer.sh"
+OUT="$(inst "$HR" --doctor)"
+check "doctor: has the saved_variables safeguard, ModemManager and board matching checks" "echo \"$OUT\" | grep -q 'saved_variables safeguard' && echo \"$OUT\" | grep -q 'ModemManager is told' && echo \"$OUT\" | grep -q 'wm_canmatch.py'"
+check "doctor: checks the Fluidd categories, Klipper state, ACE Pro on USB and the load cell firmware" "grep -q 'Fluidd macro categories are not set up' $ROOT/installer.sh && grep -q 'ACE Pro found on USB' $ROOT/installer.sh && grep -q 'load cell board: firmware V2' $ROOT/installer.sh && grep -q 'Klipper is ready\"' $ROOT/installer.sh"
+check "panel: --fluidd-categories waits for Klipper" "grep -q 'fluiddcat) step_fluidd_categories 60' /home/claude/wm-ultra-fluidd-acepro-panel/installer.sh"
+
+echo "== 2.20.1 (light watcher, F-142): chamber light by itself (wm-light.path), First Run Calibration without Extruder Setup"
+check "light watcher: --light writes wm-light.path (watches rpi_chamber_light.json) and wm-light.service (--light --yes)" "grep -q 'PathChanged=.*printer_data/config/rpi_chamber_light.json' $G2/.wm-units/wm-light.path && grep -q 'Unit=wm-light.service' $G2/.wm-units/wm-light.path && grep -q 'installer.sh --light --yes' $G2/.wm-units/wm-light.service && grep -q 'Type=oneshot' $G2/.wm-units/wm-light.service"
+check "light watcher: the dry run installs nothing" "rm -rf $G2/.wm-units; WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --light --dry-run </dev/null 2>&1 | grep -q 'would install wm-light.path' && [ ! -e $G2/.wm-units/wm-light.path ]"
+check "light watcher: the doctor checks it and the uninstall removes it" "grep -q 'wm-light.path is not running' $ROOT/installer.sh && grep -q 'systemctl disable wm-light.path' $ROOT/installer.sh"
+check "first run calibration: no Extruder Setup stage and no second Save and Restart" "! grep -q '_WM_FIRST_RUN_CAL_REST' $ROOT/rpi-cfg/rpi_calibration.cfg && ! grep -q 'WM_EXTRUDER_SETUP' <(sed -n '/gcode_macro _WM_FIRST_RUN_CAL\]/,/gcode_macro _WM_FIRST_RUN_CAL_DONE/p' $ROOT/rpi-cfg/rpi_calibration.cfg) && ! grep -q 'variable_full' $ROOT/rpi-cfg/rpi_nozzle.cfg"
+check "first run calibration: the macros still render and behave" "python3 $ROOT/tests/rpi_cfg_render.py | tail -3 | grep -q 'macros render'"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
