@@ -43,6 +43,7 @@
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
 # ./installer.sh --shell-command on|off   the Klipper "gcode shell command" extension (RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code). Installed automatically; off skips it
+# ./installer.sh --load-cell           the load cell board (CELL): downloads or updates the project wm-load-cell-mcu and opens its menu (flash firmware V2, factory firmware, restore, check the bootloader). A full install does the check by itself at the end and flashes V2 when the board is not on it yet (it asks first); --no-load-cell skips that
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
 # ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
@@ -100,6 +101,7 @@ ULTRA="$HOME_DIR/ultra-backup"; WMB="$ULTRA/settings"   # item 36: every backup 
 STATE="$BACKUP_ROOT/installed.manifest"
 CONF="$BACKUP_ROOT/install.conf"
 PANEL_REPO="ducati1198/wm-ultra-fluidd-acepro-panel"; PANEL_ZIP=""; PANEL_FROM=""; PANEL_FAILED=0
+CELL_REPO="ducati1198/wm-load-cell-mcu"; CELL_DIR="$HOME_DIR/wm-load-cell-mcu"; WANT_CELL=1   # the load cell board (CELL) firmware V2 and its flash menu live in their own repository
 FORCE=0; AUTOSTART=1; ARG1=""; OLD_VERSION=""
 STAGE=""
 declare -a WARNINGS=()
@@ -220,6 +222,8 @@ while [ $# -gt 0 ]; do
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --pi-sensors)   MODE=pisensors ;;
         --logs)         MODE=logs ;;         # troubleshooting logs + black box
+        --load-cell)    MODE=loadcell ;;     # the load cell board (CELL): its flash menu from the wm-load-cell-mcu repository
+        --no-load-cell) WANT_CELL=0 ;;       # an install does not check or flash the load cell board
         --ultra-backup) MODE=ultrabackup ;;   # one folder for every backup (item 36)
         --wifi)         MODE=wifi ;;         # Wi-Fi power saving off and the Wi-Fi watchdog (only when the Pi is on Wi-Fi with NetworkManager)   # board temperature sensors + the host MCU, once Klipper runs
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
@@ -1071,6 +1075,67 @@ step_can() {
     record "FILE /etc/udev/rules.d/99-wm-can0.rules"
     SUDO udevadm control --reload-rules
     print_success "can0 rule installed"
+}
+
+
+# ---- the load cell board (CELL) firmware V2, from the project wm-load-cell-mcu ----------------------------
+cell_get() {   # downloads (git clone) or updates the project in ~/wm-load-cell-mcu; 0 = the folder is usable
+    if [ "$TESTING" = 1 ]; then
+        [ -n "${WM_TEST_CELL_DIR:-}" ] && [ -f "$WM_TEST_CELL_DIR/install.sh" ] || return 1
+        rm -rf "$CELL_DIR"; mkdir -p "$CELL_DIR"; cp -a "$WM_TEST_CELL_DIR/." "$CELL_DIR/"; return 0
+    fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would download or update https://github.com/$CELL_REPO in $CELL_DIR${NC}"; return 0; fi
+    if [ -d "$CELL_DIR/.git" ]; then
+        git -C "$CELL_DIR" pull --ff-only -q 2>/dev/null || print_warning "Could not update $CELL_DIR (no internet, or you changed files there). The copy that is there is used."
+    elif [ ! -e "$CELL_DIR" ]; then
+        git clone -q --depth 1 "https://github.com/$CELL_REPO.git" "$CELL_DIR" 2>/dev/null || { rm -rf "$CELL_DIR"; return 1; }
+    fi
+    [ -f "$CELL_DIR/install.sh" ] && [ -f "$CELL_DIR/zr-ultra/2_flash_app_can.sh" ]
+}
+cell_latest() { tr -d ' \r\n' < "$CELL_DIR/zr-ultra/firmware/LATEST" 2>/dev/null; }   # name of the newest patched firmware, for example KLP_CELL_WM_ZRU_RPI_V2_20261117
+cell_version() {   # the firmware name the board reports to Klipper (empty when Klipper does not answer or has no [mcu CELL])
+    if [ "$TESTING" = 1 ]; then echo "${WM_TEST_CELL_VERSION:-}"; return 0; fi
+    api_get '/printer/objects/query?mcu%20CELL' | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["status"]["mcu CELL"]["mcu_version"])' 2>/dev/null
+}
+cell_uuid() {   # the CAN id in [mcu CELL] (empty when none or only the installer's placeholder)
+    local u; u="$(grep -rhA8 '^\[mcu CELL\]' "$(cfg_dir)" 2>/dev/null | awk -F': *' '/canbus_uuid/{print $2; exit}' | tr -d ' \r')"
+    case "$u" in ""|??0000000000) return 0 ;; esac; echo "$u"
+}
+step_load_cell() {   # end of a full install: is the load cell board on firmware V2? if not, offer the flash (wm-load-cell-mcu asks once itself)
+    [ "$WANT_CELL" = 1 ] || return 0
+    print_header "Load cell board (CELL): firmware V2"
+    why "The factory firmware of the load cell board sometimes gives a broken reading, which shows up as false touches and retries when the tool offsets are calibrated. Firmware V2 (project wm-load-cell-mcu) fixes it."
+    if [ -z "$(cell_uuid)" ] && [ "$TESTING" != 1 ]; then
+        print_info "The load cell board has no CAN id in the config yet (or only the placeholder), so it is not checked now. After the main board is connected and the id is set: ./installer.sh --load-cell"
+        return 0
+    fi
+    local cur latest; cur="$(cell_version)"
+    if [ -z "$cur" ]; then
+        warn_later "The load cell board was not checked: Klipper does not answer for [mcu CELL]. When Klipper is ready: ./installer.sh --load-cell (menu option 1 flashes firmware V2)."
+        return 0
+    fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would check the board ($cur) and offer firmware V2${NC}"; return 0; fi
+    cell_get || { warn_later "The load cell board firmware could not be downloaded from github.com/$CELL_REPO (no internet?). Later: ./installer.sh --load-cell"; return 0; }
+    latest="$(cell_latest)"
+    case "$cur" in
+        *"$latest"*) print_success "The load cell board already runs $cur. Nothing to do."; return 0 ;;
+    esac
+    echo "  The board runs: $cur"; echo "  Newest from the project: $latest"
+    if [ "${WM_ASSUME_YES:-0}" = 1 ] || [ ! -t 0 ]; then
+        warn_later "The load cell board runs $cur, not $latest. It was NOT flashed (this run does not ask questions). Flash it with: ./installer.sh --load-cell"
+        return 0
+    fi
+    echo "  The flash script shows exactly what it will do and asks once. Printer idle, heaters off."
+    if [ "$TESTING" = 1 ]; then echo "[test] flash $latest" >> "$HOME_DIR/.cell.log"; return 0; fi
+    if bash "$CELL_DIR/zr-ultra/2_flash_app_can.sh"; then print_success "Load cell board flash finished."; else warn_later "The load cell board flash did not finish (or you answered no). Run it later: ./installer.sh --load-cell"; fi
+}
+do_load_cell() {   # ./installer.sh --load-cell and Advanced > Load cell board: the menu of the wm-load-cell-mcu project
+    print_header "Load cell board (CELL)"
+    echo "  The firmware of the load cell board (under the heated bed) and its flash menu come from github.com/$CELL_REPO."
+    cell_get || { print_error "Could not download github.com/$CELL_REPO into $CELL_DIR."; echo "  Connect the Pi to the network and try again."; return 1; }
+    if [ "$TESTING" = 1 ]; then echo "[test] load cell menu" >> "$HOME_DIR/.cell.log"; return 0; fi
+    [ "$DRY" = 1 ] && return 0
+    bash "$CELL_DIR/install.sh"
 }
 
 panel_get() {  # sets PANEL_ZIP and PANEL_FROM: the newest panel from the panel repository, else the copy in this repository
@@ -3765,10 +3830,11 @@ menu_advanced() {
         menu_item 4 "Support bundle" "A scrubbed .tgz of logs and config to share when asking for help"
         menu_item 5 "Show the last log" "Where the log of the last run is, and its last lines"
         menu_item 6 "Network and system" "Host name, time zone, clock, addresses"
+        menu_item 7 "Load cell board" "Firmware V2 for the load cell board (CELL): flash, factory firmware, restore, check the bootloader"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
-            1) menu_run --first-start ;; 2) menu_run --start-klipper ;; 3) menu_run --disable-klipper ;; 4) menu_run --support-bundle ;; 5) menu_run --show-log ;; 6) menu_system ;;
+            7) menu_run --load-cell ;; 1) menu_run --first-start ;; 2) menu_run --start-klipper ;; 3) menu_run --disable-klipper ;; 4) menu_run --support-bundle ;; 5) menu_run --show-log ;; 6) menu_system ;;
             0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
         esac
     done
@@ -3940,6 +4006,7 @@ case "$MODE" in
     zrtools)    do_zr_tools; exit $? ;;
     pisensors)  guard_not_printing; step_pi_sensors; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     ultrabackup) step_ultrabackup; python3 -I "$(ultrabackup_dst)" status --home "$HOME_DIR" 2>/dev/null; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
+    loadcell)   do_load_cell; exit $? ;;
     logs)       step_logs; step_blackbox; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     wifi)       step_wifi; [ -n "$(wifi_dev)" ] || print_info "The Pi's network is not Wi-Fi: nothing to do."; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     rpicfg)     do_rpicfg; exit $? ;;
@@ -3996,6 +4063,7 @@ restart_klipper_after
 self_test
 pi_sensors_in_flow
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi   # last: enabling and starting the services
+step_load_cell   # after Klipper runs: the load cell board on firmware V2? (a full install only, never an update)
 
 print_header "Done"
 [ "$PROG_STEPS" -gt 0 ] && progress_bar 100 100 "All $PROG_STEPS steps finished"

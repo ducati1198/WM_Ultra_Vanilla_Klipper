@@ -228,7 +228,7 @@ chmod +x installer.sh
 
 **6 Uninstall** ends with *Free up disk space*: it lists leftover downloads in `/tmp`, the pip and apt caches, old log history and the installer's git history, each with its size and a warning. You pick the numbers, it shows **This will ERASE** and asks before it deletes. Your printer data, gcode files and backups are never listed.
 
-**7 Advanced**: first start, start or stop Klipper, support bundle, last log, network and system.
+**7 Advanced**: first start, start or stop Klipper, support bundle, last log, network and system, load cell board.
 
 ![Advanced page](docs/img/menu-pi-advanced.png)
 
@@ -310,6 +310,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --wifi` | Pi on Wi-Fi with NetworkManager: turns Wi-Fi power saving off on the active connection and installs `wm-wifi-watchdog`, which restarts the Wi-Fi (then reloads the Wi-Fi driver) when the router stops answering. It never reboots the Pi and never touches Klipper. A Pi on a cable is left alone. Also done in every install and update; the doctor checks it. |
 | `./installer.sh --logs` | the troubleshooting logs and the black box: installs the small `wm-log-digest` service (it writes `wm-events.log`, `wm-config-check.log`, `wm-ace.log` and a copy of the black box into `~/printer_data/logs`, shown in Fluidd under Configuration > Other Files) and `wm-blackbox` (one line every 10 seconds about the Pi's power, temperature, load and USB messages, so a crash leaves a trace). Also done in every install and update; the doctor checks both. See [Logs for troubleshooting](#logs-for-troubleshooting) |
 | `./installer.sh --ultra-backup` | moves every backup into `~/ultra-backup`, sorted by type (`config`, `fluidd-page`, `fluidd-macros`, `settings`, `installer`, `drivers`, `other`), keeps the newest copy of each config file next to it, enforces the 400 MB limit and shows the sizes. Runs by itself at every install and update. |
+| `./installer.sh --load-cell` | the load cell board (CELL, under the heated bed): downloads or updates the project [wm-load-cell-mcu](https://github.com/ducati1198/wm-load-cell-mcu) into `~/wm-load-cell-mcu` and opens its menu (flash firmware V2, flash the factory firmware, restore the original, check the bootloader, update). `--no-load-cell` on an install skips the check described in section 4.1b. |
 | `./installer.sh --light` | sets up the chamber light as the Moonraker power device `chamber_light` (the Fluidd card, the touchscreen buttons and `WM_CHAMBER_LIGHT` then always agree, and a print turns the light on at its start). Needs an installed screen board; an install and `--update` do it too |
 | `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_FIRST_RUN_CAL`, the Z offset tools `WM_FULL_OFFSET_CAL` and `WM_Z_TRIM_MENU`, the unload menu `WM_UNLOAD_MENU`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
@@ -351,6 +352,15 @@ Every board on the CAN bus has its own id (`canbus_uuid`, 12 hex digits, set by 
 2. Run `./installer.sh --can-ids`. It lists the ids on the bus and offers to put them into the config (a copy of each file is saved first).
 3. If you know an id (from an old config, for example), set it by hand: `./installer.sh --can-ids set T0 ac8b57e80210` (names: `main`, `hub`, `ext`, `cell`, `T0` to `T3`).
 4. Restart Klipper (`sudo systemctl restart klipper`). If Fluidd then shows *"Can not update MCU 'mcu' config as it is shutdown"*, run **FIRMWARE_RESTART** once: the main board kept the shutdown state of the earlier failed start.
+
+### 4.1b Load cell board firmware V2
+
+The load cell board (CELL, under the heated bed) runs a firmware that can give one broken reading now and then; the tool setter then counts a false touch and retries. The project [wm-load-cell-mcu](https://github.com/ducati1198/wm-load-cell-mcu) has a patched firmware (V2) and a menu that flashes it over CAN, with no extra hardware.
+
+- **A full install checks it by itself**, at the very end, after Klipper has started: it reads the firmware name the board reports. If the board already runs the newest V2, it says so and does nothing. If not, it downloads the project into `~/wm-load-cell-mcu` and starts its flash script, which shows what it will do and asks once. A board with the factory bootloader gets the new bootloader first (in software, 1 to 4 seconds; do not touch the power meanwhile: the project's README explains the one risk).
+- It is skipped, with a note at the end of the install, when the board has no real CAN id in the config yet, when Klipper does not answer for `[mcu CELL]`, when there is no internet, and when the install runs without questions (`--yes`, or Fluidd's Update button): flashing always needs your answer. Do it later with `./installer.sh --load-cell`, or **Advanced → Load cell board**.
+- An update never touches the load cell board. `--no-load-cell` skips the check in an install.
+- Set the CAN id of the load cell board first (section 4.1), or the step is skipped.
 
 ### 4.2 Slicer: use OrcaSlicer and set the Machine G-code
 
@@ -1113,7 +1123,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
    4) Check and fix                Doctor, repair, hardware test, status page
    5) Backup and restore           Save and restore config, calibration and database
    6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything
-   7) Advanced                     First start, start or stop Klipper, support bundle, last log, network and system
+   7) Advanced                     First start, start or stop Klipper, support bundle, last log, network and system, load cell board
    8) Dry run of the install       Asks the same questions, shows every change, changes nothing
    0) Exit
 ```

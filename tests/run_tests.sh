@@ -1709,4 +1709,23 @@ check "a Pi with WonderMaker's own Klipper is refused, nothing is moved" "! inst
 RW3="$T/rw3"; rm -rf "$RW3"; mkdir -p "$RW3/klipper/klippy/extras"; echo x > "$RW3/klipper/klippy/klippy.py"; echo x > "$RW3/klipper/klippy/extras/wm_mcu_tweaks.py"
 check "a Pi that already has this installer's Klipper is not refused (a reinstall moves the old folders aside)" "inst $RW3 --from-github --model ultra-s --dry-run >$T/rw3.out 2>&1; ! grep -q 'already runs WonderMaker' $T/rw3.out"
 for m in ultra ultra-s; do check "$m: RESUME prints \"Print resumed\" and hands feed assist back to the watcher (ACE only)" "grep -q 'RESPOND MSG=\"Print resumed\"' $ROOT/factory/$m/config/macros.cfg && grep -q 'VARIABLE=manual VALUE=-2' $ROOT/factory/$m/config/macros.cfg"; done
+echo "== load cell board (CELL): firmware V2 from wm-load-cell-mcu"
+CS="$T/cellstub"; rm -rf "$CS"; mkdir -p "$CS/zr-ultra/firmware"; echo 'echo menu' > "$CS/install.sh"; echo 'echo flash' > "$CS/zr-ultra/2_flash_app_can.sh"; echo KLP_CELL_WM_ZRU_RPI_V2_20261117 > "$CS/zr-ultra/firmware/LATEST"
+cellinst() { local h="$1" v="$2"; shift 2; WM_TEST_CELL_DIR="$CS" WM_TEST_CELL_VERSION="$v" WM_TEST_PANEL_DIR="$T/stubpanel" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" </dev/null 2>&1; }
+CH="$T/cellh"; rm -rf "$CH"; mkdir -p "$CH"
+check "load cell: --load-cell downloads the project and opens its menu" "cellinst $CH '' --load-cell | grep -q 'Load cell board' && [ -f $CH/wm-load-cell-mcu/install.sh ] && grep -q 'load cell menu' $CH/.cell.log"
+check "load cell: --load-cell says so when the project cannot be downloaded" "WM_HOME=$CH WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --load-cell </dev/null 2>&1 | grep -q 'Could not download'"
+CI="$T/celli"; rm -rf "$CI"; mkdir -p "$CI"; mkstage "$T/stage"
+OUTC="$(cellinst $CI KLP_CELL_WM_ZRU_20251223_162212 --from-stage $T/stage)"
+check "load cell: an install on the factory firmware offers V2 but a run without questions does not flash and says how" "echo \"\$OUTC\" | grep -q 'Load cell board (CELL): firmware V2' && echo \"\$OUTC\" | grep -q 'NOT flashed' && echo \"\$OUTC\" | grep -q './installer.sh --load-cell' && [ ! -f $CI/.cell.log ]"
+CJ="$T/cellj"; rm -rf "$CJ"; mkdir -p "$CJ"
+check "load cell: a board already on V2 is left alone" "cellinst $CJ KLP_CELL_WM_ZRU_RPI_V2_20261117 --from-stage $T/stage | grep -q 'already runs KLP_CELL_WM_ZRU_RPI_V2_20261117'"
+CK="$T/cellk"; rm -rf "$CK"; mkdir -p "$CK"
+check "load cell: when Klipper does not answer for [mcu CELL] the install warns and goes on" "cellinst $CK '' --from-stage $T/stage | grep -q 'load cell board was not checked'"
+CL="$T/cellL"; rm -rf "$CL"; mkdir -p "$CL"
+check "load cell: --no-load-cell skips the whole step" "! cellinst $CL KLP_CELL_WM_ZRU_20251223_162212 --from-stage $T/stage --no-load-cell | grep -q 'Load cell board (CELL)'"
+check "load cell: an update never touches the load cell board" "! cellinst $CI KLP_CELL_WM_ZRU_20251223_162212 --update --no-backup | grep -q 'Load cell board (CELL)'"
+check "load cell: the step comes after the first start and before Done, and the Advanced menu has it" "l(){ grep -n \"\$1\" $ROOT/installer.sh | tail -1 | cut -d: -f1; }; a=\$(l 'do_first_start auto || true'); b=\$(l '^step_load_cell '); c=\$(l '^print_header \"Done\"'); [ \"\$a\" -lt \"\$b\" ] && [ \"\$b\" -lt \"\$c\" ] && grep -q 'menu_item 7 \"Load cell board\"' $ROOT/installer.sh && grep -q 'menu_run --load-cell' $ROOT/installer.sh"
+check "load cell: --help lists --load-cell and --no-load-cell" "bash $ROOT/installer.sh --help | grep -q -- '--load-cell' && grep -q -- '--no-load-cell' $ROOT/installer.sh"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
