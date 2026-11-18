@@ -4,10 +4,12 @@
 # KlipperScreen panels are loaded as "panels.<name>", so the logic module is imported from there.
 
 import logging
+import math
 import os
 import socket
 import subprocess
 import threading
+import time
 
 import gi
 
@@ -35,7 +37,7 @@ class ViewsMixin:
         except Exception:
             return []
 
-    def _tile_grid(self, items, cols=None, scale=1.0):
+    def _tile_grid(self, items, cols=None, scale=1.0, height=None):
         """items: (icon, label, callback). A homogeneous grid of buttons."""
         cols = cols or self.sz["cols"]
         grid = Gtk.Grid()
@@ -44,7 +46,7 @@ class ViewsMixin:
         grid.set_column_homogeneous(True)
         for n, (icon, label, cb) in enumerate(items):
             b = self._button(icon, label, "color%d" % (1 + n % 4), cb)
-            b.set_size_request(-1, int(self.sz["tile_h"] * scale))
+            b.set_size_request(-1, height or int(self.sz["tile_h"] * scale))
             grid.attach(b, n % cols, n // cols, 1, 1)
         return grid
 
@@ -98,7 +100,7 @@ class ViewsMixin:
         items.append(("filament", "Sensors", lambda: self._open_stock("wm_sensors", "Sensors")))   # all sensors, friendly label and real name
         have = {str(x).strip().upper() for x in (self._sections() or [])}
         if not have or "GCODE_MACRO WM_UNLOAD_MENU" in have:      # the unload window of the Pi (one tool or all tools), hidden when the Pi lacks it
-            items.append(("retract", "Unload menu", lambda: self._utility("Unload menu", "WM_UNLOAD_MENU", None)))
+            items.append(("retract", "Unload menu", self._unload_open))
         if L.collision_settings(self._collision_section()):
             items.append(("warning", "Collision", self.show_collision))
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),
@@ -114,7 +116,7 @@ class ViewsMixin:
         self.view = "hub" if include_main else "more"
         self._clear()
         self.root.pack_start(self._header(title), False, False, 0)
-        self.root.pack_start(self._scrolled(self._tile_grid(self._hub_items(include_main), scale=1.0 if include_main else 1.7)), True, True, 0)
+        self.root.pack_start(self._scrolled(self._tile_grid(self._hub_items(include_main), scale=1.0, height=None if include_main else 78)), True, True, 0)
         self.root.show_all()
 
     def show_more(self):
@@ -137,7 +139,14 @@ class ViewsMixin:
         self.ace_len = getattr(self, "ace_len", 50)
         self.ace_speed = getattr(self, "ace_speed", 5)
         self._clear()
-        self.root.pack_start(self._header("ACE Pro"), False, False, 0)
+        hdr = self._header("ACE Pro")
+        if self._pin_value("ACE_Pro") is not None:     # F-137: the ACE Pro on/off switch (output_pin ACE_Pro, the same as Fluidd)
+            sbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            self.w["ace_pro_lbl"] = self._label("", "zr_small")
+            sbox.pack_start(self.w["ace_pro_lbl"], False, False, 0)
+            sbox.pack_start(self._switch("sw_ace", self._ace_pro_set), False, False, 0)
+            hdr.pack_end(sbox, False, False, 0)
+        self.root.pack_start(hdr, False, False, 0)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.w["ace_info"] = self._label("", "zr_small")
 
@@ -198,12 +207,7 @@ class ViewsMixin:
         box.pack_start(row, False, False, 0)
         body.pack_start(box, False, False, 0)
 
-        if L.ace_state(self.st)["endless_available"]:
-            body.pack_start(self._label("Endless spool (experimental): when a head runs out, the print pauses; "
-                                        "use Swap & continue in Fluidd.", "zr_hint", wrap=True), False, False, 0)
-            self.w["endless"] = self._button("shuffle", "", "color3", self._ace_endless_toggle)
-            self.w["endless"].set_size_request(-1, self.sz["btn_h"])
-            body.pack_start(self.w["endless"], False, False, 0)
+        self._build_endless(body)      # F-137: the endless spool section, shown whenever an ACE Pro is present
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
         self._refresh_ace()
@@ -290,8 +294,11 @@ class ViewsMixin:
             else:
                 ctx.remove_class("zr_active")
         self.w["ace_len_lbl"].set_text("Manual move:  %d mm at %d mm/s  (slot T%d)" % (self.ace_len, self.ace_speed, self.ace_slot + 1))
-        if "endless" in self.w:
-            self.w["endless"].set_label("Endless spool: %s (tap to switch)" % ("ON" if L.endless_enabled(self._vars()) else "off"))
+        pin = self._pin_value("ACE_Pro")
+        if pin is not None and "sw_ace" in self.w:
+            self._set_switch("sw_ace", pin)
+            self.w["ace_pro_lbl"].set_text("ON" if pin else "off")
+        self._refresh_endless()
 
     def _ace_select(self, i):
         self.ace_slot = i
@@ -422,7 +429,7 @@ class ViewsMixin:
         for icon, text, script, q, need in entries:
             if need is None or need in have:
                 tiles.append((icon, text, (lambda t=text, s=script, qq=q: self._utility(t, s, qq))))
-        self.root.pack_start(self._scrolled(self._tile_grid(tiles)), True, True, 0)
+        self.root.pack_start(self._scrolled(self._tile_grid(tiles, height=78)), True, True, 0)
         self.root.show_all()
 
     # ------------------------------------------------------------------
@@ -445,7 +452,7 @@ class ViewsMixin:
             tiles = [("sd", "Backup settings", self._sys_backup),
                      ("refresh", "Reboot", self._sys_reboot),
                      ("shutdown", "Shut down", self._sys_shutdown)]
-        body.pack_start(self._tile_grid(tiles), False, False, 0)
+        body.pack_start(self._tile_grid(tiles, height=78), False, False, 0)
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
         self._refresh_system()
@@ -509,16 +516,7 @@ class ViewsMixin:
         self._confirm_call("Backup", "Save your config, calibration and database to ~/wm-backups?", _go)
 
     def _confirm_call(self, title, text, func, no="Cancel", yes="OK"):
-        label = Gtk.Label(label=text)
-        label.set_line_wrap(True)
-        buttons = [{"name": no, "response": Gtk.ResponseType.CANCEL},
-                   {"name": yes, "response": Gtk.ResponseType.OK}]
-
-        def _resp(dialog, response_id):
-            self._gtk.remove_dialog(dialog)
-            if response_id == Gtk.ResponseType.OK:
-                func()
-        self._gtk.Dialog(title, buttons, label, _resp)
+        self._ask_page(title, text, func, "Yes" if yes == "OK" else yes, no)
 
     def _sys_factory(self):
         if not self._require_idle():
@@ -714,5 +712,394 @@ class ViewsMixin:
             self._refresh_ace()
         elif self.view == "system":
             self._refresh_system()
+        elif self.view == "growth":
+            self._refresh_growth()
         elif self.view in ("hub", "more"):
             pass
+
+    # ------------------------------------------------------------------
+    # F-137: switches (ACE Pro, endless spool, nozzle heat growth)
+    # ------------------------------------------------------------------
+    def _switch(self, key, cb):
+        sw = Gtk.Switch()
+        sw.set_valign(Gtk.Align.CENTER)
+        sw.set_size_request(int(70 * self.scale), int(34 * self.scale))
+        def _toggled(w, _p):
+            if getattr(self, "_sw_lock", False):
+                return
+            self.__dict__.setdefault("_sw_hold", {})[key] = (w.get_active(), time.monotonic() + 5.0)    # keep what was tapped until Klipper reports it (no flicker)
+            cb(w.get_active())
+        sw.connect("notify::active", _toggled)
+        self.w[key] = sw
+        return sw
+
+    def _set_switch(self, key, value):
+        sw = self.w.get(key)
+        if sw is None:
+            return
+        hold = self.__dict__.setdefault("_sw_hold", {}).get(key)
+        if hold is not None:
+            if time.monotonic() < hold[1] and bool(value) != hold[0]:
+                return            # Klipper still reports the old value: ignore it, the new one is on its way
+            self._sw_hold.pop(key, None)
+        if sw.get_active() == bool(value):
+            return
+        self._sw_lock = True
+        try:
+            sw.set_active(bool(value))
+        finally:
+            self._sw_lock = False
+
+    def _pin_value(self, name):
+        p = self.st.get("output_pin " + name)
+        if not isinstance(p, dict) or "value" not in p:
+            return None
+        try:
+            return float(p["value"]) >= 0.5
+        except (TypeError, ValueError):
+            return None
+
+    def _ace_pro_set(self, on):
+        self._gcode("SET_PIN PIN=ACE_Pro VALUE=%d" % (1 if on else 0), "ACE Pro %s" % ("on" if on else "off"))
+
+    def _endless_set(self, on):
+        self._gcode("WM_ENDLESS_SET ENABLE=%d" % (1 if on else 0), "Endless spool %s" % ("on" if on else "off"))
+
+    def _auto_set(self, on):
+        self._gcode("WM_ENDLESS_SET AUTO=%d" % (1 if on else 0), "Swap automatically %s" % ("on" if on else "off"))
+
+    # ------------------------------------------------------------------
+    # F-137: endless spool section = the same ring and chips as the Fluidd Toolheads card
+    # ------------------------------------------------------------------
+    RING = 120
+
+    def _endless_keys(self):
+        v = self._vars()
+        keys = []
+        for i in range(NTOOLS):
+            m, c = v.get("zr_t%d_mat" % i), v.get("zr_t%d_color" % i)
+            keys.append(None if m is None or c is None else "%s/%s" % (m, c))
+        return keys
+
+    def _endless_loaded(self):
+        out = []
+        for i in range(NTOOLS):
+            head = self._sensor("filament%d" % i)
+            out.append(False if head is True and self._sensor("path_%d" % i) is False else head)
+        return out
+
+    def _build_endless(self, body):
+        avail = L.ace_state(self.st)["endless_available"]
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(8)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title = self._label()
+        title.set_markup("<b>Endless spool</b>")
+        top.pack_start(title, True, True, 0)
+        if avail:
+            top.pack_end(self._switch("sw_endless", self._endless_set), False, False, 0)
+            auto = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            auto.pack_start(self._label("Swap automatically", "zr_small"), False, False, 0)
+            auto.pack_start(self._switch("sw_auto", self._auto_set), False, False, 0)
+            self.w["auto_box"] = auto
+            top.pack_end(auto, False, False, 12)
+        card.pack_start(top, False, False, 0)
+        if not avail:
+            card.pack_start(self._label("The endless spool macros (rpi_endless.cfg) are not installed on this printer.",
+                                        "zr_hint", wrap=True), False, False, 0)
+        else:
+            self.w["endless_off"] = self._label("Off. Switch it on to see which toolheads take over for each other.",
+                                                "zr_hint", wrap=True)
+            card.pack_start(self.w["endless_off"], False, False, 0)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+            ring = Gtk.DrawingArea()
+            ring.set_size_request(self.RING, self.RING)
+            ring.set_valign(Gtk.Align.CENTER)
+            ring.connect("draw", self._draw_ring)
+            self.w["ring"] = ring
+            row.pack_start(ring, False, False, 0)
+            self.w["chips"] = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            self.w["chips"].set_valign(Gtk.Align.CENTER)
+            row.pack_start(self.w["chips"], True, True, 0)
+            self.w["endless_row"] = row
+            card.pack_start(row, False, False, 0)
+        body.pack_start(card, False, False, 0)
+
+    def _draw_ring(self, widget, cr):
+        size = float(self.RING)
+        c = size / 2.0
+        R = c - 2
+        r = R * 0.62
+        n = NTOOLS
+        keys, loaded = self._endless_keys(), self._endless_loaded()
+        sets = L.endless_sets(keys)
+        active = self._active_tool() if self._busy() else -1
+        shift = -math.pi / 2          # the circle starts at the top, clockwise (as the Fluidd graph)
+        cr.select_font_face("Sans", 0, 1)
+        cr.set_font_size(12)
+        for i in range(n):
+            a0 = i * 2 * math.pi / n + 0.04
+            a1 = (i + 1) * 2 * math.pi / n - 0.04
+            col = self._tool_info(i)["color"]
+            red, green, blue = (col >> 16 & 255) / 255.0, (col >> 8 & 255) / 255.0, (col & 255) / 255.0
+            cr.new_path()
+            cr.arc(c, c, R, a0 + shift, a1 + shift)
+            cr.arc_negative(c, c, r, a1 + shift, a0 + shift)
+            cr.close_path()
+            cr.set_source_rgba(red, green, blue, 0.28 if loaded[i] is False else 1.0)
+            if i == active:
+                cr.fill_preserve()
+                cr.set_source_rgb(1, 1, 1)
+                cr.set_line_width(2)
+                cr.stroke()
+            else:
+                cr.fill()
+            mid = (a0 + a1) / 2.0
+            tx, ty = c + (R + r) / 2.0 * math.sin(mid), c - (R + r) / 2.0 * math.cos(mid)
+            label = "T%d" % (i + 1)
+            ext = cr.text_extents(label)
+            cr.move_to(tx - ext[2] / 2.0 - ext[0], ty + 4.5)
+            cr.text_path(label)
+            cr.set_source_rgb(0, 0, 0)
+            cr.set_line_width(3)
+            cr.stroke_preserve()
+            cr.set_source_rgb(1, 1, 1)
+            cr.fill()
+        rr = r - 7
+        cr.set_line_width(3)
+        cr.set_line_cap(1)
+        for s in sets:
+            for k in range(len(s) - 1):
+                m0 = (s[k] + 0.5) * 2 * math.pi / n
+                m1 = (s[k + 1] + 0.5) * 2 * math.pi / n
+                cr.set_source_rgb(0.208, 0.769, 0.416)
+                cr.new_path()
+                cr.arc(c, c, rr, m0 + shift, m1 + shift)
+                cr.stroke()
+                for m in (m0, m1):
+                    cr.new_path()
+                    cr.arc(c + rr * math.sin(m), c - rr * math.cos(m), 4, 0, 2 * math.pi)
+                    cr.fill()
+        return False
+
+    def _endless_chips(self):
+        """(heads, material, note, kind, colour, faded) like the chips of the Fluidd card."""
+        keys, loaded = self._endless_keys(), self._endless_loaded()
+        sets = L.endless_sets(keys)
+        if not sets:
+            return []
+        t = lambda i: "T%d" % (i + 1)
+        busy = self._busy()
+        active = self._active_tool() if busy else -1
+        w = self.st.get("gcode_macro _WM_ENDLESS") or {}
+        try:
+            wfrom, wto = int(w.get("from", -1)), int(w.get("to", -1))
+        except (TypeError, ValueError):
+            wfrom, wto = -1, -1
+        fname = str((self.st.get("print_stats") or {}).get("filename", ""))
+        swapped = busy and wfrom >= 0 and wto == active and str(w.get("swap_file", "")) == fname
+        chips = []
+        color = lambda i: "#%06X" % (self._tool_info(i)["color"] & 0xFFFFFF)
+        for s in sets:
+            col = color(s[0])
+            mat = self._mat_name(s[0])
+            empty = [i for i in s if loaded[i] is False]
+            if active in s:
+                nxt = L.endless_next(active, keys, loaded)
+                if loaded[active] is False and not nxt:
+                    chips.append((", ".join(t(i) for i in s), "", "all empty, print paused", "warn", col, True))
+                    continue
+                lead = "%s \u2192 %s" % (t(wfrom), t(active)) if swapped else t(active)
+                note = "printing, next: " + ", then ".join(t(i) for i in nxt) if nxt else "printing, no spare left"
+                chips.append((lead, "", note, "ok" if nxt else "warn", col, False))
+            else:
+                ready = [i for i in s if loaded[i] is not False]
+                if len(ready) > 1:
+                    chips.append((("  \u21C4  " if len(ready) == 2 else "  \u2192  ").join(t(i) for i in ready), mat, "identical", "plain", col, False))
+                elif len(ready) == 1:
+                    chips.append((t(ready[0]), mat, "no spare left", "warn", col, False))
+            others = [i for i in empty if i != active]
+            if others:
+                chips.append((", ".join(t(i) for i in others), "", "empty, refill", "warn", col, True))
+        for i in range(NTOOLS):
+            if not any(i in s for s in sets):
+                chips.append((t(i), "", "no spare", "plain", color(i), False))
+        return chips
+
+    def _refresh_endless(self):
+        if "endless_row" not in self.w:
+            return
+        v = self._vars()
+        on = L.endless_enabled(v)
+        self._set_switch("sw_endless", on)
+        self._set_switch("sw_auto", L.endless_auto(v))
+        self.w["auto_box"].set_visible(on)
+        self.w["endless_row"].set_visible(on)
+        self.w["endless_off"].set_visible(not on)
+        if not on:
+            return
+        self.w["ring"].queue_draw()
+        box = self.w["chips"]
+        for ch in box.get_children():
+            box.remove(ch)
+        chips = self._endless_chips()
+        if not chips:
+            lbl = self._label("No two toolheads have the same material and colour. A runout pauses the print.", "zr_hint", wrap=True)
+            box.pack_start(lbl, False, False, 0)
+        kind_col = {"ok": "#35c46a", "warn": "#f0a030", "plain": "#aab4be"}
+        for heads, mat, note, kind, col, faded in chips:
+            lbl = Gtk.Label()
+            lbl.set_xalign(0)
+            lbl.set_markup('<span foreground="%s" alpha="%s">\u25CF</span> <b>%s</b> %s <span foreground="%s">%s</span>' % (
+                col, "35%" if faded else "100%", GLib.markup_escape_text(heads), GLib.markup_escape_text(mat),
+                kind_col[kind], GLib.markup_escape_text(note)))
+            box.pack_start(lbl, False, False, 0)
+        box.show_all()
+
+    # ------------------------------------------------------------------
+    # F-137: nozzle heat growth page (on/off switch; the measurement is started from here)
+    # ------------------------------------------------------------------
+    def show_growth(self):
+        self.view = "growth"
+        self._clear()
+        self.root.pack_start(self._header("Nozzle heat growth"), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(10)
+        texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        title = self._label()
+        title.set_markup("<b>Heat growth correction</b>")
+        texts.pack_start(title, False, False, 0)
+        self.w["gr_sub"] = self._label("", "zr_small", wrap=True)
+        texts.pack_start(self.w["gr_sub"], False, False, 0)
+        card.pack_start(texts, True, True, 0)
+        card.pack_end(self._switch("sw_growth", self._growth_set), False, False, 0)
+        body.pack_start(card, False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        b1 = self._button("heat-up", "Measure again", "color1", self._utility, "Measure heat growth", "WM_NOZZLE_GROWTH_CAL", None)
+        b2 = self._button("info", "Show value", "color3", self._gcode, "WM_NOZZLE_GROWTH", None)
+        for b in (b1, b2):
+            b.set_size_request(-1, self.sz["tile_h"])
+            row.pack_start(b, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        body.pack_start(self._label("Corrects the first layer height of every tool for the nozzle growing with heat. "
+                                    "It can only be switched on after a measurement, and not while printing.",
+                                    "zr_hint", wrap=True), False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+        self._refresh_growth()
+
+    def _growth_set(self, on):
+        if not self._require_idle():
+            self.__dict__.setdefault("_sw_hold", {}).pop("sw_growth", None)
+            self._refresh_growth()
+            return
+        self._gcode("SET_PIN PIN=Nozzle_Heat_Growth VALUE=%d" % (1 if on else 0), "Nozzle heat growth %s" % ("on" if on else "off"))
+
+    def _refresh_growth(self):
+        if "sw_growth" not in self.w:
+            return
+        pin = self._pin_value("Nozzle_Heat_Growth")
+        self.w["sw_growth"].set_sensitive(pin is not None)
+        if pin is not None:
+            self._set_switch("sw_growth", pin)
+        try:
+            sv = self._vars()
+            g = float(sv.get("wm_nozzle_growth_meas", 0) or 0) or float(sv.get("wm_nozzle_growth", 0) or 0)     # the measured value stays when the switch is off
+        except (TypeError, ValueError):
+            g = 0.0
+        if pin is None:
+            txt = "Not on this printer (rpi_zoffset.cfg)."
+        elif g:
+            txt = "Measured %.4f mm per degree. The value is kept when the switch is off." % g
+        else:
+            txt = "Not measured yet. Use Measure again first."
+        self.w["gr_sub"].set_text(txt)
+
+    # ------------------------------------------------------------------
+    # F-137: Klipper offline: banner, greyed page, restart buttons and the system menu of KlipperScreen
+    # ------------------------------------------------------------------
+    def _offline(self):
+        st = getattr(self._screen, "state", None)
+        if st is None:
+            return False
+        return (not getattr(st, "initialized", True)) or (not getattr(st, "connected", True))
+
+    def _update_offline(self):
+        off = self._offline()
+        if off == getattr(self, "_off_shown", False):
+            if off and self.nav is not None and self.nav.get_visible():
+                self.nav.hide()
+            return
+        self._off_shown = off
+        if off:
+            self._build_offline_ui()
+        else:
+            self._remove_offline_ui()
+
+    def _build_offline_ui(self):
+        st = self._screen.state
+        txt = "Moonraker not connected: retrying" if not getattr(st, "connected", True) else "Klipper is not ready (restarting or in error)"
+        banner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        banner.pack_start(self._pill(txt, "off"), True, True, 0)
+        banner.pack_end(self._button("refresh", "Retry now", "color1", self._retry_now), False, False, 0)
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        bar.set_homogeneous(True)
+        for icon, text, style, cb in (("refresh", "Klipper Restart", "color1", self._klipper_restart),
+                                      ("refresh", "Firmware Restart", "color2", self._firmware_restart),
+                                      ("settings", "System menu", "color3", self._open_system_menu)):
+            b = self._button(icon, text, style, cb)
+            b.set_size_request(-1, self.sz["nav_h"])
+            bar.pack_start(b, True, True, 0)
+        self.outer.pack_start(banner, False, False, 0)
+        self.outer.reorder_child(banner, 0)
+        self.outer.pack_end(bar, False, False, 0)
+        self._off_widgets = [banner, bar]
+        self.root.set_sensitive(False)
+        if self.nav is not None:
+            self.nav.hide()
+        banner.show_all()
+        bar.show_all()
+
+    def _remove_offline_ui(self):
+        for wdg in getattr(self, "_off_widgets", []):
+            self.outer.remove(wdg)
+            wdg.destroy()
+        self._off_widgets = []
+        self.root.set_sensitive(True)
+        if self.nav is not None:
+            self.nav.show_all()
+
+    def _retry_now(self):
+        try:
+            s = self._screen
+            s.state.reinit_count = 0
+            s.state.klippy_retry_count = 0
+            s._init_printer("Connecting to %s" % s.state.printer_name)
+        except Exception as e:
+            logging.error("ZR: retry failed: %s" % e)
+
+    def _klipper_restart(self):
+        try:
+            self._screen._ws.api.restart()
+        except Exception as e:
+            logging.error("ZR: klipper restart failed: %s" % e)
+            self._screen.show_popup_message("Cannot reach Moonraker")
+
+    def _firmware_restart(self):
+        try:
+            self._screen._ws.api.restart_firmware()
+        except Exception as e:
+            logging.error("ZR: firmware restart failed: %s" % e)
+            self._screen.show_popup_message("Cannot reach Moonraker")
+
+    def _open_system_menu(self):
+        try:
+            items = self._screen._config.get_menu_items("__splashscreen", "")
+            self._screen.show_panel("menu", "System", panel_name="", items=items)
+        except Exception as e:
+            logging.error("ZR: system menu failed: %s" % e)
+            self._screen.show_popup_message("System menu not available")

@@ -217,6 +217,39 @@ def ace_bar_text(objects):
     return "ACE %s \u00b7 %s" % (temp, ("drying, %s left" % a["dry_left"]) if a["drying"] else "dryer off")
 
 
+def endless_sets(keys):
+    """Endless spool: the sets of two or more toolheads with the same material and colour, each in number order
+    (the same rule as the Fluidd panel). keys[i] is "mat/color" or None."""
+    sets = []
+    for i, key in enumerate(keys):
+        if key is None or any(i in s for s in sets):
+            continue
+        s = [j for j, k in enumerate(keys) if k == key]
+        if len(s) > 1:
+            sets.append(s)
+    return sets
+
+
+def endless_next(frm, keys, loaded):
+    """Toolheads that can take over for toolhead frm, in the order the printer tries them."""
+    out = []
+    key = keys[frm] if 0 <= frm < len(keys) else None
+    if key is None:
+        return out
+    for k in range(1, len(keys)):
+        c = (frm + k) % len(keys)
+        if keys[c] == key and (loaded is None or loaded[c] is True):
+            out.append(c)
+    return out
+
+
+def endless_auto(variables):
+    try:
+        return int(float(variables.get("wm_endless_auto", 1))) == 1
+    except (TypeError, ValueError):
+        return True
+
+
 def endless_enabled(variables):
     try:
         return int(float(variables.get("wm_endless", 0))) == 1
@@ -638,6 +671,7 @@ def build_css(theme, style, density="compact", scale=1.0):
     .zr_btn_green { background-color: #2e9d57; border-color: #2e9d57; color: #ffffff; }
     .zr_btn_orange { background-color: #d9822b; border-color: #d9822b; color: #ffffff; }
     .zr_btn_purple { background-color: #7b4fd0; border-color: #7b4fd0; color: #ffffff; }
+    .zr_btn_pink { background-color: #c2477f; border-color: #c2477f; color: #ffffff; }
     .zr_arrow { background-color: #27323c; border-color: #3b4955; color: #ffffff; font-weight: bold; padding: 0; }
     .zr_arrow label { font-size: 125%%; font-weight: bold; }
     .zr_btn_off { background-color: #262a3a; border-color: #3b4955; color: #aab0c0; }

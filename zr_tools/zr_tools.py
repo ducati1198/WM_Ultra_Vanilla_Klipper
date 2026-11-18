@@ -13,6 +13,7 @@
 
 import json
 import logging
+import math
 import threading
 import urllib.request
 import uuid
@@ -92,7 +93,24 @@ def _tool_from_ext(name):
         return -1
 
 
+BIG_H = 78       # height of the Yes / Cancel and the big tiles = the buttons of the Bed PID window
+
+
 class Panel(ViewsMixin, ScreenPanel):
+
+    # F-137: page history, so the Back button of KlipperScreen goes to the page you came from
+    @property
+    def view(self):
+        return self.__dict__.get("_view_v", "main")
+
+    @view.setter
+    def view(self, value):
+        old = self.__dict__.get("_view_v")
+        if old is not None and old != value and not self.__dict__.get("_navback"):
+            h = self.__dict__.setdefault("_hist", [])
+            h.append((old, self.__dict__.get("view_tool", 0)))
+            del h[:-12]
+        self.__dict__["_view_v"] = value
 
     def __init__(self, screen, title):
         super().__init__(screen, title)
@@ -149,7 +167,7 @@ class Panel(ViewsMixin, ScreenPanel):
              ("filament", "Filament", self.show_filament, ("tool", "tool_edit")),
              ("heat-up", "Climate", self.show_chamber, ("chamber",))]
         if not self.tiny:            # on a 3 to 4 inch screen Calibrate moves into More to keep the tabs big enough to hit
-            e.append(("settings", "Calibrate", self.show_utilities, ("utilities",)))
+            e.append(("settings", "Calibrate", self.show_utilities, ("utilities", "growth")))
         if L.has_ace(self.st):
             e.append(("spool", "ACE", self.show_ace, ("ace",)))
         more = ("more", "hub", "collision", "extras", "system", "settings", "mapping")
@@ -193,6 +211,7 @@ class Panel(ViewsMixin, ScreenPanel):
     # lifecycle
     # ------------------------------------------------------------------
     def activate(self):
+        self._update_offline()
         self._query()
         if self._timer is None:
             self._timer = GLib.timeout_add_seconds(POLL_SECONDS, self._poll)
@@ -202,14 +221,38 @@ class Panel(ViewsMixin, ScreenPanel):
             GLib.source_remove(self._timer)
             self._timer = None
 
-    def on_back(self):
-        if self.view == "tool_edit":
-            self.show_tool(self.view_tool)
-            return True
-        if self.view != self._home_view():
-            self.show_home()
-            return True
+    def _view_fn(self, v):
+        m = {"main": self.show_main, "hub": self.show_hub, "more": self.show_more, "chamber": self.show_chamber,
+             "ace": self.show_ace, "utilities": self.show_utilities, "collision": self.show_collision,
+             "extras": self.show_extras, "system": self.show_system, "settings": self.show_settings,
+             "mapping": self.show_mapping, "growth": self.show_growth, "unload": self.show_unload,
+             "tool": lambda: self.show_tool(self.view_tool), "tool_edit": lambda: self.show_tool_edit(self.view_tool)}
+        return m.get(v)
+
+    def back(self, widget=None):
+        """KlipperScreen calls back() on the Back button: True = handled here, False = KlipperScreen goes to its own previous page."""
+        if self._offline():
+            return False
+        h = self.__dict__.setdefault("_hist", [])
+        self.__dict__["_navback"] = True
+        try:
+            while h:
+                v, tool = h.pop()
+                fn = self._view_fn(v)
+                if fn is None:
+                    continue
+                if v in ("tool", "tool_edit"):
+                    self.view_tool = tool
+                fn()
+                return True
+            if self.view != self._home_view():
+                self.show_home()
+                return True
+        finally:
+            self.__dict__["_navback"] = False
         return False
+
+    on_back = back
 
     def process_update(self, action, data):
         # Global KlipperScreen subscription (temperatures, toolhead ...).
@@ -230,7 +273,12 @@ class Panel(ViewsMixin, ScreenPanel):
     def _objects(self):
         objs = {
             "toolhead": ["extruder", "homed_axes"],
-            "print_stats": ["state"],
+            "print_stats": ["state", "filename"],
+            "output_pin ACE_Pro": ["value"],
+            "output_pin Nozzle_Heat_Growth": ["value"],
+            "gcode_macro _WM_ENDLESS": None,
+            "gcode_macro _WM_UNLOAD": None,
+            "gcode_macro WM_ENDLESS_CONTINUE": None,
             "save_variables": ["variables"],
             "heater_generic chamber": ["temperature", "target"],
             "fan_generic air_fan": ["speed"],
@@ -257,6 +305,7 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _poll(self):
         self._query()
+        self._update_offline()
         return True
 
     def _http_base(self):
@@ -394,6 +443,10 @@ class Panel(ViewsMixin, ScreenPanel):
             pass
         return _tool_from_ext((self.st.get("toolhead") or {}).get("extruder"))
 
+    def _mat_name(self, i):
+        m = self._tool_info(i)["mat"]
+        return MATERIALS[m][0] if 0 <= m < len(MATERIALS) else ""
+
     def _tool_info(self, i):
         v = self._vars()
         slot = self._tmt1[i] if i < len(self._tmt1) else {}
@@ -436,6 +489,101 @@ class Panel(ViewsMixin, ScreenPanel):
                 out.append(t)
         return out
 
+    # ------------------------------------------------------------------
+    # F-137: Unload menu in the ZR Tools design (replaces the Fluidd style popup of WM_UNLOAD_MENU on this screen)
+    # ------------------------------------------------------------------
+    def _unload_open(self):
+        if not self._require_idle():
+            return
+        u = (self.st.get("gcode_macro _WM_UNLOAD") or {})
+        if u.get("active"):
+            self._screen.show_popup_message("An unload is already running. Stop it with WM_UNLOAD_STOP.")
+            return
+        self.show_unload()
+
+    def _unload_label(self, i):
+        info = self._tool_info(i)
+        mat = self._mat_name(i)
+        col = _color_name(info["color"])
+        return ("T%d" % (i + 1)), (" ".join(x for x in (mat, col) if x) or "no data")
+
+    def show_unload(self):
+        self.view = "unload"
+        self._clear()
+        self.root.pack_start(self._header("Unload filament"), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        body.pack_start(self._label("Choose the tool to unload, or all tools one after the other.", "zr_hint", wrap=True), False, False, 0)
+        grid = Gtk.Grid()
+        grid.set_row_spacing(8)
+        grid.set_column_spacing(8)
+        grid.set_column_homogeneous(True)
+        for i in range(NTOOLS):
+            ev = Gtk.EventBox()
+            ev.get_style_context().add_class("zr_card")
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            for m in ("top", "bottom", "start", "end"):
+                getattr(row, "set_margin_" + m)(8)
+            sp = self._spool(56)
+            self._set_swatch(sp, self._tool_info(i)["color"])
+            row.pack_start(sp, False, False, 0)
+            t1, t2 = self._unload_label(i)
+            txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            txt.set_valign(Gtk.Align.CENTER)
+            a = self._label(t1, "zr_title")
+            a.set_halign(Gtk.Align.START)
+            b = self._label(t2, "zr_small")
+            b.set_halign(Gtk.Align.START)
+            txt.pack_start(a, False, False, 0)
+            txt.pack_start(b, False, False, 0)
+            row.pack_start(txt, True, True, 0)
+            ev.add(row)
+            ev.connect("button-release-event", lambda _w, _e, n=i: self.show_unload_ask(str(n)))
+            grid.attach(ev, i % 2, i // 2, 1, 1)
+        body.pack_start(grid, False, False, 0)
+        all_btn = self._button(None, "All tools", "color3", self.show_unload_ask, "ALL")
+        all_btn.get_style_context().add_class("zr_btn_primary")
+        all_btn.set_size_request(-1, BIG_H)
+        body.pack_start(all_btn, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+
+    def show_unload_ask(self, which):
+        self.view = "unload_ask"
+        self._clear()
+        allt = which == "ALL"
+        self.root.pack_start(self._header("Unload all tools?" if allt else "Unload T%d?" % (int(which) + 1)), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(12)
+        if allt:
+            txt = ("T1, T2, T3 and T4 are unloaded one after the other. A tool with nothing to unload is skipped. "
+                   "Each nozzle heats to its saved temperature and the tools go back to their docks at the end.")
+        else:
+            txt = ("The nozzle of T%d heats to its saved temperature and the filament is pulled out. "
+                   "The tool goes back to its dock at the end." % (int(which) + 1))
+        card.pack_start(self._label(txt, None, wrap=True), False, False, 0)
+        body.pack_start(card, False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        yes = self._button(None, "Yes, unload", "color3", self._unload_go, which)
+        yes.get_style_context().add_class("zr_btn_primary")
+        no = self._button(None, "Cancel", "color3", self.back)
+        for b in (yes, no):
+            b.set_size_request(-1, BIG_H)
+            row.pack_start(b, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+
+    def _unload_go(self, which):
+        if not self._require_idle():
+            return
+        t = "ALL" if which == "ALL" else str(int(which))
+        self._gcode("_WM_UNLOAD_GO T=%s" % t, "Unloading %s..." % ("all tools" if t == "ALL" else "T%d" % (int(t) + 1)))
+        self.back()      # ask page -> tool list
+        self.back()      # tool list -> the page the Unload menu was opened from
+
     def _require_idle(self):
         if self._busy():
             self._screen.show_popup_message("Not available during a print.")
@@ -443,20 +591,30 @@ class Panel(ViewsMixin, ScreenPanel):
         return True
 
     def _confirm(self, title, text, script, message=None):
-        label = Gtk.Label(label=text)
-        label.set_line_wrap(True)
-        label.set_justify(Gtk.Justification.CENTER)
-        buttons = [
-            {"name": "Cancel", "response": Gtk.ResponseType.CANCEL},
-            {"name": "OK", "response": Gtk.ResponseType.OK},
-        ]
+        # F-137: a page in the ZR Tools design (same as the Unload confirm page) instead of the KlipperScreen dialog
+        self._ask_page(title, text, lambda: self._gcode(script, message))
 
-        def _resp(dialog, response_id):
-            self._gtk.remove_dialog(dialog)
-            if response_id == Gtk.ResponseType.OK:
-                self._gcode(script, message)
-
-        self._gtk.Dialog(title, buttons, label, _resp)
+    def _ask_page(self, title, text, func, yes="Yes", no="Cancel"):
+        self.view = "ask"
+        self._clear()
+        self.root.pack_start(self._header(title), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(12)
+        card.pack_start(self._label(text, None, wrap=True), False, False, 0)
+        body.pack_start(card, False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        yb = self._button(None, yes, "color3", lambda: (self.back(), func()))
+        yb.get_style_context().add_class("zr_btn_primary")
+        nb = self._button(None, no, "color3", self.back)
+        for b_ in (yb, nb):
+            b_.set_size_request(-1, BIG_H)
+            row.pack_start(b_, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
 
     # ------------------------------------------------------------------
     # small widget helpers
@@ -588,15 +746,12 @@ class Panel(ViewsMixin, ScreenPanel):
         btn = self._gtk.Button(icon, label, "color3", lines=1)
         btn.set_vexpand(False)
         btn.get_style_context().add_class("zr_tab")
-        btn.connect("clicked", lambda _w: callback())
+        btn.connect("clicked", lambda _w: (callback(), self.__dict__.__setitem__("_hist", [])))
         return btn
 
     def _header(self, title, back=None, action=None):
+        # F-137: no Back button of our own: KlipperScreen's back button (left side) goes back, see on_back()
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        if back is not None or self.view != self._home_view():
-            btn = self._button("arrow-left", "Back", "color3", back or self.show_home)
-            btn.set_size_request(96, self.sz["btn_h"])
-            row.pack_start(btn, False, False, 0)
         lbl = self._label()
         lbl.set_markup(f"<b>{title}</b>")
         row.pack_start(lbl, True, True, 0)
@@ -761,7 +916,7 @@ class Panel(ViewsMixin, ScreenPanel):
     # TOOL VIEW: actions + filament editor
     # ------------------------------------------------------------------
     def show_tool(self, i):
-        """Left: hero card with the spool. Right: 3x3 grid of big actions, 'Edit filament' across the bottom."""
+        """Left: hero card with the spool (tap it to edit the filament). Right: 3x3 grid of big actions."""
         self.view = "tool"
         self.view_tool = i
         self.edit = dict(self._tool_info(i))
@@ -789,6 +944,7 @@ class Panel(ViewsMixin, ScreenPanel):
 
         card = Gtk.EventBox()
         card.get_style_context().add_class("zr_card")
+        card.connect("button-release-event", lambda *_a, n=i: self.show_tool_edit(n))     # F-137: tap the spool to edit the filament
         col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         for m in ("top", "bottom", "start", "end"):
             getattr(col, "set_margin_" + m)(8)
@@ -811,6 +967,7 @@ class Panel(ViewsMixin, ScreenPanel):
             col.pack_start(self.w["e_swatch"], True, True, 0)
             for k in ("h_mat", "h_col", "h_chip", "h_state", "h_ace1", "h_ace2"):
                 col.pack_start(self.w[k], False, False, 0)
+            col.pack_start(self._label("tap the spool to edit", "zr_small"), False, False, 0)
             card.set_size_request(190 if big else 150, -1)
         card.add(col)
         page.pack_start(card, False, False, 0)
@@ -845,9 +1002,12 @@ class Panel(ViewsMixin, ScreenPanel):
         park_btn.get_style_context().add_class("zr_btn_purple")
         park_btn.set_vexpand(True)
         actions.attach(park_btn, 1, 0, 1, 1)
-        edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
-        edit_btn.set_vexpand(True)
-        actions.attach(edit_btn, 2, 0, 1, 1)
+        have = {str(x).strip().upper() for x in (self._sections() or [])}
+        if not have or "GCODE_MACRO WM_UNLOAD_MENU" in have:      # F-137: Unload menu (one tool or all) where Edit filament was; hidden when the Pi lacks it
+            um_btn = self._button(None, "Unload menu", "color3", self._unload_open)
+            um_btn.get_style_context().add_class("zr_btn_primary")
+            um_btn.set_vexpand(True)
+            actions.attach(um_btn, 2, 0, 1, 1)
         if L.has_ace(self.st):          # ACE feed assist of this toolhead, under Load and Unload: purple + green ON, dark grey + red OFF
             assist_btn = Gtk.Button()
             assist_btn.get_style_context().add_class("zr_btn")
@@ -1244,7 +1404,10 @@ class Panel(ViewsMixin, ScreenPanel):
         grid.set_column_spacing(6)
         grid.set_column_homogeneous(True)
         for n, (icon, text, script, question) in enumerate(items):
-            b = self._button(icon, text, "color%d" % (1 + n % 4), self._utility, text, script, question)
+            if script == "WM_NOZZLE_GROWTH_CAL":       # F-137: the page with the on/off switch; "Measure again" starts the measurement
+                b = self._button(icon, text, "color%d" % (1 + n % 4), self.show_growth)
+            else:
+                b = self._button(icon, text, "color%d" % (1 + n % 4), self._utility, text, script, question)
             b.set_size_request(-1, self.sz["tile_h"])
             grid.attach(b, n % self.sz["util_cols"], n // self.sz["util_cols"], 1, 1)
         self.root.pack_start(self._scrolled(grid), True, True, 0)
@@ -1384,6 +1547,8 @@ class Panel(ViewsMixin, ScreenPanel):
                 self._refresh_mapping()
             elif self.view == "chamber":
                 self._refresh_chamber()
+            elif self.view == "growth":
+                self._refresh_growth()
             else:
                 self.refresh_extra_views()
             self._rebuild_nav_if_needed()

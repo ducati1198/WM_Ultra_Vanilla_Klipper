@@ -56,4 +56,21 @@ mine = base + "\n[webcam printer cam]\nservice: mjpegstreamer\nstream_url: /webc
 new2, added2 = C.moonraker_text(mine, 2)
 assert added2 == ["Camera 2"] and "[webcam printer cam]" in new2 and "[webcam Camera]" not in new2   # the user's own section for /webcam/ is kept, no duplicate
 assert C.moonraker_text("", 1)[0].startswith("\n[webcam Camera]")
+
+# the camera on the screen board: Camera = the board, this Pi's cameras start at [cam 2] (port 8081)
+assert C.parse_count("0", 3, 0) == 0 and C.parse_count("3", 3, 0) == 3 and raises(C.parse_count, "4", 3, 0) and raises(C.parse_count, "0")
+t2 = C.conf_for(P3, found, 2, "720p", 30, 2)
+assert "[cam 2]" in t2 and "[cam 3]" in t2 and "[cam 1]" not in t2 and "port: 8081" in t2 and "port: 8082" in t2 and "port: 8080\n" not in t2.split("\n[crowsnest]\n")[1]
+assert "[cam " not in C.conf_for(P3, found, 0, "720p", 30, 2).split("\n[crowsnest]\n")[1]
+sd = tempfile.mkdtemp(); sj = os.path.join(sd, "rpi_screen_camera.json")
+assert C.screen_cam_url(sj) == ""                                          # no file
+open(sj, "w").write('{"url": "http://board-1.local:8080"}'); assert C.screen_cam_url(sj) == "http://board-1.local:8080"
+open(sj, "w").write('{"url": ""}'); assert C.screen_cam_url(sj) == ""      # no camera plugged in
+open(sj, "w").write('{"url": "javascript:alert(1)"}'); assert C.screen_cam_url(sj) == ""
+open(sj, "w").write("not json"); assert C.screen_cam_url(sj) == ""
+ups = "upstream apiserver {\n    server 127.0.0.1:7125;\n}\nupstream mjpgstreamer1 { server 127.0.0.1:8080; }\nupstream mjpgstreamer2 { server 127.0.0.1:8081; }\n"
+u1, ch = C.upstream_text(ups, "http://board-1.local:8080")
+assert ch and "upstream mjpgstreamer1 { server board-1.local:8080; }" in u1 and "mjpgstreamer2 { server 127.0.0.1:8081; }" in u1 and "127.0.0.1:7125" in u1
+assert C.upstream_text(u1, "http://board-1.local:8080") == (u1, False)      # twice changes nothing
+assert C.upstream_text(u1, "default") == (ups, True)                        # and back
 print("crowsnest helper tests passed")

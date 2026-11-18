@@ -27,6 +27,7 @@ class Panel(ScreenPanel):
         toolgrid = Gtk.Grid(column_homogeneous=True)
         for t in range(4):
             w = self._gtk.Button(None, "T%d" % t, "color4")
+            w.get_style_context().add_class("zr_btn")
             w.connect("clicked", self.pick, t)
             self.tool[t] = w
             toolgrid.attach(w, t, 0, 1, 1)
@@ -34,12 +35,17 @@ class Panel(ScreenPanel):
         sc = self._gtk.button_image_scale * 0.9
         closer = self._gtk.Button("z-closer", "Closer to the bed", "color1", sc)
         further = self._gtk.Button("z-farther", "Further from the bed", "color3", sc)
+        for _w in (closer, further):
+            _w.get_style_context().add_class("zr_btn")
+        closer.get_style_context().add_class("zr_btn_primary")
         closer.connect("clicked", self.do_step, "-")
         further.connect("clicked", self.do_step, "")
         self.info = Gtk.Label(halign=Gtk.Align.START, valign=Gtk.Align.START)
         self.info.set_line_wrap(True)
         self.info.set_max_width_chars(20)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.get_style_context().add_class("zr_card")
+        box.set_border_width(6)
         box.set_margin_start(10)
         box.set_margin_end(4)
         box.set_margin_top(6)
@@ -59,18 +65,23 @@ class Panel(ScreenPanel):
             w.connect("clicked", self.set_step, s)
             ctx = w.get_style_context()
             ctx.add_class("horizontal_togglebuttons")
+            ctx.add_class("zr_btn")
             if s == self.step:
                 ctx.add_class("horizontal_togglebuttons_active")
+                ctx.add_class("zr_btn_primary")
             self.stepbtn[s] = w
             stepgrid.attach(w, j + 1, 0, 1, 1)
 
         bottom = Gtk.Grid(column_homogeneous=True)
         self.zero = self._gtk.Button(None, "Set T0 to 0", "color2")
         self.zero.connect("clicked", self.do_zero)
+        self.zero.get_style_context().add_class("zr_btn")
         allzero = self._gtk.Button(None, "Set all to 0", "color2")
         allzero.connect("clicked", self.send, "_WM_Z_TRIM_RESET")
+        allzero.get_style_context().add_class("zr_btn")
         close = self._gtk.Button(None, "Close", "color4")
         close.connect("clicked", self.close)
+        close.get_style_context().add_class("zr_btn")
         bottom.attach(self.zero, 0, 0, 1, 1)
         bottom.attach(allzero, 1, 0, 1, 1)
         bottom.attach(close, 2, 0, 1, 1)
@@ -110,7 +121,7 @@ class Panel(ScreenPanel):
             w.set_label("%sT%d   %s" % ("\u25cf " if t == self.target else "", t, f(self.values.get(t))))
             ctx = w.get_style_context()
             # the chosen tool head: active look and another colour bar
-            for cls, on in (("button_active", t == self.target), ("color1", t == self.target), ("color4", t != self.target)):
+            for cls, on in (("zr_btn_primary", t == self.target),):
                 if on:
                     ctx.add_class(cls)
                 else:
@@ -133,7 +144,9 @@ class Panel(ScreenPanel):
 
     def set_step(self, widget, s):
         self.stepbtn[self.step].get_style_context().remove_class("horizontal_togglebuttons_active")
+        self.stepbtn[self.step].get_style_context().remove_class("zr_btn_primary")
         self.stepbtn[s].get_style_context().add_class("horizontal_togglebuttons_active")
+        self.stepbtn[s].get_style_context().add_class("zr_btn_primary")
         self.step = s
 
     def do_step(self, widget, sign):

@@ -597,6 +597,22 @@ check "webcam: --dry-run --webcam-setup changes nothing" "inst $WCK --dry-run --
 WCQ="$T/wcq"; mkdir -p "$WCQ"; inst "$WCQ" --from-github --model ultra-s --screen off --cameras 1 --cam-resolution 1080p --cam-fps 30 >/dev/null
 check "webcam: --webcam-setup asks the questions again after 1 camera was saved, and writes the second camera (B-060)" "printf '2\\n1\\n10\\ny\\n' | WM_TEST_CAMERAS='[{\"kind\":\"usb\",\"path\":\"/dev/v4l/by-id/usb-A-video-index0\",\"name\":\"A\"},{\"kind\":\"usb\",\"path\":\"/dev/v4l/by-id/usb-B-video-index0\",\"name\":\"B\"}]' WM_HOME=$WCQ WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --webcam-setup >/dev/null 2>&1; [ \$(grep -c '^\[cam ' $WCQ/printer_data/config/crowsnest.conf) = 2 ] && grep -q '^\[webcam Camera 2\]' $WCQ/printer_data/config/moonraker.conf"
 
+echo "== camera on the screen board (the factory camera plugs into the screen board)"
+SCP="$T/scp"; mkdir -p "$SCP/printer_data/config"; echo '{"url": "http://board-1.local:8080"}' > "$SCP/printer_data/config/rpi_screen_camera.json"; cp "$ROOT/config/nginx_upstreams.conf" "$T/scp_up.conf"
+WM_NGINX_UPSTREAMS="$T/scp_up.conf" inst "$SCP" --from-github --model ultra-s --screen off --cameras 1 --cam-resolution 720p --cam-fps 30 > "$T/scp.out"
+check "screen camera: the question is not asked without a terminal, the answer yes is saved" "grep -q '^SCREEN_CAM=yes' $SCP/wm-rpi-backup/install.conf"
+check "screen camera: this Pi's cameras start at [cam 2] on port 8081" "grep -q '^\[cam 2\]' $SCP/printer_data/config/crowsnest.conf && ! grep -q '^\[cam 1\]' $SCP/printer_data/config/crowsnest.conf && grep -q '^port: 8081' $SCP/printer_data/config/crowsnest.conf"
+check "screen camera: Fluidd gets Camera (the board) and Camera 2 (this Pi)" "grep -q '^\[webcam Camera\]' $SCP/printer_data/config/moonraker.conf && grep -q '^\[webcam Camera 2\]' $SCP/printer_data/config/moonraker.conf && grep -q 'stream_url: /webcam/?action=stream' $SCP/printer_data/config/moonraker.conf"
+check "screen camera: nginx /webcam/ goes to the board, the other ports stay" "grep -q 'mjpgstreamer1 { server board-1.local:8080; }' $T/scp_up.conf && grep -q 'mjpgstreamer2 { server 127.0.0.1:8081; }' $T/scp_up.conf"
+check "screen camera: a second run changes nothing" "cp $T/scp_up.conf $T/scp_up.before; WM_NGINX_UPSTREAMS=$T/scp_up.conf inst $SCP --update --only-addon webcam --webcam on >/dev/null; cmp -s $T/scp_up.conf $T/scp_up.before && [ \$(grep -c '^\[webcam Camera\]' $SCP/printer_data/config/moonraker.conf) = 1 ]"
+check "screen camera: 0 cameras on the Pi builds no webcam service, the screen camera still works" "SC0=$T/sc0; mkdir -p \$SC0/printer_data/config; cp $SCP/printer_data/config/rpi_screen_camera.json \$SC0/printer_data/config/; cp $ROOT/config/nginx_upstreams.conf $T/sc0_up.conf; WM_NGINX_UPSTREAMS=$T/sc0_up.conf inst \$SC0 --from-github --model ultra-s --screen off --cameras 0 >/dev/null; [ ! -d \$SC0/crowsnest ] && grep -q '^\[webcam Camera\]' \$SC0/printer_data/config/moonraker.conf && grep -q 'server board-1.local:8080' $T/sc0_up.conf && ! grep -q '^\[webcam Camera 2\]' \$SC0/printer_data/config/moonraker.conf"
+check "screen camera: 4 cameras on the Pi are refused (the board takes one of the four)" "S4=$T/sc4; mkdir -p \$S4/printer_data/config; cp $SCP/printer_data/config/rpi_screen_camera.json \$S4/printer_data/config/; inst \$S4 --from-github --model ultra-s --screen off --cameras 4 | grep -q 'number of cameras'"
+check "screen camera: --webcam-setup --screen-camera no gives /webcam/ back to this Pi" "WM_NGINX_UPSTREAMS=$T/scp_up.conf inst $SCP --webcam-setup --screen-camera no --cameras 1 --cam-resolution 720p --cam-fps 30 >/dev/null; grep -q 'mjpgstreamer1 { server 127.0.0.1:8080; }' $T/scp_up.conf && grep -q '^\[cam 1\]' $SCP/printer_data/config/crowsnest.conf && grep -q '^SCREEN_CAM=no' $SCP/wm-rpi-backup/install.conf"
+SCN="$T/scn"; mkdir -p "$SCN/printer_data/config"; cp "$ROOT/config/nginx_upstreams.conf" "$T/scn_up.conf"
+WM_NGINX_UPSTREAMS="$T/scn_up.conf" inst "$SCN" --from-github --model ultra-s --screen off --cameras 1 >/dev/null
+check "screen camera: no camera announced means no question, cameras as before (Camera on this Pi, /webcam/ unchanged)" "grep -q '^SCREEN_CAM=no' $SCN/wm-rpi-backup/install.conf && grep -q '^\[cam 1\]' $SCN/printer_data/config/crowsnest.conf && grep -q 'mjpgstreamer1 { server 127.0.0.1:8080; }' $T/scn_up.conf"
+check "screen camera: --screen-camera yes without an announced camera is refused with the fix" "inst $SCN --webcam-setup --screen-camera yes --cameras 1 | grep -q 'announced a camera yet'"
+check "screen camera: an existing crowsnest.conf with a camera on 8080 gets a warning" "printf '[cam 1]\nmode: ustreamer\nport: 8080\ndevice: /dev/video9\n' > $SCP/printer_data/config/crowsnest.conf; WM_NGINX_UPSTREAMS=$T/scp_up.conf inst $SCP --update --only-addon webcam --webcam on --screen-camera yes | grep -q 'camera on port 8080'"
 echo "== model is applied to every source"
 H8="$T/h8"; mkdir -p "$H8"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; mkstage "$T/stage_s"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; tar czf "$T/stage_s/data.tgz" -C "$T/src_home" --exclude=printer_data/gcodes printer_data fluidd TM_T1
 inst "$H8" --from-stage "$T/stage_s" --model ultra > /dev/null
@@ -775,7 +791,7 @@ check "factory offset calibration (both models): touches within 0.05 mm (CELL fi
 mkdir -p "$T/ksp"; printf 'import logging\nclass Prompt:\n    def decode(self, data):\n        if data.startswith("prompt_text"):\n            self.text = data\n            return\n        elif data.startswith("prompt_button "):\n            pass\n\n    def set_button(self, name, gcode, style="default"):\n        if self.groups:\n            pass\n        else:\n            self.scroll_box.add(button)\n\n    def set_footer_button(self, name, gcode, style="default"):\n        pass\n' > "$T/ksp/prompts.py"
 check "2.14.0: pictures in a touchscreen window: the two prompts changes apply once to KlipperScreen's lines, the file compiles, a second run changes nothing; the pictures and the copy step are there" "python3 - <<PYEOF
 import json, sys
-d = [h for h in json.load(open('$ROOT/zr_tools/ks_wm_patches.json'))['prompts'] if 'prompt_image' in h['new'] or 'def add_images' in h['new']]; assert len(d) == 2
+d = [h for h in json.load(open('$ROOT/zr_tools/ks_wm_patches.json'))['prompts'] if 'old' in h and ('prompt_image' in h['new'] or 'def add_images' in h['new'])]; assert len(d) == 2
 p = '$T/ksp/prompts.py'; s = open(p).read()
 for h in d:
     assert s.count(h['old']) == 1, h['old'][:40]
@@ -787,7 +803,7 @@ assert 'def add_images' in s and 'startswith(\"prompt_image\")' in s and 'wm_ima
 PYEOF
 [ \$? = 0 ] && for n in setter-height setter-place setter-compare; do [ -s $ROOT/zr_tools/wm_images/\$n.png ] || exit 1; done && grep -q 'cp \"\$d\"/wm_images/\*.png \"\$KS_DIR/wm_images/\"' $ROOT/scripts/screen_board.sh && grep -q '\"Tool setter position\", \"WM_SETTER_PROBE_POSITION\"' $ROOT/zr_tools/zr_tools.py && [ \$(grep -c 'prompt_image setter-height setter-place setter-compare' $ROOT/rpi-cfg/rpi_calibration.cfg) = 3 ]"
 check "2.15.0: touchscreen pages for the tool setter steps and the Z trim: the prompts changes open the page in place of the window, values go to the page, a page that cannot load leaves the window; both pages are copied" "python3 -I $ROOT/tests/ks_pages_test.py $ROOT 2>/dev/null"
-check "2.13.0: KlipperScreen patch list: screen.py gets the retry-by-itself change, and no change can apply twice" "python3 -c \"import json; d=json.load(open('$ROOT/zr_tools/ks_wm_patches.json')); s=d['screen']; assert any('_wm_retry_later' in h['new'] for h in s); assert all(h['old'] not in h['new'] for k in d for h in d[k])\""
+check "2.13.0: KlipperScreen patch list: screen.py gets the retry-by-itself change, and no change can apply twice" "python3 -c \"import json; d=json.load(open('$ROOT/zr_tools/ks_wm_patches.json')); s=d['screen']; assert any('_wm_retry_later' in h['new'] for h in s if 'new' in h); assert all(h['old'] not in h['new'] for k in d for h in d[k] if 'old' in h)\""
 check "2.12.0: PRINT_END and CANCEL_PRINT also reset the saved tool mapping copies, RESUME purges 20 mm (both models)" "(for m in ultra ultra-s; do f=$ROOT/factory/\$m/config/macros.cfg; [ \$(grep -c 'SAVE_VARIABLE VARIABLE=box_modify_t{i}_backup VALUE={i}' \$f) = 2 ] && awk '/^\\[gcode_macro PRINT_END\\]/{p=1} /^\\[gcode_macro E_axis_move\\]/{p=0} p&&/_backup VALUE=\\{i\\}/{ok=1} END{exit !ok}' \$f && awk '/^\\[gcode_macro CANCEL_PRINT\\]/{p=1} p&&/_backup VALUE=\\{i\\}/{ok=1} END{exit !ok}' \$f && grep -q '^    E_axis_move L=20 S=300' \$f && ! grep -q '^    E_axis_move L=10 S=300' \$f || exit 1; done)"
 MP="$T/mp"; rm -rf "$MP"; mkdir -p "$MP"; if [ -d "$ROOT/.git" ]; then for f in macros.cfg change_macros.cfg offset_calibrate.cfg extruder0.cfg extruder1.cfg extruder2.cfg extruder3.cfg; do git -C "$ROOT" show 8b47b12:factory/ultra-s/config/$f > "$MP/$f"; done
 check "macro patches: without --write nothing changes and the exit code says changes are needed" "cp -r $MP $MP.0; python3 -I $ROOT/scripts/wm_macro_patches.py $MP >/dev/null; [ \$? = 10 ] && diff -r $MP $MP.0"
@@ -957,6 +973,24 @@ check "board: KlipperScreen config points at the Pi" "grep -q 'moonraker_host: w
 check "board: printer is named WonderMaker and the size defaults to comfortable" "grep -q '^\[printer WonderMaker\]' $B1/printer_data/config/KlipperScreen.conf && grep -q 'density = comfortable' $B1/printer_data/config/zr_screen.conf"
 check "board: ZR Tools files copied" "[ -f $B1/KlipperScreen/panels/zr_tools.py ] && [ -f $B1/KlipperScreen/panels/zr_logic.py ]"
 check "board: uses pinned KlipperScreen commit" "grep -q '34610ceae31e12a10cc980e20a1dec9976f97dd4' $B1/.sudo.log"
+
+# the board side
+SBC="$T/sbc"; mkdir -p "$SBC/printer_data/config" "$T/sbc_v4l"
+check "board camera: no camera plugged in says so and writes nothing" "sb $SBC --camera | grep -q 'No camera plugged into this board' && [ ! -f $SBC/printer_data/config/crowsnest.conf ]"
+touch "$T/sbc_v4l/usb-Fake_Cam-video-index0"
+check "board camera: a camera enables crowsnest at 720p 30 fps on port 8080, no_proxy true" "WM_V4L_BYID_DIR=$T/sbc_v4l sb $SBC --camera >/dev/null; grep -q 'wm-screen-camera' $SBC/printer_data/config/crowsnest.conf && grep -q '^port: 8080' $SBC/printer_data/config/crowsnest.conf && grep -q '^resolution: 1280x720' $SBC/printer_data/config/crowsnest.conf && grep -q '^max_fps: 30' $SBC/printer_data/config/crowsnest.conf && grep -q '^no_proxy: true' $SBC/printer_data/config/crowsnest.conf && grep -q 'usb-Fake_Cam-video-index0' $SBC/printer_data/config/crowsnest.conf && grep -q 'enable --now crowsnest' $SBC/.sudo.log"
+printf '[cam mine]\nmode: ustreamer\nport: 8090\ndevice: /dev/video9\n' > "$SBC/printer_data/config/crowsnest.conf"
+check "board camera: a crowsnest.conf you wrote yourself is kept, with a warning" "WM_V4L_BYID_DIR=$T/sbc_v4l sb $SBC --camera | grep -q 'is kept' && grep -q 'device: /dev/video9' $SBC/printer_data/config/crowsnest.conf && ls $SBC/printer_data/config/crowsnest.conf.wm-before-screen-camera-* >/dev/null"
+printf '#### This is a typical default config.\n[crowsnest]\nno_proxy: false\n[cam 1]\nport: 8080\n' > "$SBC/printer_data/config/crowsnest.conf"
+check "board camera: crowsnest's own default file is replaced, a copy is kept" "WM_V4L_BYID_DIR=$T/sbc_v4l sb $SBC --camera >/dev/null; grep -q 'wm-screen-camera' $SBC/printer_data/config/crowsnest.conf && ls $SBC/printer_data/config/crowsnest.conf.wm-before-screen-camera-* >/dev/null"
+check "board camera: the board service announces the camera (rpi_screen_camera.json) and has the --camera option" "grep -q 'rpi_screen_camera.json' $ROOT/zr_tools/wm-chamber-light-http && grep -q -- '--camera' $SB"
+
+echo "== 2.19.0: ZR Tools screen changes (F-137)"
+check "F-137: KlipperScreen changes apply once and never twice, the panel files compile and carry the new design" "python3 -I $ROOT/tests/test_f137.py $ROOT"
+SPL="$T/spl"; mkdir -p "$SPL/printer_data/config"; printf '[printer WonderMaker]\nmoonraker_host: x\n\n#~# --- Do not edit below this line. This section is saved automatically. ---\n#~# [main]\n#~# language = en\n' > "$SPL/printer_data/config/KlipperScreen.conf"
+check "F-137: the Connecting screen menu gets ZR Tools once, above KlipperScreen's own saved section" "sed -n '/^ks_splash_zr_menu()/,/^}/p' $SB > $T/spl_fn.sh; CFG_DIR=$SPL/printer_data/config; . $T/spl_fn.sh; ks_splash_zr_menu; ks_splash_zr_menu; [ \$(grep -c '__splashscreen zr_tools' \$CFG_DIR/KlipperScreen.conf) = 1 ] && awk '/__splashscreen zr_tools/{a=NR} /^#~# ---/{b=NR} END{exit !(a<b)}' \$CFG_DIR/KlipperScreen.conf && grep -q '#~# language = en' \$CFG_DIR/KlipperScreen.conf"
+check "F-137: a new board install writes the ZR Tools entry for the Connecting screen" "grep -q 'menu __splashscreen zr_tools' $SB"
+
 
 echo "== menu: Update now reopens the menu on the new version"
 UN="$T/un"; mkdir -p "$UN/new" "$UN/home/printer_data/config" "$UN/bh/printer_data/config" "$UN/bh/KlipperScreen"

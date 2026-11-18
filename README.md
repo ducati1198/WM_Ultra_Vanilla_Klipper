@@ -145,7 +145,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 | Upstream Klipper and Moonraker, pinned and bundled | Klipper v0.13.0-827-g29d4ec2d6 and Moonraker v0.11.0-4-gb559b9a, plus WonderMaker's modules and the printer settings (`printer.cfg`, macros) |
 | Python 3.9 next to Bookworm's 3.11 | Klipper runs in 3.9 (WonderMaker's compiled modules need it); Moonraker uses Bookworm's 3.11 |
 | Exact package versions of the tested Pi's `klippy-env` and `moonraker-env` | pinned lists in `config/` |
-| Webcams and timelapse | crowsnest and Moonraker timelapse, the versions WonderMaker ships |
+| Webcams and timelapse | crowsnest and Moonraker timelapse, the versions WonderMaker ships. The factory camera works from the screen board too (shown in Fluidd as **Camera**, 720p at 30 fps) |
 | Fluidd with a **Toolheads** panel | four toolheads, chamber, air filter, doors, print with colours, filament mapping |
 | Safe without the printer | Moonraker and Fluidd work right away. Without the main board Klipper starts but only reports "cannot connect" (nothing moves); `--no-start` leaves it off until `--first-start` |
 | Optional touchscreen | KlipperScreen with a **ZR Tools** page, on the WonderMaker screen board or a screen connected to the Pi (tested on the WonderMaker screen board) |
@@ -162,7 +162,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 - A **USB-A to JST-XH 2.54 mm 4-pin cable**, bought or made, from the Pi's USB-A port to the red 4-pin connector of the main board. A ready-made one must be **re-pinned** to the board's order (DM, DP, G; leave VIN empty). **VIN is 24 V: cut or do not connect the red wire, never feed it to the Pi.** See [docs/WIRING.md](docs/WIRING.md).
 
   ![USB 2.0 to JST-XH 4-pin cable for the main board](docs/img/cable-usb-a-to-jst-xh-mcu.jpg)
-- A **USB-A to MX1.25 (1.25 mm pitch) 4-pin camera cable, at least 1 m (3 ft) long**, from the printer's camera to a USB port of the Pi. Wire colours: red 5 V, white Data-, green Data+, black GND. Not needed if you do not use the camera. Details: [docs/WIRING.md](docs/WIRING.md#camera-cable-usb-a-to-mx125-4-pin).
+- **Only if you do not use the factory screen board** (the WonderMaker board with the screen, see 7): a **USB-A to MX1.25 (1.25 mm pitch) 4-pin camera cable, at least 1 m (3 ft) long**, to wire the factory camera to a USB port of the Pi. Wire colours: red 5 V, white Data-, green Data+, black GND. Not needed if the camera stays plugged into the factory screen board (the installer then streams it from the board, see "Webcams") or if you do not use the camera. Details: [docs/WIRING.md](docs/WIRING.md#camera-cable-usb-a-to-mx125-4-pin).
 
   ![USB-A to MX1.25 4-pin camera cable](docs/img/cable-usb-a-to-mx125-camera.jpg)
 - Nothing else: Klipper, Moonraker and the printer settings are in this repository (see 3.1).
@@ -265,7 +265,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Timelapse | `ffmpeg` and `moonraker-timelapse` at a pinned commit (see `config/pins/addons.txt`), downloaded from mainsail-crew on GitHub and checked |
 | Klipper gcode shell command (installed automatically; `--shell-command off` skips it) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
 | Obico, OctoApp, OctoEverywhere (optional add-ons, not asked during the install; menu → Add-ons) | the makers' own projects, cloned from GitHub into `~/moonraker-obico`, `~/octoapp`, `~/octoeverywhere` and installed with their own installers, pointed at this Pi's Moonraker. See "Remote access add-ons" below |
-| Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended. The install asks how many cameras, the picture size and the speed, and writes `~/printer_data/config/crowsnest.conf` with every option explained. See "Webcams" below |
+| Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended. The install asks if the factory camera is plugged into the factory screen board (when the board announced one), then how many cameras the Pi has, the picture size and the speed, and writes `~/printer_data/config/crowsnest.conf` with every option explained. See "Webcams" below |
 
 ### 3.2b Bring your own calibration over: `--import-settings`
 
@@ -1026,13 +1026,25 @@ Run it with `RUN_SHELL_COMMAND CMD=hello`; extra words go in `PARAMS="a b"`. Com
 
 ## Webcams (crowsnest)
 
-The install asks three things (or take them from the command line, then nothing is asked):
+### The factory camera on the screen board (2.19.0)
+
+On the WonderMaker printer the factory camera is plugged into the **factory screen board**. With the screen board set up (section 7) this works without a cable to the Pi:
+
+1. **On the board** the install (and `bash scripts/screen_board.sh --camera`, and every screen board update) looks for a camera in the board's USB. If it finds one, it writes the board's `crowsnest.conf` (**720p, 30 fps**, port 8080, `no_proxy: true`, because the board has no nginx), enables crowsnest there and tells the Pi its address (`rpi_screen_camera.json`, every 10 minutes). **No camera in the board's USB: crowsnest stays off on the board.** A `crowsnest.conf` you edited yourself is kept (a warning says what it needs); crowsnest's own default file is replaced and a copy is kept.
+2. **On the Pi** the webcam questions start with: *"Is the factory camera plugged into the factory screen board (the camera the board announced)?"* (default yes; `--screen-camera yes|no`; asked only when the board announced a camera). **Yes:** nginx on the Pi hands the board's stream out as `/webcam/`, and Fluidd lists it as **Camera**. The cameras plugged into the Pi come after it as **Camera 2, Camera 3, Camera 4** (`[cam 2]` on port 8081 and so on, so there is no conflict; the Pi then takes 0 to 3 cameras, and with 0 no webcam service is built on the Pi). **No:** the factory camera is wired to the Pi, the cameras are numbered as always.
+3. Ask again any time: `./installer.sh --webcam-setup`. An update also keeps nginx pointed at the board when the board's address changes (give the board a fixed address in your router to be safe).
+4. **No screen board?** Wire the factory camera to the Pi with the USB-A to MX1.25 cable of section 2.1 and answer no (or you are not asked).
+
+### The cameras of the Pi
+
+The install asks these (or take them from the command line, then nothing is asked). With the screen board camera the Pi takes 0 to 3 cameras, otherwise 1 to 4:
 
 | Question | Command-line option | Default |
 |---|---|---|
 | How many cameras (1 to 4) | `--cameras N` | the number found, at least 1 |
 | Picture size: 480p (640x480), 720p (1280x720), 1080p (1920x1080) or your own `WIDTHxHEIGHT` | `--cam-resolution 480p\|720p\|1080p\|WxH` | 720p |
 | Pictures per second (`max_fps`, 1 to 60) | `--cam-fps N` | 15 |
+| Is the factory camera plugged into the factory screen board? (only asked when the board announced a camera) | `--screen-camera yes\|no` | yes |
 
 - **The camera ports are found automatically.** USB cameras are listed by their stable `/dev/v4l/by-id/...-video-index0` name (it does not change when you move the plug), a ribbon (CSI) camera by its libcamera path. See what is found: `python3 scripts/wm_crowsnest.py detect`. A camera that is not plugged in yet gets a placeholder `device:` line to fill in.
 - **The streamer** is chosen by Pi model: Pi 4 and Compute Module 4 use `camera-streamer`; every other model (Pi 3, Zero 2, Pi 5) uses `ustreamer`. A ribbon camera needs libcamera, so it gets `camera-streamer` (or `spyglass` on a Pi 5, where camera-streamer does not run). Change `mode:` in `crowsnest.conf` any time, per camera.

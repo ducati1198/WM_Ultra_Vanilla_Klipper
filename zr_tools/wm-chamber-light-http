@@ -184,12 +184,30 @@ def upload(host, name, body):
     urllib.request.urlopen(req, timeout=8).read()
 
 
+CAMERA_PORT = 8080          # crowsnest on this board (scripts/screen_board.sh step_screen_camera)
+
+
+def camera_url(ip):
+    """http://<this board>:8080 when a camera is plugged in and crowsnest is enabled here, otherwise ''."""
+    try:
+        cams = [n for n in os.listdir("/dev/v4l/by-id") if n.endswith("-video-index0")]
+    except OSError:
+        cams = []
+    if cams and os.path.exists("/etc/systemd/system/multi-user.target.wants/crowsnest.service"):
+        return "http://%s:%d" % (ip, CAMERA_PORT)
+    return ""
+
+
 def register(conf, port):
     """Tell the Pi where this service is: upload rpi_chamber_light.json into Moonraker's config folder."""
     host = moonraker_host(conf)
     if not host:
         return False
     upload(host, "rpi_chamber_light.json", json.dumps({"url": "http://%s:%d" % (my_ip_towards(host), port)}))
+    try:       # the camera on this board: the address of its stream, or "" when no camera is plugged in / crowsnest is not enabled here
+        upload(host, "rpi_screen_camera.json", json.dumps({"url": camera_url(my_ip_towards(host))}))
+    except Exception:
+        pass
     return True
 
 

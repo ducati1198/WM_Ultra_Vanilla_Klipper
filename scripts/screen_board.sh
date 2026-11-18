@@ -16,6 +16,7 @@
 # bash scripts/screen_board.sh --set-tz America/Toronto      set the board's time zone (the board comes with China time; the Pi installer sets the Pi's zone by itself)
 #        --tz NAME with --pi HOST: the time zone to set during the install (otherwise the install asks when the board is still on China time)
 # bash scripts/screen_board.sh --free-space                  list what is safe to erase (sizes, warnings), erase what you pick and confirm
+# bash scripts/screen_board.sh --camera                      set up (or re-check) the camera plugged into this board: crowsnest 720p 30 fps on port 8080, announced to the Pi as Camera
 # bash scripts/screen_board.sh --post-update                 (re)apply the permissions the Update and Factory mode buttons need (sudoers, root copy) and the version marks
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
@@ -172,6 +173,7 @@ while [ $# -gt 0 ]; do
         --install) MODE=install; NOARGS=0 ;;
         --update) MODE=update ;;
         --post-update) MODE=postupdate ;;
+        --camera) MODE=camera ;;
         --check-updates|--whats-new) MODE=whatsnew ;;
         --remove) MODE=removefiles; ARG1="${2:-}"; shift ;;
         --doctor) MODE=doctor ;;
@@ -496,6 +498,18 @@ step_klipperscreen() {
     print_success "KlipperScreen installed in $KS_DIR"
 }
 
+ks_splash_zr_menu() {   # the Connecting screen (Moonraker not reachable) gets ZR Tools in its Menu; put above the "#~#" save marker of KlipperScreen, once
+    local f="$CFG_DIR/KlipperScreen.conf"
+    [ -f "$f" ] || return 0
+    grep -q '^\[menu __splashscreen zr_tools\]' "$f" 2>/dev/null && return 0
+    python3 - "$f" <<'PYE'
+import sys, re
+p = sys.argv[1]; s = open(p).read()
+add = "[menu __splashscreen zr_tools]\nname: ZR Tools\nicon: extruder\npanel: zr_tools\n\n"
+m = re.search(r"^#~# ", s, re.M)
+open(p, "w").write(s[:m.start()] + add + s[m.start():] if m else s.rstrip("\n") + "\n\n" + add)
+PYE
+}
 write_ks_conf() {
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would write KlipperScreen.conf (Pi: $PI_HOST) and zr_screen.conf${NC}"; return 0; }
     mkdir -p "$CFG_DIR"
@@ -525,6 +539,11 @@ panel: pi_address
 name: Pi address
 icon: network
 panel: pi_address
+
+[menu __splashscreen zr_tools]
+name: ZR Tools
+icon: extruder
+panel: zr_tools
 E
     [ -f "$CFG_DIR/zr_screen.conf" ] || printf '# Written by screen_board.sh and the ZR Tools Settings page\n[screen]\nlayout = tabs\ndensity = comfortable\ntheme = dark\n' > "$CFG_DIR/zr_screen.conf"
 }
@@ -705,6 +724,54 @@ step_chamber_light() {   # root helper + one sudoers line for the Chamber light 
     print_success "Chamber light button installed (main page, next to ZR Tools). It switches Moonraker's power device chamber_light: on the Pi run ./installer.sh --light once (an update does it too)."
 }
 
+# ---------------------------------------------------------------- camera on the screen board (the factory camera plugs into this board)
+step_screen_camera() {   # a camera in the board's USB: crowsnest streams it at 720p 30 fps on port 8080; the Pi shows it in Fluidd as "Camera"
+    print_header "Camera on the screen board"
+    local conf="$CFG_DIR/crowsnest.conf" byid dev
+    byid="${WM_V4L_BYID_DIR:-/dev/v4l/by-id}"
+    dev="$(ls "$byid"/*-video-index0 2>/dev/null | head -1)"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would look for a camera in this board's USB and, if there is one, enable crowsnest (720p, 30 fps, port 8080) and tell the Pi${NC}"; return 0; fi
+    if [ -z "$dev" ]; then
+        print_info "No camera plugged into this board, so the webcam service stays off. Plug the camera in, then run: bash $REPO_DIR/scripts/screen_board.sh --camera"
+        return 0
+    fi
+    if [ "$TESTING" != 1 ] && ! command -v crowsnest >/dev/null 2>&1 && [ ! -x /usr/local/bin/crowsnest ]; then
+        warn_later "A camera is plugged in ($(basename "$dev")), but crowsnest is not installed on this board: the camera is not set up."
+        return 0
+    fi
+    mkdir -p "$CFG_DIR"
+    if [ -f "$conf" ] && ! grep -q 'wm-screen-camera' "$conf" 2>/dev/null; then cp -p "$conf" "$conf.wm-before-screen-camera-$(date +%Y%m%d-%H%M%S)"; fi   # a copy of what was there
+    # rewritten when it is missing, carries our mark, or is crowsnest's own default file (a copy is kept); a file you edited yourself is left as it is
+    if [ ! -f "$conf" ] || grep -q 'wm-screen-camera' "$conf" 2>/dev/null || grep -q 'typical default config' "$conf" 2>/dev/null; then
+        cat > "$conf" <<E
+#### crowsnest.conf of the screen board - wm-screen-camera: written by the installer (scripts/screen_board.sh --camera).
+#### The camera in this board's USB is streamed at 720p, 30 fps on port 8080. The Pi shows it in Fluidd as "Camera" (/webcam/).
+#### Edit it freely: the installer only rewrites a file that carries the wm-screen-camera mark in this line.
+#### After a change:  sudo systemctl restart crowsnest        Log: ~/printer_data/logs/crowsnest.log
+#### no_proxy: true because this board has no nginx; the Pi's nginx hands the stream out.
+
+[crowsnest]
+log_path: ~/printer_data/logs/crowsnest.log
+log_level: verbose
+delete_log: false
+no_proxy: true
+
+[cam 1]
+mode: ustreamer
+port: 8080
+device: $dev
+resolution: 1280x720
+max_fps: 30
+E
+    fi
+    grep -q 'wm-screen-camera' "$conf" 2>/dev/null || print_warning "Your own crowsnest.conf on this board is kept as it is. For the Pi's Fluidd it needs a [cam 1] on port 8080 and no_proxy: true."
+    if [ "$TESTING" = 1 ]; then echo "[test] enable --now crowsnest (camera $(basename "$dev"))" >> "$HOME_DIR/.sudo.log"
+    else sudo systemctl enable crowsnest >/dev/null 2>&1; sudo systemctl restart crowsnest; fi
+    mkdir -p "$BK"; echo "$dev" > "$BK/screen_camera"
+    if [ "$TESTING" != 1 ] && [ -f "$CL_HTTP_UNIT" ]; then sudo systemctl restart wm-chamber-light-http.service 2>/dev/null; fi   # it tells the Pi the address within seconds
+    print_success "Camera on this board: crowsnest streams it at 720p, 30 fps on port 8080. Pi: ./installer.sh --webcam-setup (asks 'is the camera on the screen board?'; an update does it too)."
+}
+
 # ---------------------------------------------------------------- rescue tool (window after 3 failed starts, USB flag at boot)
 RESCUE_BIN=/usr/local/sbin/wm-screen-rescue; RESCUE_WIN=/usr/local/sbin/wm-rescue-window.py
 step_rescue() {
@@ -793,6 +860,7 @@ do_install() {
     step_sudo_nopasswd
     step_restore_button
     step_chamber_light
+    step_screen_camera
     step_rescue
     step_start
     print_header "Done"; progress_bar 100 100 "All 7 steps finished"
@@ -824,6 +892,7 @@ remove_klipperscreen() {
             [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
             [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
             sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore /usr/local/sbin/lib_free_space.sh "$SUDO_NOPASSWD_FILE"
+            if [ -f "$BK/screen_camera" ]; then sudo systemctl disable --now crowsnest >/dev/null 2>&1; rm -f "$BK/screen_camera"; fi
             sudo systemctl disable --now wm-chamber-light-http.service >/dev/null 2>&1; sudo systemctl disable wm-chamber-light.service >/dev/null 2>&1; sudo rm -f /etc/sudoers.d/wm-chamber-light "$CL_BIN" "$CL_UNIT" "$CL_HTTP" "$CL_HTTP_UNIT"
         else echo "[test] remove seat rules, X conf, sudoers" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev" "$BK/udev_rules.created"; fi
         rm -rf "$KS_DIR" "$KS_ENV"; rm -f "$BK/board_mode"
@@ -1075,9 +1144,11 @@ do_update_board_core() {
             if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 && [ "$TESTING" != 1 ]; then git -C "$REPO_DIR" pull -q --ff-only 2>/dev/null || cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR; run: cd $REPO_DIR && git pull"
             else cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR."; fi
         fi
+        ks_splash_zr_menu                     # 2.19.0: ZR Tools in the menu of the "Connecting" screen
         if [ "$TESTING" != 1 ] && [ -f "$w/zr_tools/wm-chamber-light" ]; then
             if [ -f "$CL_BIN" ] && [ -f "$CL_HTTP_UNIT" ]; then sudo install -o root -g root -m 755 "$w/zr_tools/wm-chamber-light" "$CL_BIN"; sudo install -o root -g root -m 755 "$w/zr_tools/wm-chamber-light-http" "$CL_HTTP"; sudo systemctl restart wm-chamber-light-http.service
             else REPO_DIR="$w" step_chamber_light; fi
+            if ls /dev/v4l/by-id/*-video-index0 >/dev/null 2>&1; then REPO_DIR="$w" step_screen_camera; fi
             grep -q '^\[menu __main chamber_light\]' "$CFG_DIR/KlipperScreen.conf" 2>/dev/null || python3 - "$CFG_DIR/KlipperScreen.conf" <<'PYE'
 import sys
 p = sys.argv[1]; s = open(p).read()
@@ -1377,6 +1448,7 @@ case "$MODE" in
     setdriver) do_setdriver ;;
     update) do_update_board ;;
     postupdate) do_post_update ;;
+    camera) step_screen_camera ;;
     whatsnew) do_whatsnew_board ;;
     removefiles) do_remove_files ;;
     doctor) do_doctor_board ;;

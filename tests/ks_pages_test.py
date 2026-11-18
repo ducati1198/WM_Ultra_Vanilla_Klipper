@@ -15,7 +15,7 @@ def check(desc, cond):
     else: bad += 1; print("  FAIL", desc)
 
 
-hunks = json.load(open(root + "/zr_tools/ks_wm_patches.json"))["prompts"]
+hunks = [h for h in json.load(open(root + "/zr_tools/ks_wm_patches.json"))["prompts"] if "old" in h]
 new = [h for h in hunks if "wm_mark" in h["new"] or "wm_show_page" in h["new"]]
 check("three prompts changes for the pages, none can apply twice", len(new) == 3 and all(h["old"] not in h["new"] for h in new))
 fix = ("import logging\nclass Prompt:\n    def decode(self, data):\n        if data.startswith('prompt_button '):\n            if len(params) > 3:\n"

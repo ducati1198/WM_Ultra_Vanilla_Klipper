@@ -547,6 +547,21 @@ class Smoke(unittest.TestCase):
     def test_back_goes_home(self):
         p, _ = self.make("grid"); p.show_collision()
         self.assertTrue(p.on_back()); self.assertEqual(p.view, "hub")
+        n = 0
+        while p.on_back() and n < 12: n += 1     # 2.19.0: Back walks the pages opened before, then KlipperScreen takes over
+        self.assertLess(n, 12); self.assertEqual(p.view, "hub"); self.assertFalse(p.on_back())
+
+    def test_back_goes_to_the_previous_page_not_home(self):   # 2.19.0 (F-137)
+        p, _ = self.make("grid"); p.show_collision(); p.show_system()
+        self.assertTrue(p.on_back()); self.assertEqual(p.view, "collision")
+        self.assertTrue(p.on_back()); self.assertEqual(p.view, "hub")
+        for _ in range(12):                      # the pages opened while the panel was built come next, then KlipperScreen takes over
+            if not p.on_back(): break
+        self.assertFalse(p.on_back())
+
+    def test_offline_page_leaves_back_to_klipperscreen(self):
+        p, _ = self.make("grid"); p.show_collision()
+        p._offline = lambda: True
         self.assertFalse(p.on_back())
 
     def test_feed_assist_button_works_during_a_print(self):

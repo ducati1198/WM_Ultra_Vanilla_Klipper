@@ -9,6 +9,8 @@
   wm_crowsnest.py moonraker FILE --count N [--write]   add [webcam Camera], [webcam Camera 2] ... to moonraker.conf so Fluidd lists the cameras
   wm_crowsnest.py resolution TEXT                      check a resolution and print it as WIDTHxHEIGHT
   wm_crowsnest.py count TEXT | fps TEXT                check the number of cameras (1-4) or max_fps (1-60) and print it
+  wm_crowsnest.py screencam JSON_FILE                  the address the screen board announced for its camera (rpi_screen_camera.json), nothing when none
+  wm_crowsnest.py upstream FILE URL|default [--write]  point nginx /webcam/ (upstream mjpgstreamer1) at the screen board camera, or back to this Pi
   wm_crowsnest.py cams FILE                            how many [cam ...] sections a crowsnest.conf has
 
 Test hooks: WM_TEST_CAMERAS (a JSON list) replaces the hardware scan, WM_V4L_BYID_DIR replaces /dev/v4l/by-id.
@@ -56,13 +58,14 @@ def parse_fps(text):
     return f
 
 
-def parse_count(text, limit=MAX_CAMS):
+def parse_count(text, limit=MAX_CAMS, lowest=1):
+    msg = "the number of cameras must be a whole number from %d to %d" % (lowest, limit)
     try:
         n = int(str(text).strip())
     except ValueError:
-        raise ValueError("the number of cameras must be a whole number from 1 to %d" % limit)
-    if not 1 <= n <= limit:
-        raise ValueError("the number of cameras must be a whole number from 1 to %d" % limit)
+        raise ValueError(msg)
+    if not lowest <= n <= limit:
+        raise ValueError(msg)
     return n
 
 
@@ -171,17 +174,21 @@ HEADER = """#### crowsnest.conf  -  webcam streaming (Crowsnest)
 ####                      The controls your camera offers are listed in the log.
 ####
 #####################################################################################################
+####  SCREEN BOARD CAMERA: when the factory camera is plugged into the screen board, the board streams it itself (port 8080 on the
+####  board) and this Pi hands it out as /webcam/ = "Camera" in Fluidd. The cameras of this file then start at [cam 2] (port 8081,
+####  /webcam2/, "Camera 2") so nothing clashes. Answer that question again with:  ./installer.sh --webcam-setup
+####
 ####  FLUIDD: the cameras are listed in Fluidd as  Camera, Camera 2, Camera 3  through the [webcam ...] sections in
 ####  ~/printer_data/config/moonraker.conf (the installer adds them). Rename or remove them there if you like.
 #####################################################################################################
 """ % {"readme": README}
 
 
-def conf_text(model, cams, resolution, fps):
+def conf_text(model, cams, resolution, fps, first=1):
     """The whole crowsnest.conf. cams: list of {'kind','path','name'} (may be shorter than the number wanted: see conf_for)."""
     w, h = parse_resolution(resolution)
     parts = [HEADER, "\n[crowsnest]\nlog_level: verbose\nrollover_on_start: false\nno_proxy: false\n"]
-    for i, c in enumerate(cams, start=1):
+    for i, c in enumerate(cams, start=first):          # first=2 when the screen board camera is Camera 1 (port 8080 there)
         kind = c.get("kind", "usb")
         parts.append("\n[cam %d]\n" % i)
         if c.get("placeholder"):
@@ -193,14 +200,14 @@ def conf_text(model, cams, resolution, fps):
     return "".join(parts)
 
 
-def conf_for(model, found, count, resolution, fps):
+def conf_for(model, found, count, resolution, fps, first=1):
     """Fill up to `count` cameras: the ones found first, then placeholders (/dev/video0, /dev/video2 ...) for those not plugged in."""
     cams = [dict(c) for c in found[:count]]
     n = 0
     while len(cams) < count:
         cams.append({"kind": "usb", "path": "/dev/video%d" % n, "name": "", "placeholder": True})
         n += 2
-    return conf_text(model, cams, resolution, fps)
+    return conf_text(model, cams, resolution, fps, first)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -233,6 +240,30 @@ def moonraker_text(text, count):
     if text and not text.endswith("\n"):
         text += "\n"
     return text + add, added
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# the camera on the screen board
+# ----------------------------------------------------------------------------------------------------------------------
+URL_RE = re.compile(r"^https?://[\w.-]+:\d+/?$")
+
+
+def screen_cam_url(path):
+    """The address in rpi_screen_camera.json ({"url": "http://<board>:8080"}), '' when the file is missing, empty or not an address."""
+    try:
+        with open(path) as f:
+            u = str(json.load(f).get("url", "")).strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return u.rstrip("/") if URL_RE.match(u) else ""
+
+
+def upstream_text(text, url):
+    """nginx upstreams: mjpgstreamer1 (= /webcam/) goes to the screen board camera (url) or back to 127.0.0.1:8080 (url = 'default').
+    -> (new text, changed)"""
+    target = "127.0.0.1:8080" if url == "default" else re.sub(r"^https?://", "", url).rstrip("/")
+    new, n = re.subn(r"^(upstream\s+mjpgstreamer1\s*\{\s*server\s+)[^;]+(;\s*\})", r"\g<1>%s\g<2>" % target, text, flags=re.M)
+    return new, (n == 1 and new != text)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -277,8 +308,33 @@ def main(argv):
             print("%dx%d" % (w, h))
             return 0
         if cmd == "count":
-            print(parse_count(argv[2] if len(argv) > 2 else ""))
+            print(parse_count(argv[2] if len(argv) > 2 else "", int(arg(argv, "--max", MAX_CAMS)), int(arg(argv, "--min", 1))))
             return 0
+        if cmd == "screencam":
+            u = screen_cam_url(argv[2] if len(argv) > 2 else "")
+            if u:
+                print(u)
+            return 0
+        if cmd == "upstream":
+            if len(argv) < 4:
+                die("upstream needs the upstreams file and a URL or 'default'")
+            path, url = argv[2], argv[3]
+            if url != "default" and not URL_RE.match(url):
+                die("not an address like http://printer-board:8080")
+            try:
+                with open(path) as f:
+                    text = f.read()
+            except OSError as e:
+                die("cannot read %s: %s" % (path, e))
+            new, changed = upstream_text(text, url)
+            if not changed:
+                print("nothing to change")
+                return 0
+            if "--write" in argv:
+                with open(path, "w") as f:
+                    f.write(new)
+            print("changed")
+            return 10
         if cmd == "fps":
             print(parse_fps(argv[2] if len(argv) > 2 else ""))
             return 0
@@ -291,8 +347,9 @@ def main(argv):
             return 0
         if cmd == "conf":
             model = arg(argv, "--model", "")
-            count = parse_count(arg(argv, "--count", "1"))
-            text = conf_for(model, detect(), count, arg(argv, "--resolution", DEFAULT_RES), parse_fps(arg(argv, "--fps", DEFAULT_FPS)))
+            first = int(arg(argv, "--first", "1"))
+            count = parse_count(arg(argv, "--count", "1"), MAX_CAMS - first + 1, 0 if first > 1 else 1)
+            text = conf_for(model, detect(), count, arg(argv, "--resolution", DEFAULT_RES), parse_fps(arg(argv, "--fps", DEFAULT_FPS)), first)
             out = arg(argv, "--out")
             if not out:
                 sys.stdout.write(text)

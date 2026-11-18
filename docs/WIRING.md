@@ -69,7 +69,7 @@ The CAN cable to the toolhead hub, the motors, heaters and everything else on th
 
 ## Camera cable (USB-A to MX1.25, 4 pin)
 
-To plug the printer's camera into the Pi you need a **USB-A to MX1.25 4-pin cable, at least 1 m (3 ft) long** so it reaches from the camera to the Pi (sold as "USB to MX1.25 connector 4P with ground cable"). The plug on the camera end is **MX1.25 (1.25 mm pitch)**, smaller than the JST-XH (2.54 mm) used for the main board above. Check the connector on your camera before you order.
+**This is only for a Pi without the factory screen board.** If the factory camera stays plugged into the factory screen board, the board streams it itself and you need no cable here (see the README, "Webcams"). To wire the factory camera to the Pi you need a **USB-A to MX1.25 4-pin cable, at least 1 m (3 ft) long** so it reaches from the camera to the Pi (sold as "USB to MX1.25 connector 4P with ground cable"). The plug on the camera end is **MX1.25 (1.25 mm pitch)**, smaller than the JST-XH (2.54 mm) used for the main board above. Check the connector on your camera before you order.
 
 ![USB-A to MX1.25 4-pin camera cable](img/cable-usb-a-to-mx125-camera.jpg)
 

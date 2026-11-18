@@ -46,6 +46,7 @@ class Panel(ScreenPanel):
             "z-": b("z-closer", "Z down", "color3", sc, left, 1),
         }
         for key, w in self.btn.items():
+            w.get_style_context().add_class("zr_btn")
             w.connect("clicked", self.do_step, key[0].upper(), key[1])
 
         pad = Gtk.Grid(row_homogeneous=True, column_homogeneous=True)
@@ -68,6 +69,8 @@ class Panel(ScreenPanel):
         self.info.set_line_wrap(True)
         self.info.set_max_width_chars(16)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.get_style_context().add_class("zr_card")
+        box.set_border_width(6)
         box.set_margin_start(8)
         box.set_margin_end(4)
         box.set_margin_top(6)
@@ -83,8 +86,10 @@ class Panel(ScreenPanel):
             w.connect("clicked", self.set_step, s)
             ctx = w.get_style_context()
             ctx.add_class("horizontal_togglebuttons")
+            ctx.add_class("zr_btn")
             if s == self.step:
                 ctx.add_class("horizontal_togglebuttons_active")
+                ctx.add_class("zr_btn_primary")
             self.stepbtn[s] = w
             stepgrid.attach(w, j + 1, 0, 1, 1)
 
@@ -95,6 +100,9 @@ class Panel(ScreenPanel):
                 ("Back to saved", "_WM_SETTER_MOVE", "color2", 5, 3),
                 ("Close, no save", "_WM_SETTER_CLOSE", "color4", 8, 3)):
             w = self._gtk.Button(None, text, style)
+            w.get_style_context().add_class("zr_btn")
+            if gcode == "_WM_SETTER_SAVE":
+                w.get_style_context().add_class("zr_btn_primary")
             w.connect("clicked", self.send, gcode)
             bottom.attach(w, col, 0, span, 1)
 
@@ -144,7 +152,9 @@ class Panel(ScreenPanel):
     # ---- actions
     def set_step(self, widget, s):
         self.stepbtn[self.step].get_style_context().remove_class("horizontal_togglebuttons_active")
+        self.stepbtn[self.step].get_style_context().remove_class("zr_btn_primary")
         self.stepbtn[s].get_style_context().add_class("horizontal_togglebuttons_active")
+        self.stepbtn[s].get_style_context().add_class("zr_btn_primary")
         self.step = s
 
     def do_step(self, widget, axis, sign):

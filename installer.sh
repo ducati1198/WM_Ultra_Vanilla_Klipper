@@ -49,6 +49,7 @@
 # ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --cameras N --cam-resolution 480p|720p|1080p|WxH --cam-fps N   webcam answers given on the command line (otherwise asked)
+# ./installer.sh --screen-camera yes|no   the factory camera is plugged into the factory screen board (yes: it is Camera in Fluidd, the Pi's own cameras are Camera 2 ...)
 # ./installer.sh --webcam-setup        ask the camera questions again and rewrite crowsnest.conf (a copy of the old one is kept)
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
 # ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). Add-on only: not asked during the install
@@ -93,7 +94,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 MOONRAKER_CHANGED=0; IMPORT_HOST=""; SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT=""; CAM_RES=""; CAM_FPS=""; CLI_CAM_COUNT=""; CLI_CAM_RES=""; CLI_CAM_FPS=""; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT=""; CAM_RES=""; CAM_FPS=""; SCREEN_CAM=""; CLI_SCREEN_CAM=""; CLI_CAM_COUNT=""; CLI_CAM_RES=""; CLI_CAM_FPS=""; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -209,6 +210,7 @@ while [ $# -gt 0 ]; do
         --cameras)      CAM_COUNT="${2:-}"; CLI_CAM_COUNT="$CAM_COUNT"; shift ;;
         --cam-resolution) CAM_RES="${2:-}"; CLI_CAM_RES="$CAM_RES"; shift ;;
         --cam-fps)      CAM_FPS="${2:-}"; CLI_CAM_FPS="$CAM_FPS"; shift ;;
+        --screen-camera) case "${2:-}" in yes|on|1) CLI_SCREEN_CAM=yes ;; no|off|0) CLI_SCREEN_CAM=no ;; *) print_error "--screen-camera needs yes or no"; exit 1 ;; esac; SCREEN_CAM="$CLI_SCREEN_CAM"; shift ;;
         --webcam-setup) MODE=webcamsetup ;;
         --timelapse)    case "${2:-}" in on|yes|1) WANT_TIMELAPSE=1 ;; off|no|0) WANT_TIMELAPSE=0 ;; *) print_error "--timelapse needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE timelapse"; CLI_TIMELAPSE="$WANT_TIMELAPSE"; shift ;;
         --first-start|--enable-klipper) MODE=firststart ;;
@@ -1066,6 +1068,7 @@ step_nginx() {
     record "LINK /etc/nginx/sites-enabled/fluidd"
     SUDO nginx -t && SUDO systemctl enable nginx && SUDO systemctl restart nginx
     print_success "nginx ready"
+    screen_cam_on && screen_cam_nginx   # the file above is the factory one: /webcam/ goes to the screen board camera again
 }
 
 step_can() {
@@ -1939,27 +1942,74 @@ cam_ask() {   # cam_ask "question" default check_cmd -> sets CAM_ANSWER; asks ag
     while :; do
         read -r -p "$(echo -e "${YELLOW}?${NC} $q [${d}] ")" a || a=""
         a="${a:-$d}"
-        v="$(python3 -I "$(cam_py)" $chk "$a" 2>&1)" && { CAM_ANSWER="$v"; return 0; }
+        v="$(python3 -I "$(cam_py)" $chk "$a" ${CAM_CHK_EXTRA:-} 2>&1)" && { CAM_ANSWER="$v"; return 0; }
         print_warning "${v#wm_crowsnest: }"
     done
+}
+screen_cam_json() {   # where the screen board's announcement is; a reinstall moves the old printer_data aside, so the newest saved copy is brought back
+    local f="$HOME_DIR/printer_data/config/rpi_screen_camera.json" old
+    if [ ! -f "$f" ] && [ -d "$HOME_DIR/printer_data/config" ]; then
+        old="$(ls -d "$HOME_DIR"/wm-rpi-backup/old-*/printer_data/config/rpi_screen_camera.json 2>/dev/null | sort | tail -1)"
+        [ -n "$old" ] && [ "$DRY" != 1 ] && cp -p "$old" "$f" 2>/dev/null
+    fi
+    echo "$f"
+}
+screen_cam_url() { [ -f "$(cam_py)" ] && python3 -I "$(cam_py)" screencam "$(screen_cam_json)" 2>/dev/null; }
+screen_cam_on() { [ "${SCREEN_CAM:-}" = yes ]; }
+screen_cam_decide() {   # is the factory camera plugged into the factory screen board? (asked once; the board announces its camera in rpi_screen_camera.json)
+    local url; url="$(screen_cam_url)"
+    case "${SCREEN_CAM:-}" in
+        no) return 0 ;;
+        yes) [ -n "$url" ] || { print_warning "No screen board has announced a camera yet (rpi_screen_camera.json is not in the config folder), so the screen camera is not set up now. Plug the camera into the board, run on the board: bash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --camera   then here: ./installer.sh --webcam-setup"; SCREEN_CAM=no; }; return 0 ;;
+    esac
+    if [ -z "$url" ]; then SCREEN_CAM=no; return 0; fi
+    print_info "The screen board announced a camera at $url."
+    why "The factory camera plugs into the factory screen board, and the board streams it itself (720p, 30 fps). If you answer yes, Fluidd shows it as Camera (nginx on this Pi passes it on as /webcam/) and the cameras plugged into this Pi become Camera 2, Camera 3 and Camera 4. Answer no if you wired the factory camera to this Pi instead (it is then one of this Pi's cameras)."
+    if [ "${WM_ASSUME_YES:-0}" = 1 ]; then SCREEN_CAM=yes
+    elif ask_yn "Is the factory camera plugged into the factory screen board (the camera the board announced)?" y; then SCREEN_CAM=yes; else SCREEN_CAM=no; fi
+}
+screen_cam_first() { screen_cam_on && echo 2 || echo 1; }   # number of the first camera of this Pi
+screen_cam_nginx() {    # nginx /webcam/ goes to the screen board camera (yes) or back to this Pi (no); idempotent, reloads nginx only when it changed
+    local py up="${WM_NGINX_UPSTREAMS:-/etc/nginx/conf.d/upstreams.conf}" url rc
+    py="$(cam_py)"; [ -f "$py" ] || return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would point nginx /webcam/ at the screen board camera (screen camera: ${SCREEN_CAM:-no})${NC}"; return 0; fi
+    [ -f "$up" ] || return 0
+    if screen_cam_on; then url="$(screen_cam_url)"; [ -n "$url" ] || return 0; else url=default; fi
+    python3 -I "$py" upstream "$up" "$url" >/dev/null; rc=$?
+    if [ "$rc" = 10 ]; then
+        if [ -w "$up" ] || [ "$TESTING" = 1 ]; then python3 -I "$py" upstream "$up" "$url" --write >/dev/null
+        else SUDO cp "$up" "$up.wm-tmp" && python3 -I "$py" upstream "$up.wm-tmp" "$url" --write >/dev/null && SUDO mv "$up.wm-tmp" "$up"; fi
+        SUDO nginx -t >/dev/null 2>&1 && SUDO systemctl reload nginx
+        if screen_cam_on; then print_success "nginx: /webcam/ now shows the screen board camera ($url)"; else print_success "nginx: /webcam/ shows this Pi's first camera again"; fi
+    fi
+}
+screen_camera_apply() {   # after the answers: nginx, then the cameras Fluidd lists (Camera = screen board, Camera 2.. = this Pi)
+    if screen_cam_on && [ "$DRY" != 1 ] && grep -Eq '^port:[[:space:]]*8080' "$HOME_DIR/printer_data/config/crowsnest.conf" 2>/dev/null; then
+        print_warning "Your crowsnest.conf has a camera on port 8080, but /webcam/ now shows the screen board camera. Give that camera port 8081 (it becomes Camera 2) or run ./installer.sh --webcam-setup."
+    fi
+    screen_cam_nginx
+    moonraker_webcams
 }
 camera_questions() {   # how many cameras, picture size, speed. An existing crowsnest.conf is never touched: no questions then (use --webcam-setup)
     local py conf="$HOME_DIR/printer_data/config/crowsnest.conf" found def v r
     py="$(cam_py)"; [ -f "$py" ] || return 0
+    screen_cam_decide
     if [ -f "$conf" ] && [ "$MODE" != webcamsetup ]; then
         print_info "crowsnest.conf already exists, so it is kept as it is. A new explained copy is saved next to it as crowsnest.conf.new. To answer the camera questions again: ./installer.sh --webcam-setup"
         return 0
     fi
     # values given on the command line are checked now
-    [ -z "$CAM_COUNT" ] || CAM_COUNT="$(python3 -I "$py" count "$CAM_COUNT" 2>&1)" || die_with_fix "--cameras: ${CAM_COUNT#wm_crowsnest: }" "use a number from 1 to 4."
+    local cmax=4 cmin=1; if screen_cam_on; then cmax=3; cmin=0; fi
+    [ -z "$CAM_COUNT" ] || CAM_COUNT="$(python3 -I "$py" count "$CAM_COUNT" --min $cmin --max $cmax 2>&1)" || die_with_fix "--cameras: ${CAM_COUNT#wm_crowsnest: }" "use a number from $cmin to $cmax."
     [ -z "$CAM_RES" ] || CAM_RES="$(python3 -I "$py" resolution "$CAM_RES" 2>&1)" || die_with_fix "--cam-resolution: ${CAM_RES#wm_crowsnest: }" "use 480p, 720p, 1080p or WIDTHxHEIGHT."
     [ -z "$CAM_FPS" ] || CAM_FPS="$(python3 -I "$py" fps "$CAM_FPS" 2>&1)" || die_with_fix "--cam-fps: ${CAM_FPS#wm_crowsnest: }" "use a number from 1 to 60."
     [ -n "$CAM_COUNT" ] && [ -n "$CAM_RES" ] && [ -n "$CAM_FPS" ] && return 0
     print_header "Webcams (crowsnest)"
     why "Camera-streamer is used on a Pi 4 / CM4, ustreamer on the other models (a ribbon camera needs camera-streamer, or spyglass on a Pi 5). Every option stays editable in crowsnest.conf, which explains each one."
     found="$(python3 -I "$py" detect)"; echo "  Cameras found:"; echo "$found" | sed 's/^/    /'
-    def="$(python3 -I "$py" detect --count)"; [ "${def:-0}" -ge 1 ] 2>/dev/null || def=1; [ "$def" -le 4 ] || def=4
-    if [ -z "$CAM_COUNT" ]; then cam_ask "How many cameras do you want to set up (1 to 4)?" "$def" count; CAM_COUNT="$CAM_ANSWER"; fi
+    def="$(python3 -I "$py" detect --count)"; [ "${def:-0}" -ge "$cmin" ] 2>/dev/null || def=$cmin; [ "$def" -le "$cmax" ] || def=$cmax
+    if screen_cam_on; then echo "  The screen board camera is Camera. The cameras plugged into this Pi come after it."; fi
+    if [ -z "$CAM_COUNT" ]; then CAM_CHK_EXTRA="--min $cmin --max $cmax" cam_ask "How many cameras do you want to set up on this Pi ($cmin to $cmax)?" "$def" count; CAM_COUNT="$CAM_ANSWER"; fi
     if [ -z "$CAM_RES" ]; then
         if [ "${WM_ASSUME_YES:-0}" != 1 ]; then echo "  Picture size:  1) 480p (640x480, lightest)   2) 720p (1280x720)   3) 1080p (1920x1080, heaviest)   or type WIDTHxHEIGHT"; fi
         cam_ask "Picture size (1, 2, 3 or WIDTHxHEIGHT)?" 2 resolution; CAM_RES="$CAM_ANSWER"
@@ -1973,7 +2023,7 @@ crowsnest_conf_make() {   # a fresh crowsnest.conf with every option explained; 
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would write crowsnest.conf (explained; an existing one is kept, the new copy goes next to it as crowsnest.conf.new)${NC}"; return 0; fi
     if [ ! -f "$py" ]; then [ -f "$conf" ] || cp "$SCRIPT_DIR/config/crowsnest.conf" "$conf"; return 0; fi
     model="$(pi_model)"; n="${CAM_COUNT:-1}"
-    local args=(--model "$model" --count "$n" --resolution "${CAM_RES:-720p}" --fps "${CAM_FPS:-15}")
+    local args=(--model "$model" --count "$n" --resolution "${CAM_RES:-720p}" --fps "${CAM_FPS:-15}" --first "$(screen_cam_first)")
     if [ ! -f "$conf" ]; then
         python3 -I "$py" conf "${args[@]}" --out "$conf" >/dev/null; rc=$?
         [ "$rc" = 10 ] && print_success "crowsnest.conf written: $n camera(s), ${CAM_RES:-720p}, ${CAM_FPS:-15} fps. Every option is explained at the top of the file." || warn_later "crowsnest.conf could not be written."
@@ -1991,7 +2041,9 @@ moonraker_reload_webcams() {   # Moonraker reads moonraker.conf only when it sta
 moonraker_webcams() {   # the cameras Fluidd lists: [webcam Camera], [webcam Camera 2], [webcam Camera 3] ... in moonraker.conf (existing ones are left alone)
     local conf="$HOME_DIR/printer_data/config/moonraker.conf" py n out rc
     py="$(cam_py)"; [ -f "$py" ] && [ -f "$conf" ] || return 0
-    n="$CAM_COUNT"; [ -n "$n" ] || n="$(python3 -I "$py" cams "$HOME_DIR/printer_data/config/crowsnest.conf")"; [ "${n:-0}" -ge 1 ] 2>/dev/null || n=1
+    n="$CAM_COUNT"; [ -n "$n" ] || n="$(python3 -I "$py" cams "$HOME_DIR/printer_data/config/crowsnest.conf")"
+    if screen_cam_on; then [ "${n:-0}" -ge 0 ] 2>/dev/null || n=0; n=$((n+1))      # Camera = the screen board camera, Camera 2 ... = this Pi
+    else [ "${n:-0}" -ge 1 ] 2>/dev/null || n=1; fi
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add the missing [webcam Camera ...] sections to moonraker.conf${NC}"; return 0; fi
     out="$(python3 -I "$py" moonraker "$conf" --count "$n")"; rc=$?
     if [ "$rc" = 10 ]; then
@@ -2002,18 +2054,18 @@ moonraker_webcams() {   # the cameras Fluidd lists: [webcam Camera], [webcam Cam
 do_webcam_setup() {   # ./installer.sh --webcam-setup
     print_header "Webcam setup"
     load_answers || true
-    CAM_COUNT="${CLI_CAM_COUNT:-}"; CAM_RES="${CLI_CAM_RES:-}"; CAM_FPS="${CLI_CAM_FPS:-}"   # B-060: the saved answers must not hide the questions: "set up the cameras again" asks again
+    CAM_COUNT="${CLI_CAM_COUNT:-}"; CAM_RES="${CLI_CAM_RES:-}"; CAM_FPS="${CLI_CAM_FPS:-}"; SCREEN_CAM="${CLI_SCREEN_CAM:-}"   # B-060: the saved answers must not hide the questions: "set up the cameras again" asks again
     [ -d "$HOME_DIR/crowsnest" ] || die_with_fix "the webcam service is not installed." "install it first: ./installer.sh --update --only-addon webcam --webcam on"
     local conf="$HOME_DIR/printer_data/config/crowsnest.conf"
     camera_questions
-    CAM_COUNT="${CAM_COUNT:-1}"; CAM_RES="${CAM_RES:-720p}"; CAM_FPS="${CAM_FPS:-15}"
+    if screen_cam_on; then CAM_COUNT="${CAM_COUNT:-0}"; else CAM_COUNT="${CAM_COUNT:-1}"; fi; CAM_RES="${CAM_RES:-720p}"; CAM_FPS="${CAM_FPS:-15}"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rewrite crowsnest.conf ($CAM_COUNT camera(s), $CAM_RES, $CAM_FPS fps; a copy of the old one is kept)${NC}"; return 0; fi
     if [ -f "$conf" ]; then
         ask_yn "Replace crowsnest.conf with these settings? A copy of the old one is kept." y || { echo "Nothing changed."; return 0; }
         cp -p "$conf" "$conf.wm-before-webcam-setup-$STAMP"; rm -f "$conf"
     fi
     crowsnest_conf_make
-    moonraker_webcams
+    screen_camera_apply
     save_answers
     if [ -f /etc/systemd/system/crowsnest.service ] || [ "$TESTING" = 1 ]; then crowsnest_follow_camera && print_success "crowsnest restarted with the new settings." || print_info "No camera found, so the webcam service stays off. Plug one in, then run this again or: ./installer.sh --first-start"; fi
     [ "${MOONRAKER_CHANGED:-0}" = 1 ] && SUDO systemctl restart moonraker
@@ -2024,6 +2076,10 @@ step_crowsnest() {
     print_header "Step 13: webcam service (crowsnest)"
     why "Streams USB cameras on ports 8080-8083, where the nginx config looks for them. Built from the version WonderMaker ships."
     local pin url sha; pin="$(addon_pin crowsnest)"; url="${pin%|*}"; sha="${pin#*|}"
+    if screen_cam_on && [ "${CAM_COUNT:-0}" = 0 ] && [ ! -d "$HOME_DIR/crowsnest" ]; then   # only the screen board camera: this Pi streams nothing, so nothing is built
+        print_info "No camera on this Pi, only the screen board camera: the webcam service is not built here."
+        screen_camera_apply; return 0
+    fi
     fetch_addon "$url" "$sha" "$HOME_DIR/crowsnest" || { warn_later "Could not download crowsnest (network?)."; return 0; }
     crowsnest_conf_make
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo make install in ~/crowsnest (unattended; builds ustreamer, installs crowsnest.service)${NC}"
@@ -2036,7 +2092,7 @@ step_crowsnest() {
         cp "$conf.wm-keep" "$conf"; rm -f "$conf.wm-keep"
     fi
     record "HOMEDIR crowsnest"; record "FILE /etc/systemd/system/crowsnest.service"
-    moonraker_webcams
+    screen_camera_apply
     if crowsnest_follow_camera; then print_success "crowsnest installed and started: a camera was found."
     else print_success "crowsnest installed. No camera found, so it is not started. Plug a camera in, then: sudo systemctl enable --now crowsnest   (or ./installer.sh --first-start)"; fi
 }
@@ -2267,6 +2323,7 @@ WANT_CROWSNEST=$WANT_CROWSNEST
 CAM_COUNT=$CAM_COUNT
 CAM_RES=$CAM_RES
 CAM_FPS=$CAM_FPS
+SCREEN_CAM=$SCREEN_CAM
 WANT_SHELLCMD=$WANT_SHELLCMD
 WANT_OBICO=$WANT_OBICO
 WANT_OCTOAPP=$WANT_OCTOAPP
@@ -2288,6 +2345,7 @@ load_answers() {
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
             WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|WANT_SPOOLMAN|WANT_ACEPRO|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
+            SCREEN_CAM) [ -n "${CLI_SCREEN_CAM:-}" ] || SCREEN_CAM="$v" ;;
             CAM_COUNT) [ -n "${CLI_CAM_COUNT:-}" ] || CAM_COUNT="$v" ;; CAM_RES) [ -n "${CLI_CAM_RES:-}" ] || CAM_RES="$v" ;; CAM_FPS) [ -n "${CLI_CAM_FPS:-}" ] || CAM_FPS="$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
@@ -2653,6 +2711,10 @@ do_update() {
     progress_bar 80 100 "Update step 7 of $UT: remote access and webcam"
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
+    if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam; then
+        if screen_cam_on; then screen_camera_apply   # the screen board camera: nginx follows the board's address, Fluidd lists it as Camera
+        elif [ -n "$(screen_cam_url)" ]; then print_info "The screen board announced a camera. To show it in Fluidd as Camera: ./installer.sh --webcam-setup (it asks if the factory camera is plugged into the screen board)."; fi
+    fi
     moonraker_add_update_entries
     step_pi_updater
     step_panel_updater

@@ -76,8 +76,11 @@ class FakeMoonraker(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
         got["path"] = self.path
-        got["body"] = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        got.setdefault("all", []).append(body)
+        if 'filename="rpi_chamber_light.json"' in body:
+            got["body"] = body
         self.send_response(201)
         self.end_headers()
         self.wfile.write(b"{}")
@@ -93,6 +96,9 @@ if mr:
     open(conf, "w").write("[printer X]\nmoonraker_host: 127.0.0.1\n")
     ok = svc.register(conf, 8765)
     check("register uploads rpi_chamber_light.json into the config folder", ok and got.get("path") == "/server/files/upload" and 'filename="rpi_chamber_light.json"' in got["body"] and "config" in got["body"] and '"url": "http://127.0.0.1:8765"' in got["body"])
+    cam_body = next((b for b in got.get("all", []) if 'filename="rpi_screen_camera.json"' in b), "")
+    check("register also tells the Pi about the camera on the board (rpi_screen_camera.json, empty address when none)", '"url": ""' in cam_body or '"url": "http://127.0.0.1:8080"' in cam_body)
+    check("camera_url is empty without a camera in /dev/v4l/by-id", svc.camera_url("10.0.0.2") in ("", "http://10.0.0.2:8080"))
     check("no conf file means no upload and no crash", svc.register(os.path.join(tmp, "none.conf"), 8765) is False)
     mr.shutdown()
 else:
