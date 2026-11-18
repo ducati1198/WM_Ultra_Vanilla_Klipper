@@ -12,10 +12,10 @@ macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
 env = jinja2.Environment(variable_start_string='{', variable_end_string='}')
-def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True, fil=None, ace=False, full=0, screws=True):
-    svars = {'thr_number': 4, 'current_extruder': 0, 'fail_flag': 0, 'fail_tool': 99, 'is_nozzle_setting': 0}; svars.update(sv or {})
+def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True, fil=None, ace=False, full=0, screws=True, homed='xyz'):
+    svars = {'thr_number': 4, 'current_extruder': 0, 'fail_flag': 0, 'fail_tool': 99, 'is_nozzle_setting': 0, 't0_offset': [0.0, 0.0, 0.0], 't1_offset': [0.28, 0.34, -0.026], 't2_offset': [0.27, 0.35, 0.059], 't3_offset': [0.30, 0.09, 0.136]}; svars.update(sv or {})
     printer = {'save_variables': {'variables': svars},
-               'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': 'xyz'},
+               'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': homed},
                'configfile': {'settings': dict({'bed_mesh': {'probe_count': [9, 9]}}, **{h: {'control': control} for h in (HEAT[:5] + (HEAT[5:] if chamber else []))})}}
     for h in HEAT: printer[h] = {'target': (target or {}).get(h, 0.0), 'temperature': (temps or {}).get(h, 25.0)}
     cs = printer['configfile']['settings']
@@ -65,11 +65,11 @@ want("precheck: bed on", run("_WM_CAL_PRECHECK", target={"heater_bed": 60.0}), '
 want("precheck: bed allowed", run("_WM_CAL_PRECHECK", {"ALLOW_BED": "1"}, target={"heater_bed": 60.0}), none=("RAISE",))
 want("probe warms bed then PROBE_CALIBRATE", run("WM_PROBE_CALIBRATE", {"CONFIRM": "1"}), "M190 S60", "PROBE_CALIBRATE", none=("SAVE_CONFIG",))
 want("probe refuses a bed above 100", run("WM_PROBE_CALIBRATE", {"CONFIRM": "1", "BED": "120"}), "RAISE")
-want("rapid: G28, every tool, park, heaters off", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}), "G28", "RAPID_MODE T=0", "RAPID_MODE T=3", "PARK_CURRENT_TOOL", "TURN_OFF_HEATERS", none=("NOZZLE_PREPARE",))
+want("rapid: G28, every tool, park, heaters off", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, homed=""), "G28", "RAPID_MODE T=0", "RAPID_MODE T=3", "PARK_CURRENT_TOOL", "TURN_OFF_HEATERS", none=("NOZZLE_PREPARE",))
 want("rapid: two tools only", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, sv={"thr_number": 2}), "RAPID_MODE T=1", none=("RAPID_MODE T=2",))
 want("rapid asks first", run("WM_OFFSETS_RAPID"), "_WM_CAL_ASK STAGE=offsets MODE=rapid", none=("G28", "RAPID_MODE"))
 want("accurate asks first", run("WM_OFFSETS_ACCURATE"), "_WM_CAL_ASK STAGE=offsets MODE=accurate", none=("G28", "NOZZLE_PREPARE"))
-want("accurate start: G28, prepare T0, debris window", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}), "G28", "NOZZLE_PREPARE S=220 T=0", "purged debris has been manually removed", "WM_OFFSETS_ACCURATE STEP=clean N=0 TEMP=220", none=("NOZZLE_CALIBRATE_TOOL_OFFSET", "RAPID_MODE"))
+want("accurate start: G28, prepare T0, debris window", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, homed=""), "G28", "NOZZLE_PREPARE S=220 T=0", "purged debris has been manually removed", "WM_OFFSETS_ACCURATE STEP=clean N=0 TEMP=220", none=("NOZZLE_CALIBRATE_TOOL_OFFSET", "RAPID_MODE"))
 want("accurate TEMP", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "240"}), "NOZZLE_PREPARE S=240 T=0", "TEMP=240")
 want("accurate TEMP out of range", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "400"}), '_WM_FAIL MSG="TEMP=400 is outside')
 want("accurate clean T1: wipe, then prepare T2", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "1", "TEMP": "230"}), "NOZZLE_CALIBRATE_TOOL_OFFSET T=1", "NOZZLE_PREPARE S=230 T=2", "STEP=clean N=2 TEMP=230", none=("RAPID_MODE", "G28"))
@@ -239,7 +239,7 @@ def fails_before(label, lines, *later):   # the render prints every line, but Kl
 want("accurate: an empty tool is named in the error", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), '_WM_FAIL MSG="No filament in T2')
 fails_before("accurate: an empty tool stops it before G28", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), "G28", "_WM_NOZZLE_PREPARE", "RESPOND MSG=\"Accurate tool offset calibration started")
 closes_first("accurate: missing filament closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={1: False}))
-want("accurate: only the tools in use are checked", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, sv={"thr_number": 2}, fil={3: False}), "G28", none=("_WM_FAIL",))
+want("accurate: only the tools in use are checked", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, sv={"thr_number": 2}, fil={3: False}, homed=""), "G28", none=("_WM_FAIL",))
 want("prepare: no filament", run("_WM_NOZZLE_PREPARE", {"S": "220", "T": "1"}, fil={1: False}), '_WM_FAIL MSG="No filament in T1')
 fails_before("prepare: no filament stops before it moves or heats", run("_WM_NOZZLE_PREPARE", {"S": "220", "T": "1"}, fil={1: False}), "T1", "G28", "M109", "G1")
 
@@ -259,10 +259,11 @@ for a in (False, True):
 def macros_of(path):
     t = open(os.path.join(ROOT, path)).read()
     return {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', t, re.M)}
-def run_other(ms, name, params, ace):
-    printer = {'save_variables': {'variables': {'current_extruder': 0, 'zr_t1_temp': 220, 'box_modify_t0': 0, 'box_modify_t1': 1, 'box_modify_t2': 2, 'box_modify_t3': 3}}, 'print_stats': {'state': 'standby'},
+def run_other(ms, name, params, ace, extra_vars=None, printing=False):
+    printer = {'save_variables': {'variables': {'current_extruder': 0, 'zr_t1_temp': 220, 'box_modify_t0': 0, 'box_modify_t1': 1, 'box_modify_t2': 2, 'box_modify_t3': 3}}, 'print_stats': {'state': 'printing' if printing else 'standby'},
                'toolhead': {'homed_axes': 'xyz', 'extruder': 'extruder2'}, 'extruder2': {'target': 0.0}}
     if ace: printer['ace'] = {}
+    for mname, vs in (extra_vars or {}).items(): printer['gcode_macro ' + mname] = vs
     def raise_(m): raise Raise(m)
     try: out = env.from_string(ms[name]).render(printer=printer, params=params, action_raise_error=raise_, action_respond_info=lambda m: '')
     except Raise as e: return ["RAISE: " + str(e)]
@@ -275,11 +276,35 @@ for path in ("factory/ultra/config/offset_calibrate.cfg", "factory/ultra-s/confi
     want(path + " NOZZLE_PREPARE assist tool", run_other(ms, "NOZZLE_PREPARE", {"T": "2"}, True), "ACE_ENABLE_FEED_ASSIST T=2", "ACE_DISABLE_FEED_ASSIST T=2")
     want(path + " POP assist tool", run_other(ms, "POP", {"T": "3"}, True), "ACE_ENABLE_FEED_ASSIST T=3", "ACE_DISABLE_FEED_ASSIST T=3")
 zms = macros_of("zr_tools/zr_tools.cfg")
+def _vars(path, name):
+    t = open(os.path.join(ROOT, path)).read(); m = re.search(r'^\[gcode_macro %s\]\n((?:(?!\[).*\n)*)' % re.escape(name), t, re.M); out = {}
+    for vl in re.finditer(r'^variable_(\w+):\s*([^#\n]*?)\s*(?:#.*)?$', m.group(1), re.M):
+        try: out[vl.group(1)] = eval(vl.group(2), {}, {})
+        except Exception: out[vl.group(1)] = vl.group(2)
+    return out
+ZV = {"_WM_LOAD_SETTINGS": _vars("zr_tools/zr_tools.cfg", "_WM_LOAD_SETTINGS")}
 for a in (False, True):
-    assist_check("ZR_PURGE ace=%s" % a, run_other(zms, "ZR_PURGE", {}, a), a)
-    assist_check("ZR_LOAD ace=%s" % a, run_other(zms, "ZR_LOAD", {"T": "1"}, a), a)
-want("ZR_PURGE assist follows the active tool", run_other(zms, "ZR_PURGE", {}, True), "ACE_ENABLE_FEED_ASSIST T=2", "ACE_DISABLE_FEED_ASSIST T=2")
-want("ZR_LOAD assist is for the chosen tool", run_other(zms, "ZR_LOAD", {"T": "1"}, True), "ACE_ENABLE_FEED_ASSIST T=1", "ACE_DISABLE_FEED_ASSIST T=1")
+    zl = run_other(zms, "ZR_LOAD", {"T": "1"}, a, ZV)
+    want("ZR_LOAD ace=%s: picks up the tool and heats at the wipe area, no purge of its own" % a, zl, "_WM_ZR_LOAD_GO T=1", none=("G1 E100", "ZR_PURGE"))
+    if not a and any("ACE_" in l for l in zl): bad.append("ZR_LOAD without an ACE calls ACE commands:\n" + "\n".join(zl))
+want("ZR_LOAD refuses while printing", run_other(zms, "ZR_LOAD", {"T": "1"}, False, ZV, printing=True), "RAISE")
 # every macro the file calls that is not defined here must be a WonderMaker or Klipper command that exists in the repo's factory files
+
+# F-116 / F-117: homing only when needed, all extruders to 140 C, hot Z kept, X and Y limit (items 39 and 40, idea 2 of item 41)
+want("rapid: homed already, no G28", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}), "RAPID_MODE T=0", none=("G28",))
+want("rapid: not homed, G28", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, homed="x"), "G28")
+want("rapid: all four extruders to 140 C at the start", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}), "SET_HEATER_TEMPERATURE HEATER=extruder TARGET=140", "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=140", "SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=140", "SET_HEATER_TEMPERATURE HEATER=extruder3 TARGET=140")
+want("rapid: two tools, only two extruders preheated", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, sv={"thr_number": 2}), "HEATER=extruder1 TARGET=140", none=("HEATER=extruder2 TARGET=140",))
+want("rapid: hot Z done, the check keeps Z and the limit is 0.2", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, sv={"wm_hot_z_done": 1}), "the saved hot Z offsets are kept", "_WM_OFFSET_CHECK T=1 OX=0.28 OY=0.34 OZ=-0.026 KEEPZ=1 LIMIT=0.2", "_WM_OFFSET_CHECK T=3 OX=0.3 OY=0.09 OZ=0.136 KEEPZ=1 LIMIT=0.2", none=("_WM_OFFSET_CHECK T=0",))
+want("rapid: hot Z never done, the Z of the run is saved", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}), "hot Z was never done", "KEEPZ=0")
+want("rapid: XYLIMIT overrides the limit", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "XYLIMIT": "0.01"}), "LIMIT=0.01")
+want("accurate start: all extruders to 140 C, no G28 when homed", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}), "HEATER=extruder3 TARGET=140", "NOZZLE_PREPARE S=220 T=0", none=("G28",))
+want("accurate last tool: the check after every tool, hot Z kept", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}, sv={"wm_hot_z_done": 1}), "RAPID_MODE T=1", "_WM_OFFSET_CHECK T=1 OX=0.28 OY=0.34 OZ=-0.026 KEEPZ=1 LIMIT=0.2", "_WM_OFFSET_CHECK T=3", none=("_WM_OFFSET_CHECK T=0",))
+want("accurate last tool, flag missing: the Z of the run is saved", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}), "KEEPZ=0")
+want("check: inside the limit keeps Z and reports", run("_WM_OFFSET_CHECK", {"T": "1", "OX": "0.28", "OY": "0.34", "OZ": "-0.026", "KEEPZ": "1", "LIMIT": "0.2"}), "SAVE_T_OFFSET T=1 Z=-0.026", "Z kept at the hot Z value -0.0260", none=("_WM_FAIL", "TURN_OFF_HEATERS"))
+want("check: no flag, Z of the run stays", run("_WM_OFFSET_CHECK", {"T": "1", "OX": "0.28", "OY": "0.34", "OZ": "-0.026", "KEEPZ": "0", "LIMIT": "0.2"}), "Z of this run saved", none=("SAVE_T_OFFSET", "_WM_FAIL"))
+want("check: X moved over the limit puts the old values back and stops", run("_WM_OFFSET_CHECK", {"T": "1", "OX": "0.0", "OY": "0.34", "OZ": "-0.026", "KEEPZ": "1", "LIMIT": "0.2"}), "SAVE_T_OFFSET T=1 X=0.0 Y=0.34 Z=-0.026", "TURN_OFF_HEATERS", "M106 S0", "_WM_FAIL MSG=", "T1 moved X +0.280", none=("Z kept",))
+want("check: Y moved over the limit also stops", run("_WM_OFFSET_CHECK", {"T": "2", "OX": "0.27", "OY": "0.01", "OZ": "0.059", "KEEPZ": "0", "LIMIT": "0.2"}), "_WM_FAIL MSG=", "T2 moved X +0.000 and Y +0.340")
+
 if bad: print("\n".join(bad)); sys.exit(1)
 print("all %d macros render and behave" % len(macros))

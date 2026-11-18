@@ -2863,13 +2863,14 @@ do_undo() {
     guard_not_printing
     ask_yn "Continue?" n || { echo "Nothing changed."; return 0; }
     SUDO systemctl stop klipper; SUDO systemctl stop moonraker
-    local d; mkdir -p "$BACKUP_ROOT/undone-$STAMP"
+    local d had_fluidd=0; mkdir -p "$BACKUP_ROOT/undone-$STAMP"
+    [ -e "$dir/fluidd" ] && had_fluidd=1   # asked before the loop moves it: after the move the folder is gone and the Fluidd backup would overwrite the one just put back
     for d in $(ls "$dir"); do
         [ -e "$HOME_DIR/$d" ] && mv "$HOME_DIR/$d" "$BACKUP_ROOT/undone-$STAMP/$d"
         mv "$dir/$d" "$HOME_DIR/$d"; print_success "~/$d restored"
     done
     local fl="$BACKUP_ROOT/fluidd-$stampname"
-    if [ -d "$fl" ] && [ ! -e "$dir/fluidd" ] && ask_yn "Also put back the Fluidd that was replaced?" y; then
+    if [ -d "$fl" ] && [ "$had_fluidd" = 0 ] && ask_yn "Also put back the Fluidd that was replaced?" y; then
         [ -e "$HOME_DIR/fluidd" ] && mv "$HOME_DIR/fluidd" "$BACKUP_ROOT/undone-$STAMP/fluidd"
         mkdir -p "$HOME_DIR/fluidd"; cp -a "$fl/." "$HOME_DIR/fluidd/"; print_success "~/fluidd restored"
     fi

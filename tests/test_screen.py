@@ -566,7 +566,7 @@ class Smoke(unittest.TestCase):
             p._act_assist(2)
         self.assertEqual(sent, ["ACE_WM_ASSIST T=2 STATE=off"])
 
-    def test_feed_assist_button_is_next_to_purge_and_shows_on_off(self):
+    def test_feed_assist_button_is_under_load_and_unload_and_shows_on_off(self):
         p, screen = self.make("tabs", ace=True)
         for on in (True, False):
             p.st["ace_instance_0"] = {"connection_state": "connected", "temp": 30, "feed_assist_slot": 2 if on else -1,

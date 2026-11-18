@@ -348,5 +348,12 @@
   "new": "    WIPE_NOZZLE \n    M118 {(printer.configfile.settings.bed_mesh.probe_count[0] * printer.configfile.settings.bed_mesh.probe_count[1])|int}-point calibration is in progress\n    BED_MESH_CALIBRATE",
   "old": "    WIPE_NOZZLE \n    M118 49-point calibration is in progress\n    BED_MESH_CALIBRATE",
   "version": "2.16.0"
+ },
+ {
+  "file": "offset_calibrate.cfg",
+  "n": 1,
+  "new": "sample_retract_dist: 0.75\nsamples_tolerance: 0.05   # was 0.5, then 0.1: touches that are further apart are redone (false touches of the load cell, B-049). 0.05 since CELL firmware V2 (F-117)\nsamples_tolerance_retries: 6   # was 3\nsamples: 3",
+  "old": "sample_retract_dist: 0.75\nsamples_tolerance: 0.1\nsamples_tolerance_retries: 6\nsamples: 3",
+  "version": "2.17.0"
  }
 ]

@@ -24,7 +24,7 @@ The installer:
 ## What the panel does
 - **Main:** 4 toolhead cards – colour, material, temperature, filament sensor, dock state,
   active toolhead, and which slicer tool each toolhead prints.
-- **Tap a toolhead:** Select, Heat, Cool, Load, Unload, Purge; set material, colour and
+- **Tap a toolhead:** Select, Heat, Cool, Load, Unload (and Feed assist with an ACE); set material, colour and
   temperature, then **Save**.
 - **Mapping:** choose which toolhead prints slicer T0–T3 (set it just before a print;
   WonderMaker resets it to 1:1 after each print).
@@ -34,8 +34,8 @@ The installer:
 
 ## Macros you can also use in the console / slicer
 `ZR_SET_TOOL_INFO T= HEX=|COLOR= MAT= TEMP=` · `ZR_SET_TOOL_PA T= PA=` ·
-`ZR_MAP_TOOL T= H=` · `ZR_MAP_RESET` · `ZR_LOAD T=` · `ZR_UNLOAD T=` ·
-`ZR_PURGE [LENGTH=] [TEMP=] [WIPE=0|1]` · `ZR_CHAMBER S=` · `ZR_AIR_FILTER S=0|1`
+`ZR_MAP_TOOL T= H=` · `ZR_MAP_RESET` · `ZR_LOAD T=` · `ZR_UNLOAD T=` · `ZR_RETRACT T=` ·
+`ZR_CHAMBER S=` · `ZR_AIR_FILTER S=0|1`
 
 ## Notes
 - Actions are blocked while printing (except heat/cool and chamber).

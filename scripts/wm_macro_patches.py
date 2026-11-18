@@ -19,7 +19,7 @@ import json, os, shutil, sys, time
 def plan(text, entries):
     """-> (new text, applied, already, skipped) for the entries of one file, in list order"""
     applied, already, skipped = [], [], []
-    ok_by_version, bad = {}, []
+    ok_by_version, bad, proven = {}, [], set()
     for e in entries:
         tag = "%s #%d (%s)" % (e["file"], e["n"], e["version"])
         if text.count(e["old"]) == 1:      # the old lines never contain the new ones (the list is built that way)
@@ -32,10 +32,26 @@ def plan(text, entries):
             ok_by_version.setdefault(e["version"], []).append(False)
             continue
         ok_by_version.setdefault(e["version"], []).append(True)
-    # a fix of an older version whose lines a later version changed again: when every fix of every later version of this file
-    # is in, the file is at that later state, so the older one is in too (its old and new lines are simply gone)
+        proven.add(id(e))                  # this fix is really in the file (applied now, or its new lines are there)
     key = lambda v: [int(x) for x in v.split(".") if x.isdigit()]
+    lines = lambda t: {l.strip() for l in t.split("\n") if l.strip()}
+    # a fix whose lines a later fix changed again (its old and new lines are gone): when a later fix that replaced lines this fix
+    # wrote is really in the file, this fix is in too. Newest first, so a chain over three versions works (the touch tolerance:
+    # 0.5 to 0.1 in 2.14.0, 0.1 to 0.05 in the next one, and the 2.8.0 fix around those lines)
+    bad.sort(key=lambda b: key(b[0]["version"]), reverse=True)
+    rest = []
     for e, tag in bad:
+        wrote = lines(e["new"]) - lines(e["old"])
+        later = [l for l in entries if key(l["version"]) > key(e["version"]) and wrote & lines(l["old"])]
+        if wrote and later and all(id(l) in proven for l in later):
+            already.append(tag + " (changed again by a later fix)")
+            proven.add(id(e))
+            ok_by_version[e["version"]][ok_by_version[e["version"]].index(False)] = True
+        else:
+            rest.append((e, tag))
+    # the rule of earlier versions: when every fix of every later version of this file is in, the file is at that later state,
+    # so the older one is in too (its old and new lines are simply gone)
+    for e, tag in rest:
         later = [v for v in ok_by_version if key(v) > key(e["version"])]
         if later and all(all(ok_by_version[v]) for v in later):
             already.append(tag + " (changed again by a later fix)")

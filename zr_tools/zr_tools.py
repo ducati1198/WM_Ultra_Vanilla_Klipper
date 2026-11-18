@@ -820,16 +820,17 @@ class Panel(ViewsMixin, ScreenPanel):
         actions.set_column_spacing(8)
         actions.set_column_homogeneous(True)
         # Row 1: Select, Park tool, Edit filament.  Right column: Heat under Edit filament, Cool under Heat.
-        # Left two columns: Load, Unload, and Purge across the bottom.
+        # Left two columns: Load and Unload; with an ACE the feed assist button goes across the bottom under them,
+        # without an ACE Load and Unload are two rows tall. (The Purge button was removed with ZR_PURGE, F-104.)
+        tall = 1 if L.has_ace(self.st) else 2
         items = [
-            ("extruder", "Select", "color1", self._act_select, "", 0, 0, 1),
-            ("arrow-down", "Load", "color2", self._act_load, "", 0, 1, 1),
-            ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1),
-            ("fine-tune", "Purge", "color3", self._act_purge, "", 0, 2, 1 if L.has_ace(self.st) else 2),
-            ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 1, 1),
-            ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 2, 1),
+            ("extruder", "Select", "color1", self._act_select, "", 0, 0, 1, 1),
+            ("arrow-down", "Load", "color2", self._act_load, "", 0, 1, 1, tall),
+            ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1, tall),
+            ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 1, 1, 1),
+            ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 2, 1, 1),
         ]
-        for icon, text, style, cb, cls, col, row, span in items:
+        for icon, text, style, cb, cls, col, row, span, height in items:
             btn = self._gtk.Button(icon, text, style, lines=1)
             btn.get_style_context().add_class("zr_btn")
             if style in self._STYLE_CLASS:
@@ -839,7 +840,7 @@ class Panel(ViewsMixin, ScreenPanel):
             btn.set_hexpand(True)
             btn.set_vexpand(True)
             btn.connect("clicked", lambda _w, f=cb: f(i))
-            actions.attach(btn, col, row, span, 1)
+            actions.attach(btn, col, row, span, height)
         park_btn = self._button("extruder", "Park tool", "color3", self._act_park)
         park_btn.get_style_context().add_class("zr_btn_purple")
         park_btn.set_vexpand(True)
@@ -847,7 +848,7 @@ class Panel(ViewsMixin, ScreenPanel):
         edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
         edit_btn.set_vexpand(True)
         actions.attach(edit_btn, 2, 0, 1, 1)
-        if L.has_ace(self.st):          # ACE feed assist of this toolhead, between Purge and Cool: purple + green ON, dark grey + red OFF
+        if L.has_ace(self.st):          # ACE feed assist of this toolhead, under Load and Unload: purple + green ON, dark grey + red OFF
             assist_btn = Gtk.Button()
             assist_btn.get_style_context().add_class("zr_btn")
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -861,7 +862,7 @@ class Panel(ViewsMixin, ScreenPanel):
             assist_btn.set_hexpand(True)
             assist_btn.set_vexpand(True)
             assist_btn.connect("clicked", lambda _w, n=i: self._act_assist(n))
-            actions.attach(assist_btn, 1, 2, 1, 1)
+            actions.attach(assist_btn, 0, 2, 2, 1)
         page.pack_start(actions, True, True, 0)
 
         self.root.pack_start(page, True, True, 0)
@@ -1117,9 +1118,10 @@ class Panel(ViewsMixin, ScreenPanel):
                           f"ACE_WM_LOAD T={i}", f"ACE loading T{i + 1}")
             return
         self._confirm("Load filament",
-                      f"Insert filament into toolhead {i + 1}, then press OK.\n"
-                      "It heats to the saved temperature and feeds 100 mm.",
-                      f"ZR_LOAD T={i}", "Loading...")
+                      f"Press OK: toolhead {i + 1} is picked up and heated at the wipe area to its saved temperature.\n"
+                      "Then insert the filament until you feel resistance: the printer loads it by itself.\n"
+                      "Filament already in: it pushes a little, wipes and parks.",
+                      f"ZR_LOAD T={i}", "Heating for the load...")
 
     def _act_unload(self, i):
         if not self._require_idle():
@@ -1130,17 +1132,9 @@ class Panel(ViewsMixin, ScreenPanel):
             return
         self._confirm("Unload filament",
                       f"Unload filament from toolhead {i + 1}?\n"
-                      "It picks up the toolhead, heats it to the saved temperature and retracts the filament.",
+                      "It picks up the toolhead, heats it at the wipe area to the saved temperature, forms the tip and parks.\n"
+                      "Then pull the filament out by hand.",
                       f"ZR_RETRACT T={i}", "Unloading...")
-
-    def _act_purge(self, i):
-        if not self._require_idle():
-            return
-        if i != self._active_tool():
-            self._screen.show_popup_message("Select this toolhead first (purge uses the active one).")
-            return
-        self._confirm("Purge", f"Purge 100 mm from toolhead {i + 1} and wipe the nozzle?",
-                      "ZR_PURGE", "Purging...")
 
     # ------------------------------------------------------------------
     # MAPPING VIEW
