@@ -1219,7 +1219,7 @@ step_netmgr() {
     print_success "NetworkManager installed and enabled. It takes over at the next reboot."
 }
 
-# Wi-Fi (B-041): the Pi 400's Wi-Fi chip can hang while the Pi keeps running (no Fluidd, no SSH, the touchscreen loses it).
+# Wi-Fi (B-041): the Raspberry Pi 4's Wi-Fi chip (BCM43455) can hang while the Pi keeps running (no Fluidd, no SSH, the touchscreen loses it).
 # Only on a Pi whose network is Wi-Fi through NetworkManager: power saving off on that connection, and a small watchdog
 # that restarts the Wi-Fi (then reloads its driver) when the router stops answering. It never reboots and never touches
 # Klipper. A Pi on a cable is left alone.

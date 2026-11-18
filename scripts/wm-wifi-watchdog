@@ -1,5 +1,5 @@
 #!/bin/bash
-# B-041 / F-136: the Pi 400 Wi-Fi chip (brcmfmac over SDIO) can hang: the Pi keeps running, Klipper keeps running, but the Pi is
+# B-041 / F-136: the Raspberry Pi 4 Wi-Fi chip (BCM43455) (brcmfmac over SDIO) can hang: the Pi keeps running, Klipper keeps running, but the Pi is
 # off the network (no Fluidd, no SSH, the touchscreen loses it) until a power cycle.
 # Every 30 s ping the router. 3 misses in a row: Wi-Fi off and on. Still no answer 2 min later: reload the Wi-Fi driver.
 # Still none 10 min later: start over. Never reboots the Pi, never touches Klipper.
