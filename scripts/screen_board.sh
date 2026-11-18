@@ -678,6 +678,20 @@ step_start() {
     fi
     warn_later "KlipperScreen did not start. Look at: journalctl -u KlipperScreen -n 50 and ~/.local/share/xorg/Xorg.0.log. To go back: bash $BK/screen_board.sh --factory-restore"
 }
+step_sudo_group() {   # item 35: like the load cell V2 installer, the board user is put into the sudo group automatically (no question); it takes effect at the next login
+    local in_group=0
+    [ "$WM_USER" != root ] || return 0
+    if [ "$TESTING" = 1 ]; then [ "${WM_TEST_IN_SUDO_GROUP:-1}" = 1 ] && in_group=1
+    else
+        getent group sudo >/dev/null 2>&1 || return 0
+        id -nG "$WM_USER" 2>/dev/null | tr ' ' '\n' | grep -qx sudo && in_group=1
+    fi
+    [ "$in_group" = 1 ] && return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add $WM_USER to the sudo group${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] usermod -aG sudo $WM_USER" >> "$HOME_DIR/.sudo.log"; print_success "$WM_USER was added to the sudo group (it takes effect at the next login)."; return 0; fi
+    if sudo usermod -aG sudo "$WM_USER"; then print_success "$WM_USER was added to the sudo group (it takes effect at the next login)."
+    else warn_later "$WM_USER could not be added to the sudo group. Run:  sudo usermod -aG sudo $WM_USER"; fi
+}
 SUDO_NOPASSWD_FILE=/etc/sudoers.d/wm-user-nopasswd
 step_sudo_nopasswd() {   # the board user gets sudo without a password, so the screen and every later update never stop at a password prompt
     [ "$NO_SUDO_RULE" = 1 ] && { print_info "sudo without a password skipped (--no-sudo-rule)."; return 0; }
@@ -857,6 +871,7 @@ do_install() {
     step_klipperscreen          # everything that can fail comes BEFORE the factory app is stopped
     drop_swap
     step_disable_factory
+    step_sudo_group
     step_sudo_nopasswd
     step_restore_button
     step_chamber_light
@@ -1078,6 +1093,7 @@ do_post_update() {   # optional argument: the folder that holds the newest files
     fi
     local idir="${WM_INSTALLER_DIR:-$REPO_DIR}"
     case "$(basename "$idir")" in WM_Ultra_Vanilla_Klipper*) echo "$idir" > "$BK/installer_dir" ;; esac
+    step_sudo_group
     step_sudo_nopasswd
     step_restore_button
     ks_stop_fix
