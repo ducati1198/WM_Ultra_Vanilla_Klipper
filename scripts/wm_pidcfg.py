@@ -172,7 +172,7 @@ def fix(cfgdir, stamp=None):
             elif com: lines[com[0]] = re.sub(r"^#\s*", "", lines[com[0]])
             else: lines.insert(s + 1, "%s: %s" % (opt, dflt))
         changed = True
-        said.append("FIXED printer.cfg: [%s] now has control: pid (run WM_NOZZLE_TEMP_CAL to tune it)" % sec)
+        said.append("FIXED printer.cfg: [%s] now has control: pid (run WM_NOZZLE_FULL_PID to tune it)" % sec)
     if changed: write_with_backup(pc, "\n".join(lines).rstrip("\n") + "\n" + (("\n" + auto) if auto else ""), stamp, done)
     return said
 

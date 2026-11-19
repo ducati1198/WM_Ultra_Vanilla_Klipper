@@ -442,7 +442,7 @@ Tested on a ZR Ultra-S: quick search, wide search at 10 mm, block middles, both 
 
 **What it is.** A tool changer has four nozzles, and each one sits at a slightly different place on the carriage. So that every tool prints where T0 prints, the printer needs, for each tool, how far its nozzle is from T0's nozzle in X, Y and Z (its tool offset). The full offset calibration measures all of it, in the right order, and saves it. You start it with **Full Offset Calibration** (`WM_FULL_OFFSET_CAL`): a window takes you through the three steps below, one after the other, and tells you before each one what to do (clean the nozzles, take the purged plastic off, ...). You can also run each step alone.
 
-**Where to find it:** in Fluidd, macro category **RPI Calibration** (every macro there has a readable name); on the touchscreen, ZR Tools > **Calibrate**.
+**Where to find it:** in Fluidd, macro category **RPI Calibration** (every macro there shows its real macro name); on the touchscreen, ZR Tools > **Calibrate**.
 
 | Step | Fluidd (RPI Calibration) | Touchscreen (Calibrate) | Macro |
 |---|---|---|---|
@@ -474,7 +474,8 @@ Tested on a ZR Ultra-S: quick search, wide search at 10 mm, block middles, both 
 - Nothing is saved, and the console says why, when the two T0 touches of step 2 (or the two hot touches of step 3) are more than 0.02 mm apart, a touch is missing, or a result is outside its limits. Clean the nozzles and run it again.
 - While a nozzle or the bed heats or cools, the console writes a line every 30 s, for example `T0 at 201 C, waiting for 140 C`.
 - The switch **Nozzle Heat Growth** (Fluidd, Outputs) turns the correction on and off; the measured value is kept. `WM_NOZZLE_GROWTH` shows the value.
-- `WM_FIRST_RUN_CAL` (the one click calibration after an install) runs step 2 by itself, right after its rapid offsets.
+- `WM_FIRST_RUN_CAL` (the one click calibration after an install) runs 7 stages: tool setter position, tool offsets (rapid), hot Z, input shaper, bed PID, bed leveling, nozzle PID (`WM_NOZZLE_FULL_PID`). It homes only when needed. The shaper, the PIDs and the mesh are saved by the one Save and Restart window at the end, which lists the value of each test (the bed mesh without values).
+- The nozzle heats at the wipe position (where it can drip, not on the bed) in `RESUME` (and so endless spool), `G29`, `NOZZLE_PREPARE`, `POP`, `LOAD_FILAMENT`, `UNLOAD_FILAMENT` and the ACE grab. The helper macro `_WM_GO_WIPE` moves the head there and does nothing when it is already there. `LOAD_FILAMENT` and `UNLOAD_FILAMENT` also wipe after the move and park the head.
 
 **The trim window (`WM_Z_TRIM_MENU`)**
 
@@ -584,7 +585,7 @@ The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati11
 
 | Category | What is in it |
 |---|---|
-| RPI Calibration | every calibration of this installer, with readable names: Full Offset Calibration, Offsets Rapid / Accurate, Z Offsets Hot, Probe Calibrate, Nozzle Growth, Z Trim, Live Z, Bed Leveling, Bed Screws, Bed / Nozzle PID, Input Shaper, Bed Warp Wait, Measure Bed Warp, Speed Test / Check, Extruder Setup, First Run Calibration, Calibration Help |
+| RPI Calibration | every calibration of this installer (real macro names): Full Offset Calibration, Offsets Rapid / Accurate, Z Offsets Hot, Probe Calibrate, Nozzle Growth, Z Trim, Live Z, Bed Leveling, Bed Screws, Bed / Nozzle PID, Input Shaper, Bed Warp Wait, Measure Bed Warp, Speed Test / Check, Extruder Setup, First Run Calibration, Calibration Help |
 | WM Factory Calibration | WonderMaker's own calibration macros (`G29`, `RAPID_MODE`, `CALIBRATE_*`, `SAVE_T_*` ...) |
 | WM Ultra Tool Change | `T0`..`T3`, `LOCK`, `UNLOCK`, `PARK_CURRENT_TOOL` ... |
 | WM Ultra Filament | `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `WIPE_NOZZLE` ..., Unload Menu, Unload Stop |

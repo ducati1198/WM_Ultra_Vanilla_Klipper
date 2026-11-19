@@ -431,7 +431,7 @@ class Smoke(unittest.TestCase):
         p, screen = self.make("tabs")
         labels = []
         p._button = lambda icon, text, style, cb, *a: labels.append((text, a[1] if len(a) > 1 else None)) or p._gtk.Button()
-        p._sections = lambda: ["gcode_macro WM_FIRST_RUN_CAL", "gcode_macro WM_BED_PID", "gcode_macro WM_NOZZLE_TEMP_CAL"]
+        p._sections = lambda: ["gcode_macro WM_FIRST_RUN_CAL", "gcode_macro WM_BED_PID", "gcode_macro WM_NOZZLE_FULL_PID"]
         p.show_utilities()
         names = [x[0] for x in labels]
         self.assertIn("First run calibration", names); self.assertIn("Bed PID", names)
@@ -439,7 +439,7 @@ class Smoke(unittest.TestCase):
         for gone in ("Offsets: fine (all)", "Offsets: rapid (all)", "Bed mesh"):
             self.assertNotIn(gone, names)
         self.assertFalse(any(n.startswith(("Z offset", "XY offset")) for n in names))
-        self.assertIn(("Nozzle temperature T0", "WM_NOZZLE_TEMP_CAL T=0"), [(x[0], x[1]) for x in labels])
+        self.assertIn(("Nozzle temperature T0", "WM_NOZZLE_FULL_PID T=0"), [(x[0], x[1]) for x in labels])
         del labels[:]
         p._sections = lambda: []                                # list unknown: show everything
         p.show_utilities()

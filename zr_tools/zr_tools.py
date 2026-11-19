@@ -1387,7 +1387,7 @@ class Panel(ViewsMixin, ScreenPanel):
             ("bed-level", "Bed warp wait", "WM_BED_SOAK_MENU", None),
             ("speed+", "Vibration compensation", "WM_VIBRATION_COMP", None),
             ("heat-up", "Bed PID", "WM_BED_PID", None),
-            ("heat-up", f"Nozzle temperature T{at}", f"WM_NOZZLE_TEMP_CAL T={at}", None),
+            ("heat-up", f"Nozzle temperature T{at}", f"WM_NOZZLE_FULL_PID T={at}", None),
             ("extruder", "Nozzle type", "_WM_NOZZLE_TYPE", None),
             ("extruder", "Nozzle change", "WM_NOZZLE_CHANGE", None),
             ("toolchanger", "Extruder setup", "WM_EXTRUDER_SETUP", None),
