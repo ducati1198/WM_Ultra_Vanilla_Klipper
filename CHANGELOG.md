@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.21.1
+
+- **`rpi_auto_speed.cfg` is joined into `rpi_nozzle.cfg` (2.21.1).** One file less: the speed test (`WM_AUTO_SPEED`, `WM_AUTO_SPEED_VALIDATE`) needs the same shell command extension as the nozzle macros, so it lives in the file that has the same install condition (not in `rpi_calibration.cfg`, which every printer gets, and not in the panel's `rpi_ace.cfg`, which only an ACE printer gets). The update moves an old `rpi_auto_speed.cfg` to ~/ultra-backup/config/<date>/rpi-join-*, takes its include line out of printer.cfg and installs the new `rpi_nozzle.cfg`. The macro names do not change. The module check (`auto_speed.py`) now applies to `rpi_nozzle.cfg`. New test for the move.
+- **The KlipperScreen "Updating" page closes by itself when an update is done (F-151).** After Update in Fluidd the screen showed an Updating page that stayed open until Finish was pressed, and a stale reference stopped the next update from opening a page at all. The page now closes about 5 seconds after the update is complete and Klipper is ready again (after 3 minutes at the latest). New `zr_tools/patch_ks_update.py`, called by the screen board install and update (idempotent, keeps `base_panel.py.wm-orig`). New test `tests/test_ks_update.py`.
+- **The chamber light watcher no longer restarts Klipper in the middle of a macro (F-155).** `wm-light.path` runs `./installer.sh --light --yes` whenever the screen board uploads `rpi_chamber_light.json`, and that step restarted Klipper every time, also during loads and unloads with a hot nozzle: two tool boards shut down (T1 mid-load, T0 during an unload). Now Klipper restarts only when `printer.cfg`, `rpi_pi.cfg` or `rpi_light.cfg` changed, and never while a macro runs, a print is active or a heater target is above 0 (new helper `klipper_busy`; the log says so and the macro starts with the next restart). 3 new tests.
+- **`scripts/wm_macro_patches.json` regenerated.** It was out of date since the F-150 edits of 2.21.0 (`tools/make_macro_patches.py`).
+- **Documents of the Pi in `docs/`.** `MACROS.md` (every macro, checked against the files and the ACE driver, read line by line), `MOONRAKER.md`, `FLUIDD.md` and `DIFFERENCES.md` (what differs from upstream Klipper, Moonraker and Fluidd). Reading only; nothing in the installer reads them.
+
 ## 2.21.0
 
 First Run Calibration in a new order, fewer homings, real macro names, the nozzle heats at the wipe position, and a clearer end window (F-143 to F-150).

@@ -15,23 +15,38 @@ OUT = os.path.join(ROOT, "scripts", "wm_macro_patches.json")
 FILES = ["macros.cfg", "change_macros.cfg", "offset_calibrate.cfg", "extruder0.cfg", "extruder1.cfg", "extruder2.cfg", "extruder3.cfg", "hub.cfg"]
 
 
+def _expand(a, b, old, i1, i2, j1, j2):
+    """The patch for the lines a[i1:i2] -> b[j1:j2] with as much context as it needs to be found exactly once in the old file."""
+    ctx = 1
+    while True:
+        lo, hi = max(0, i1 - ctx), min(len(a), i2 + ctx)
+        o = "\n".join(a[lo:hi])
+        n = "\n".join(a[lo:i1] + b[j1:j2] + a[i2:hi])
+        # "new inside old" is fine (a block removed at the end of the file has nothing after it); "old inside new" is not
+        # (the patch would apply again on every update)
+        if (old.count(o) == 1 and o and o not in n and (n not in o or hi == len(a))) or (lo == 0 and hi == len(a)):
+            return lo, hi, o, n
+        ctx += 1
+
+
 def hunks(old, new):
     a, b = old.split("\n"), new.split("\n")
+    ops = [op[1:] for op in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if op[0] != "equal"]
+    # two changes that lie close together must be one patch: the context of the first would contain lines the second one
+    # changes, so the second could not be found any more after the first was applied (F-150, LOAD_FILAMENT / UNLOAD_FILAMENT)
+    groups = []
+    for op in ops:
+        if groups:
+            g = groups[-1]
+            lo_g, hi_g, _, _ = _expand(a, b, old, g[0], g[1], g[2], g[3])
+            lo_o, hi_o, _, _ = _expand(a, b, old, *op)
+            if lo_o <= hi_g or lo_g >= hi_o:
+                groups[-1] = [g[0], op[1], g[2], op[3]]
+                continue
+        groups.append(list(op))
     out = []
-    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-        if tag == "equal":
-            continue
-        ctx = 1
-        while True:
-            lo, hi = max(0, i1 - ctx), min(len(a), i2 + ctx)
-            o = "\n".join(a[lo:hi])
-            n = "\n".join(a[lo:i1] + b[j1:j2] + a[i2:hi])
-            # "new inside old" is fine (a block removed at the end of the file has nothing after it); "old inside new" is not
-            # (the patch would apply again on every update)
-            if (old.count(o) == 1 and o and o not in n and (n not in o or hi == len(a))) or (lo == 0 and hi == len(a)):
-                break
-            ctx += 1
-        out.append((o, n))
+    for i1, i2, j1, j2 in groups:
+        out.append(_expand(a, b, old, i1, i2, j1, j2)[2:])
     return out
 
 

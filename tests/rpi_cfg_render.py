@@ -374,10 +374,18 @@ for path in ("factory/ultra/config/offset_calibrate.cfg", "factory/ultra-s/confi
     if not (j.find("_WM_GO_WIPE") < j.find("M109 S222") < j.find("RESTORE_GCODE_STATE NAME=_wm_pop") < j.find("G1 Y2 Z2")): bad.append("%s POP: order broken in\n%s" % (path, j))
 cwm = macros_of("rpi-cfg/rpi_calibration.cfg")
 want("_WM_NOZZLE_PREPARE heats to the hot temperature at the wipe position", run_gw("_WM_NOZZLE_PREPARE", {"S": "230", "T": "1"}, "rpi-cfg/rpi_calibration.cfg", ms=cwm, extra=["_WM_GO_WIPE"], ev={'filament_switch_sensor filament1': {'filament_detected': True}}), "_WM_GO_WIPE", "M109 S230 T1", "RESTORE_GCODE_STATE NAME=_wm_prep MOVE=1")
-acem = macros_of("../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg")
-want("_WM_ACE_GRAB: the tool on the carriage heats at the wipe position", run_gw("_WM_ACE_GRAB", {"T": "1"}, "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg", ms=acem, extra=["_WM_GO_WIPE_HEAT", "_WM_ACE"], cur=1, ev={'extruder1': {'temperature': 25.0}}), "_WM_GO_WIPE_HEAT T=1 S=220", none=("TEMPERATURE_WAIT", "WIPE_NOZZLE"))
-want("_WM_ACE_GRAB: a head that is not on the carriage heats where it is", run_gw("_WM_ACE_GRAB", {"T": "1"}, "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg", ms=acem, extra=["_WM_GO_WIPE_HEAT", "_WM_ACE"], cur=0, ev={'extruder1': {'temperature': 25.0}}), "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=220", "TEMPERATURE_WAIT", none=("_WM_GO_WIPE_HEAT",))
-want("_WM_ACE_GRAB: already hot does not heat", run_gw("_WM_ACE_GRAB", {"T": "1"}, "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg", ms=acem, extra=["_WM_GO_WIPE_HEAT", "_WM_ACE"], cur=1, ev={'extruder1': {'temperature': 220.0}}), none=("_WM_GO_WIPE_HEAT", "SET_HEATER_TEMPERATURE"))
+if os.path.exists(os.path.join(ROOT, "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg")):   # the panel repo lies next to this one (a test copy of this repo has no neighbour: these checks are skipped there)
+    acem = macros_of("../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg")
+    want("_WM_ACE_GRAB: the tool on the carriage heats at the wipe position", run_gw("_WM_ACE_GRAB", {"T": "1"}, "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg", ms=acem, extra=["_WM_GO_WIPE_HEAT", "_WM_ACE"], cur=1, ev={'extruder1': {'temperature': 25.0}}), "_WM_GO_WIPE_HEAT T=1 S=220", none=("TEMPERATURE_WAIT", "WIPE_NOZZLE"))
+    want("_WM_ACE_GRAB: a head that is not on the carriage heats where it is", run_gw("_WM_ACE_GRAB", {"T": "1"}, "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg", ms=acem, extra=["_WM_GO_WIPE_HEAT", "_WM_ACE"], cur=0, ev={'extruder1': {'temperature': 25.0}}), "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=220", "TEMPERATURE_WAIT", none=("_WM_GO_WIPE_HEAT",))
+    want("_WM_ACE_GRAB: already hot does not heat", run_gw("_WM_ACE_GRAB", {"T": "1"}, "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg", ms=acem, extra=["_WM_GO_WIPE_HEAT", "_WM_ACE"], cur=1, ev={'extruder1': {'temperature': 220.0}}), none=("_WM_GO_WIPE_HEAT", "SET_HEATER_TEMPERATURE"))
+    _ap = "../wm-ultra-fluidd-acepro-panel/config/rpi_ace.cfg"
+    def _ace(mode, since=-1, uq=""):
+        return {'gcode_macro _WM_ACE': {'mode': mode, 'unloading_since': since, 'unload_queue': uq, 'unload_wait': 0}, 'toolhead': {'homed_axes': 'xyz', 'position': {'x': 0, 'y': 0, 'z': 20}, 'extruder': 'extruder', 'estimated_print_time': 1000.0}}
+    want("ACE_WM_UNLOAD while the ACE is busy waits (F-153)", run_gw("ACE_WM_UNLOAD", {"T": "1"}, _ap, ms=acem, ev=_ace("unload_hub")), "UNLOAD_QUEUE VALUE='\"1\"'".replace("UNLOAD_QUEUE", "VARIABLE=unload_queue"), "UPDATE_DELAYED_GCODE ID=_wm_ace_unload_next DURATION=2", none=("RAISE", "_CHANGE_TOOL", "z_rise"))
+    want("ACE_WM_UNLOAD while another unload picks up its tool waits (F-153)", run_gw("ACE_WM_UNLOAD", {"T": "1"}, _ap, ms=acem, ev=_ace("idle", since=990)), "UPDATE_DELAYED_GCODE ID=_wm_ace_unload_next DURATION=2", none=("RAISE", "_CHANGE_TOOL"))
+    want("ACE_WM_UNLOAD with the ACE free runs and marks the start (F-153)", run_gw("ACE_WM_UNLOAD", {"T": "1"}, _ap, ms=acem, ev=_ace("idle")), "VARIABLE=unloading_since VALUE=1000", "_CHANGE_TOOL T=1", "_WM_ACE_UNLOAD_RUN T=1", none=("RAISE", "unload_queue"))
+    want("ACE_WM_UNLOAD with an old unfinished start (over 10 minutes) runs again (F-153)", run_gw("ACE_WM_UNLOAD", {"T": "1"}, _ap, ms=acem, ev=_ace("idle", since=100)), "_CHANGE_TOOL T=1", none=("RAISE", "unload_queue"))
 
 if bad: print("\n".join(bad)); sys.exit(1)
 print("all %d macros render and behave" % len(macros))

@@ -313,7 +313,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --logs` | the troubleshooting logs and the black box: installs the small `wm-log-digest` service (it writes `wm-events.log`, `wm-config-check.log`, `wm-ace.log` and a copy of the black box into `~/printer_data/logs`, shown in Fluidd under Configuration > Other Files) and `wm-blackbox` (one line every 10 seconds about the Pi's power, temperature, load and USB messages, so a crash leaves a trace). Also done in every install and update; the doctor checks both. See [Logs for troubleshooting](#logs-for-troubleshooting) |
 | `./installer.sh --ultra-backup` | moves every backup into `~/ultra-backup`, sorted by type (`config`, `fluidd-page`, `fluidd-macros`, `settings`, `installer`, `drivers`, `other`), keeps the newest copy of each config file next to it, enforces the 400 MB limit and shows the sizes. Runs by itself at every install and update. |
 | `./installer.sh --load-cell` | the load cell board (CELL, under the heated bed): downloads or updates the project [wm-load-cell-mcu](https://github.com/ducati1198/wm-load-cell-mcu) into `~/wm-load-cell-mcu` and opens its menu (flash firmware V2, flash the factory firmware, restore the original, check the bootloader, update). `--no-load-cell` on an install skips the check described in section 4.1b. |
-| `./installer.sh --light` | sets up the chamber light as the Moonraker power device `chamber_light` (the Fluidd card, the touchscreen buttons and `WM_CHAMBER_LIGHT` then always agree, and a print turns the light on at its start). Needs an installed screen board; an install and `--update` do it too |
+| `./installer.sh --light` | sets up the chamber light as the Moonraker power device `chamber_light` (the Fluidd card, the touchscreen buttons and `WM_CHAMBER_LIGHT` then always agree, and a print turns the light on at its start). Needs an installed screen board; an install and `--update` do it too. Klipper is restarted only when `printer.cfg`, `rpi_pi.cfg` or `rpi_light.cfg` really changed, and never while a macro runs, a print is active or a heater is on (since 2.21.1) |
 | `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_FIRST_RUN_CAL`, the Z offset tools `WM_FULL_OFFSET_CAL` and `WM_Z_TRIM_MENU`, the unload menu `WM_UNLOAD_MENU`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
 | `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, the Fluidd panel and the screen boards added with `--board`, and says how to update |
@@ -511,7 +511,7 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
 - **`WM_UNLOAD_MENU`** (Fluidd and the touchscreen): pick one tool or all tools, confirm, and the filament is unloaded at the tool's saved temperature. With an ACE Pro it uses `ACE_WM_UNLOAD`, without one `ZR_RETRACT`. Tools go one after the other, a tool with nothing loaded is skipped, and it refuses while a print runs or is paused. `WM_UNLOAD_STOP` drops the rest of the list.
 - **Pause and resume guards:** a second `PAUSE` while the print is already paused does nothing and says so, `RESUME` outside a pause says "Nothing to resume", and the tool map of the print is kept for the resume.
 - **Start-up safety check:** if an interrupted filament insert left the grip check off, it is switched on again 8 s after Klipper starts, with a message.
-- **Chamber light:** with a WonderMaker screen board the light is the Moonraker power device `chamber_light`. The Fluidd Toolheads card, the Light buttons on the touchscreen and `WM_CHAMBER_LIGHT STATE=on|off|toggle` all switch it and always show the same state. A print turns it on at its start. Set up by `./installer.sh --light` (an install and `--update` do it too). The screen board announces its light some minutes after an install, so the installer also adds `wm-light.path`: it watches `rpi_chamber_light.json` and runs `./installer.sh --light --yes` by itself when it appears (log `~/wm-light.log`).
+- **Chamber light:** with a WonderMaker screen board the light is the Moonraker power device `chamber_light`. The Fluidd Toolheads card, the Light buttons on the touchscreen and `WM_CHAMBER_LIGHT STATE=on|off|toggle` all switch it and always show the same state. A print turns it on at its start. Set up by `./installer.sh --light` (an install and `--update` do it too). The screen board announces its light some minutes after an install, so the installer also adds `wm-light.path`: it watches `rpi_chamber_light.json` and runs `./installer.sh --light --yes` by itself when it appears (log `~/wm-light.log`). Since 2.21.1 that run restarts Klipper only when a config file changed, and never during a macro, a print or with a heater on (it then says so in the log and the macro starts with the next restart); before, it restarted Klipper every time and cut loads and unloads short.
 
 ### 4.5 Filament sensors of the docked tools, and the load queue
 
@@ -529,7 +529,7 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
   - **Save** writes `max_accel` and `max_velocity` into `[printer]` of `printer.cfg` (a copy is kept as `printer.cfg.wm-before-autospeed-<time>`, only those two lines change, above the SAVE_CONFIG block), then offers **Restart Klipper now**. The acceleration saved is never higher than your input shaper allows (Klipper's own `find_shaper_max_accel`). Refused while a print runs.
   - **Do not save** changes nothing. `_WM_AUTO_SPEED_RESULT` opens the window again later.
 - A result measured without input shaper cannot be saved.
-- Needs the gcode shell command extension (the Save script `wm-tools/wm_speed_limits.py`); removing the extension takes `rpi_auto_speed.cfg` out too.
+- Needs the gcode shell command extension (the Save script `wm-tools/wm_speed_limits.py`); removing the extension takes `rpi_nozzle.cfg` (which holds the speed test) out too.
 - Your slicer speeds must be high enough to use a higher `max_velocity`.
 
 ### 4.7 Faster homing and tool changes, idle timeout
@@ -681,6 +681,7 @@ Auto uses Compact when the short side is 520 px or less, or the long side is 900
 - The print page and Fine Tuning show the live Z adjust of the tool on the carriage; after a print one button **Save Z Trim** opens the Save all / Do not save window (section 4.3).
 - A window shows every text line (not only the last one) and closes at once when a button or X is pressed (before, it waited until a busy Klipper had run the button's G-code).
 - The filament sensors are read again 8 s after the screen starts (they showed off after a Klipper restart).
+- **Since 2.21.1:** the Updating page (opened by Update in Fluidd) closes by itself about 5 s after the update is complete and Klipper is ready (3 minutes at the latest); before it stayed open until Finish was pressed. Patched by `zr_tools/patch_ks_update.py`.
 
 **Since 2.11.0** (screen board):
 
@@ -999,13 +1000,13 @@ factory/ultra/          WonderMaker ZR Ultra: upstream Klipper and Moonraker (+ 
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run Klipper on a Pi with no printer, see README-DEVBOX.md
 first-layer-stl/        flat test squares for the first layer check after WM_FULL_OFFSET_CAL (one per tool head, and a 5 patch bed test)
-rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_base.cfg (helpers, homing and idle timeout, bed warp wait, print start purge, unload menu, load queue, live Z wrapper), rpi_calibration.cfg (calibration and Z offset tools), rpi_nozzle.cfg (Nozzle Type, Extruder Setup), rpi_auto_speed.cfg (speed test); installed by the installer, which also writes rpi_pi.cfg (host MCU, temperatures, chamber light)
+rpi-cfg/                the Pi's own config files (not WonderMaker's): rpi_base.cfg (helpers, homing and idle timeout, bed warp wait, print start purge, unload menu, load queue, live Z wrapper), rpi_calibration.cfg (calibration and Z offset tools), rpi_nozzle.cfg (Nozzle Type, Extruder Setup, and since 2.21.1 the speed test WM_AUTO_SPEED, which was rpi_auto_speed.cfg); installed by the installer, which also writes rpi_pi.cfg (host MCU, temperatures, chamber light)
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                stage_from_repo.sh, wm_canmatch.py (finds the CAN boards by their firmware names), wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
 tools/wm-release/       release tool: takes a new WonderMaker System version (from their website, a TM_T1_SOC file or the screen board) and keeps your changes; not used by the installer (kept for later)
-docs/                   HARDWARE.md, WIRING.md, HOST_MCU.md (the Klipper-Mcu service) and images
+docs/                   HARDWARE.md, WIRING.md, HOST_MCU.md (the Klipper-Mcu service), MACROS.md (every macro of the Pi: what it does, calls, risk), MOONRAKER.md, FLUIDD.md, DIFFERENCES.md (this build against upstream Klipper, Moonraker and Fluidd) and images
 tests/                  run_tests.sh (installer, fake home) and test_screen.py (ZR Tools panel)
 ```
 

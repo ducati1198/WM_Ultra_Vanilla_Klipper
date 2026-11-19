@@ -350,10 +350,66 @@
   "version": "2.16.0"
  },
  {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    {% endif %}\n\n    # F-150: the tool on the carriage heats at the wipe position, not at the pause park spot\n    {% if \"gcode_macro _WM_GO_WIPE\" in printer %}\n        _WM_GO_WIPE\n    {% endif %}\n    {% if thr_number == 1 %}\n        M104 S{resume_temperature0} T0",
+  "old": "    {% endif %}\n\n    {% if thr_number == 1 %}\n        M104 S{resume_temperature0} T0",
+  "version": "2.17.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    {% endif %}\n    # F-150: the nozzle heats and is wiped at the wipe position (before: it heated at the bed centre)\n    {% if \"gcode_macro _WM_GO_WIPE\" in printer %}\n        _WM_GO_WIPE\n    {% else %}\n        G1 X150 Y135 F3000\n    {% endif %}\n    M104 S140            # set the nozzle target temperature to 140 degrees (no wait)",
+  "old": "    {% endif %}\n    G1 X150 Y135 F3000\n    M104 S140            # set the nozzle target temperature to 140 degrees (no wait)",
+  "version": "2.17.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "    RESPOND MSG=\"Loading filament on T{params.T|default(0)|int}\"\n    {% set T = params.T|default(0)|int %}\n    {% set en = \"extruder\" if T == 0 else \"extruder%d\" % T %}\n    # F-150: the head is picked up if it is not on the carriage, heats at the wipe position, is wiped after the move and parked\n    {% set at_wipe = \"gcode_macro _WM_GO_WIPE_HEAT\" in printer %}\n    {% if at_wipe %}\n        {% if \"xyz\" not in printer.toolhead.homed_axes %}\n            G28\n        {% endif %}\n        {% if printer.save_variables.variables.current_extruder|default(99)|int != T %}\n            _CHANGE_TOOL T={T}\n        {% endif %}\n    {% endif %}\n    ACTIVATE_EXTRUDER EXTRUDER={en}\n    {% if at_wipe %}\n        _WM_GO_WIPE_HEAT T={T} S=220\n    {% else %}\n        M109 S220 T{T}\n    {% endif %}\n    M83\n    G92 E0\n    G91",
+  "old": "    RESPOND MSG=\"Loading filament on T{params.T|default(0)|int}\"\n    {% set T  = params.T|default(0)|int %}\n    {% if T == 0 %}\n        ACTIVATE_EXTRUDER EXTRUDER=extruder\n    {% else %}\n        ACTIVATE_EXTRUDER EXTRUDER=extruder{T}\n    {% endif %}\n    M109 S220 T{T}\n    M83\n    G92 E0 \n    G91",
+  "version": "2.17.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 4,
+  "new": "    M400\n    {% if at_wipe %}\n        WIPE_NOZZLE\n    {% endif %}\n    M104 S0 T{T}\n    SET_STEPPER_ENABLE STEPPER={en} ENABLE=0\n    {% if at_wipe %}\n        PARK_CURRENT_TOOL\n    {% endif %}\n",
+  "old": "    M400\n    M104 S0 T{T}\n    SET_STEPPER_ENABLE STEPPER={printer.toolhead.extruder} ENABLE=0 \n",
+  "version": "2.17.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 5,
+  "new": "    {% set T = params.T|default(0)|int %}\n    {% set en = \"extruder\" if T == 0 else \"extruder%d\" % T %}\n    # F-150: the head is picked up if it is not on the carriage, heats at the wipe position, is wiped after the move and parked\n    {% set at_wipe = \"gcode_macro _WM_GO_WIPE_HEAT\" in printer %}\n    {% if at_wipe %}\n        {% if \"xyz\" not in printer.toolhead.homed_axes %}\n            G28\n        {% endif %}\n        {% if printer.save_variables.variables.current_extruder|default(99)|int != T %}\n            _CHANGE_TOOL T={T}\n        {% endif %}\n    {% endif %}\n    ACTIVATE_EXTRUDER EXTRUDER={en}\n    {% if at_wipe %}\n        _WM_GO_WIPE_HEAT T={T} S=220\n    {% else %}\n        M109 S220 T{T}\n    {% endif %}\n    M83\n    G92 E0\n    G91",
+  "old": "    {% set T = params.T|default(0)|int %}\n    {% if T == 0 %}\n        ACTIVATE_EXTRUDER EXTRUDER=extruder\n    {% else %}\n        ACTIVATE_EXTRUDER EXTRUDER=extruder{T}\n    {% endif %}\n    M109 S220 T{T}\n    M83\n    G92 E0 \n    G91",
+  "version": "2.17.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 6,
+  "new": "    M400\n    {% if at_wipe %}\n        WIPE_NOZZLE\n    {% endif %}\n    M104 S0 T{T}\n    SET_STEPPER_ENABLE STEPPER={en} ENABLE=0\n    {% if at_wipe %}\n        PARK_CURRENT_TOOL\n    {% endif %}\n",
+  "old": "    M400\n    M104 S0 T{T}\n    SET_STEPPER_ENABLE STEPPER={printer.toolhead.extruder} ENABLE=0\n",
+  "version": "2.17.0"
+ },
+ {
   "file": "offset_calibrate.cfg",
   "n": 1,
   "new": "sample_retract_dist: 0.75\nsamples_tolerance: 0.05   # was 0.5, then 0.1: touches that are further apart are redone (false touches of the load cell, B-049). 0.05 since CELL firmware V2 (F-117)\nsamples_tolerance_retries: 6   # was 3\nsamples: 3",
   "old": "sample_retract_dist: 0.75\nsamples_tolerance: 0.1\nsamples_tolerance_retries: 6\nsamples: 3",
+  "version": "2.17.0"
+ },
+ {
+  "file": "offset_calibrate.cfg",
+  "n": 2,
+  "new": "    G90                     ; absolute coordinate mode  \n    G92 E0\n    # F-150: heat at the wipe position (it drips there, not on the bed), then back to the purge spot\n    {% if \"gcode_macro _WM_GO_WIPE\" in printer %}\n        SAVE_GCODE_STATE NAME=_wm_prep\n        _WM_GO_WIPE\n        M109 S220 T{T}\n        RESTORE_GCODE_STATE NAME=_wm_prep MOVE=1 MOVE_SPEED=100\n    {% else %}\n        M109 S220 T{T}\n    {% endif %}\n    {% if ace %}",
+  "old": "    G90                     ; absolute coordinate mode  \n    G92 E0 \n    M109 S220 T{T}          ; heat to 220\u00b0C\n    {% if ace %}",
+  "version": "2.17.0"
+ },
+ {
+  "file": "offset_calibrate.cfg",
+  "n": 3,
+  "new": "        T{tool}\n        # F-150: heat at the wipe position, then back to where the tool change left the head\n        {% if \"gcode_macro _WM_GO_WIPE\" in printer %}\n            SAVE_GCODE_STATE NAME=_wm_pop\n            _WM_GO_WIPE\n            M109 S222 T{tool}\n            RESTORE_GCODE_STATE NAME=_wm_pop MOVE=1 MOVE_SPEED=100\n        {% else %}\n            M109 S222 T{tool}\n        {% endif %}\n        G1 Y2 Z2",
+  "old": "        T{tool}\n        M109 S222 T{tool}\n        G1 Y2 Z2",
   "version": "2.17.0"
  }
 ]

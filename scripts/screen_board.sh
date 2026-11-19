@@ -71,6 +71,14 @@ patch_ks_zcalibrate() {
     sed -i 's/float(self\.probe\["z_offset"\])/float(self.probe.get("z_offset", 0.0))/' "$f"
 }
 
+patch_ks_update() {   # F-151: the Updating page closes by itself when the update is done (stock KlipperScreen waits for Finish)
+    local f="$KS_DIR/panels/base_panel.py" py="${REPO_DIR:-.}/zr_tools/patch_ks_update.py"
+    [ -f "$f" ] && [ -f "$py" ] || return 0
+    grep -q "WM F-151" "$f" 2>/dev/null && return 0
+    [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
+    python3 "$py" "$f" || warn_later "Could not patch KlipperScreen's Updating page (it stays open until Finish is pressed)."
+}
+
 patch_ks_menu_light() {   # the main-menu Chamber light button toggles Moonraker's power device chamber_light (menu item "method: wm_chamber_light"); a file patched by an older version is brought up to date
     local f="$KS_DIR/panels/menu.py" py="${REPO_DIR:-.}/zr_tools/patch_menu_light.py"
     [ -f "$f" ] && [ -f "$py" ] || return 0
@@ -488,7 +496,7 @@ step_klipperscreen() {
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
-        patch_ks_zcalibrate; patch_ks_menu_light; patch_ks_ws_dup; patch_ks_job_status_light; patch_ks_wm
+        patch_ks_zcalibrate; patch_ks_menu_light; patch_ks_ws_dup; patch_ks_job_status_light; patch_ks_wm; patch_ks_update
         [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; grep -qs '^panels/wm_sensors' "$KS_DIR/.git/info/exclude" || echo 'panels/wm_sensors.py' >> "$KS_DIR/.git/info/exclude"; grep -qs '^panels/wm_setter' "$KS_DIR/.git/info/exclude" || printf 'panels/wm_setter.py\npanels/wm_ztrim.py\n' >> "$KS_DIR/.git/info/exclude"; }
     fi
     write_ks_conf
@@ -1152,7 +1160,7 @@ do_update_board_core() {
     if [ "$DRY" != 1 ]; then
         mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"; for f in wm_sensors wm_setter wm_ztrim; do [ -f "$w/zr_tools/$f.py" ] && cp "$w/zr_tools/$f.py" "$KS_DIR/panels/"; done; cp "$w/VERSION" "$KS_DIR/panels/zr_version.txt"
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
-        patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light; REPO_DIR="$w" patch_ks_wm
+        patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light; REPO_DIR="$w" patch_ks_wm; REPO_DIR="$w" patch_ks_update
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
         mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"; cp "$w/scripts/lib_free_space.sh" "$BK/lib_free_space.sh" 2>/dev/null; cp "$w/VERSION" "$BK/version"
         # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)

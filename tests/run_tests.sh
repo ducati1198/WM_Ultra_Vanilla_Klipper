@@ -408,6 +408,7 @@ check "no extra backup when zr_tools.cfg is unchanged" "[ \$(ls $ZH/printer_data
 check "bad --screen-layout value fails" "! bash $ROOT/installer.sh --screen-layout round"
 check "screen python tests" "python3 -I -W ignore $ROOT/tests/test_screen.py"
 check "chamber light python tests" "python3 -I -W ignore $ROOT/tests/test_chamber_light.py"
+check "KlipperScreen updating page patch" "python3 -I -W ignore $ROOT/tests/test_ks_update.py"
 check "python files compile" "for f in $ROOT/zr_tools/*.py; do python3 -I -m py_compile \$f || exit 1; done"
 
 echo "== dry run changes nothing"
@@ -872,15 +873,15 @@ fi
 check "macro patches: the update runs the step, after the printer.cfg merge" "grep -q 'step_cfgmerge; step_macro_patches;' $ROOT/installer.sh"
 
 echo "== 2.9.0: head sensors and load queue, speed test, faster homing and tool change, idle timeout, live Z, screen changes"
-check "rpi-cfg 2.9.0: the head sensor queue (in rpi_base.cfg) and rpi_auto_speed.cfg are installed and included once, before the SAVE_CONFIG block" "grep -q '^\\[delayed_gcode WM_HEAD_SENSOR_WATCH\\]' $CF2/rpi_base.cfg && cmp $ROOT/rpi-cfg/rpi_auto_speed.cfg $CF2/rpi_auto_speed.cfg && [ \$(grep -c '^\\[include rpi_auto_speed.cfg\\]' $CF2/printer.cfg) = 1 ] && ! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -qE 'include rpi_(base|auto_speed)'"
+check "rpi-cfg 2.9.0: the head sensor queue (in rpi_base.cfg) and the speed test (now inside rpi_nozzle.cfg, 2.21.1) are installed and included once, before the SAVE_CONFIG block" "grep -q '^\\[delayed_gcode WM_HEAD_SENSOR_WATCH\\]' $CF2/rpi_base.cfg && cmp $ROOT/rpi-cfg/rpi_nozzle.cfg $CF2/rpi_nozzle.cfg && grep -q '^\\[auto_speed\\]' $CF2/rpi_nozzle.cfg && [ \$(grep -c '^\\[include rpi_nozzle.cfg\\]' $CF2/printer.cfg) = 1 ] && [ ! -e $CF2/rpi_auto_speed.cfg ] && ! grep -q 'include rpi_auto_speed' $CF2/printer.cfg && ! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -qE 'include rpi_(base|nozzle)'"
 check "speed test: the Save script is copied to wm-tools" "cmp $ROOT/scripts/wm_speed_limits.py $G2/printer_data/wm-tools/wm_speed_limits.py"
 check "speed test: the module is in both factory folders and their checksum lists" "(for m in ultra ultra-s; do for f in auto_speed.py autospeed/__init__.py autospeed/funcs.py autospeed/main.py autospeed/move.py autospeed/wrappers.py autospeed/LICENSE; do grep -q \"klipper/klippy/extras/\$f\\$\" $ROOT/factory/\$m/SHA256SUMS && [ -f $ROOT/factory/\$m/klipper/klippy/extras/\$f ] || exit 1; done; done)"
 check "speed test: the module keeps the last result and the input shaper limit (WonderMaker changes)" "grep -q '_wm_save_last' $ROOT/factory/ultra-s/klipper/klippy/extras/autospeed/main.py && grep -q 'shaper_at_test' $ROOT/factory/ultra-s/klipper/klippy/extras/autospeed/main.py && grep -q 'test_x_min' $ROOT/factory/ultra-s/klipper/klippy/extras/autospeed/main.py"
-check "speed test: no test and no Save without a calibrated input shaper" "grep -q 'Input shaper first' $ROOT/rpi-cfg/rpi_auto_speed.cfg && grep -q 'not started, the input shaper is not calibrated' $ROOT/rpi-cfg/rpi_auto_speed.cfg && grep -q 'not saved, the input shaper is not calibrated' $ROOT/rpi-cfg/rpi_auto_speed.cfg"
+check "speed test: no test and no Save without a calibrated input shaper" "grep -q 'Input shaper first' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q 'not started, the input shaper is not calibrated' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q 'not saved, the input shaper is not calibrated' $ROOT/rpi-cfg/rpi_nozzle.cfg"
 SL="$T/sl"; rm -rf "$SL"; mkdir -p "$SL/printer_data/config"; cp "$ROOT/factory/ultra-s/config/printer.cfg" "$SL/printer_data/config/printer.cfg"
 check "speed test Save script: writes only max_accel and max_velocity of [printer], with a copy" "HOME=$SL python3 $ROOT/scripts/wm_speed_limits.py 4800 700 | grep -q 'saved max_accel 4800' && [ \$(diff $ROOT/factory/ultra-s/config/printer.cfg $SL/printer_data/config/printer.cfg | grep -c '^>') = 2 ] && grep -q '^max_accel: 4800' $SL/printer_data/config/printer.cfg && ls $SL/printer_data/config/printer.cfg.wm-before-autospeed-*"
 check "speed test Save script: refuses values out of range and changes nothing" "cp $SL/printer_data/config/printer.cfg $SL/p0; HOME=$SL python3 $ROOT/scripts/wm_speed_limits.py 99999 700 | grep -q FAILED; cmp $SL/p0 $SL/printer_data/config/printer.cfg"
-check "removing the shell command extension also takes rpi_auto_speed.cfg out" "grep -q 'for own in rpi_nozzle.cfg rpi_auto_speed.cfg' $ROOT/installer.sh"
+check "removing the shell command extension also takes the speed test (rpi_nozzle.cfg) out" "grep -q 'for own in rpi_nozzle.cfg; do' $ROOT/installer.sh"
 check "factory extruder files (both models): the load mark for the head sensor queue, only when its macro exists" "(for m in ultra ultra-s; do for n in 0 1 2 3; do grep -q \"_WM_HEAD_MARK T=\$n\" $ROOT/factory/\$m/config/extruder\$n.cfg && grep -q 'gcode_macro _WM_HEAD_MARK\" in printer' $ROOT/factory/\$m/config/extruder\$n.cfg || exit 1; done; done)"
 check "factory printer.cfg (both models, all variants): X/Y homing 80; rpi_base.cfg: z_rise skipped in a print, G28 X Z homes, idle timeout spares a paused print" "(for f in $ROOT/factory/*/config/printer.cfg $ROOT/factory/*/config-variants/printer?.cfg; do [ \$(grep -c '^homing_speed:80' \$f) = 2 ] || exit 1; done) && H=$ROOT/rpi-cfg/rpi_base.cfg && grep -q 'a print has its own Z clearance' \$H && grep -q 'set hz = params.Z is defined' \$H && grep -q 'Idle timeout during a pause' \$H"
 check "factory macros (both models): live Z adjust per tool in _OFFSET_SET, one Z trim per tool, dead macros gone; START_PRINT has the guarded bed warp lines and ADAPTIVE as a number" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q '_WM_LIVEZ' \$d/change_macros.cfg && ! grep -q 'wm_z_trim_all' \$d/change_macros.cfg && ! grep -qE '_SAVE_SPEED|_RESTORE_SPEED|_OFFSET_RESET' \$d/change_macros.cfg && ! grep -qE '_START_PROBE|_RGB_CLOSE' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK_MARK\" in printer' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK\" in printer' \$d/macros.cfg && grep -q 'params.ADAPTIVE|int == 1' \$d/macros.cfg && ! grep -q _GANTRY_TRIGGER \$d/load_cell.cfg || exit 1; done)"
@@ -901,6 +902,14 @@ HJ="$T/hjoin/printer_data/config"
 check "join 2.16.0: old rpi_homing.cfg and rpi_bed_soak.cfg are moved to ultra-backup, their include lines are gone, rpi_base.cfg is included once" "[ ! -e $HJ/rpi_homing.cfg ] && [ ! -e $HJ/rpi_bed_soak.cfg ] && ls $T/hjoin/ultra-backup/config/*/rpi-join-*/rpi_homing.cfg $T/hjoin/ultra-backup/config/*/rpi-join-*/rpi_bed_soak.cfg >/dev/null && ! grep -qE 'include rpi_(homing|bed_soak)' $HJ/printer.cfg && [ \$(grep -c '^\\[include rpi_base.cfg\\]' $HJ/printer.cfg) = 1 ] && cmp $ROOT/rpi-cfg/rpi_base.cfg $HJ/rpi_base.cfg"
 check "join 2.16.0: the wm_print_info driver is copied into Klipper's extras by the update" "cmp $ROOT/factory/ultra-s/klipper/klippy/extras/wm_print_info.py $T/hjoin/klipper/klippy/extras/wm_print_info.py || cmp $ROOT/factory/ultra/klipper/klippy/extras/wm_print_info.py $T/hjoin/klipper/klippy/extras/wm_print_info.py"
 rm -rf "$T/hjoin"
+# 2.21.1: rpi_auto_speed.cfg is part of rpi_nozzle.cfg now: an older install has it as a separate included file
+rm -rf "$T/asjoin"; cp -a "$G2" "$T/asjoin"
+printf '[gcode_macro WM_AUTO_SPEED]\ngcode:\n    M118 old\n' > "$T/asjoin/printer_data/config/rpi_auto_speed.cfg"
+sed -i '0,/^\[include rpi_nozzle.cfg\]/s//[include rpi_nozzle.cfg]\n[include rpi_auto_speed.cfg]/' "$T/asjoin/printer_data/config/printer.cfg"
+WM_HOME="$T/asjoin" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/asjoin.out" 2>&1 </dev/null
+AJ="$T/asjoin/printer_data/config"
+check "join 2.21.1: the old rpi_auto_speed.cfg is moved to ultra-backup, its include line is gone, the speed test comes from rpi_nozzle.cfg once" "[ ! -e $AJ/rpi_auto_speed.cfg ] && ls $T/asjoin/ultra-backup/config/*/rpi-join-*/rpi_auto_speed.cfg >/dev/null && ! grep -q 'include rpi_auto_speed' $AJ/printer.cfg && [ \$(grep -c '^\\[include rpi_nozzle.cfg\\]' $AJ/printer.cfg) = 1 ] && [ \$(grep -c '^\\[gcode_macro WM_AUTO_SPEED\\]' $AJ/rpi_nozzle.cfg) = 1 ] && cmp $ROOT/rpi-cfg/rpi_nozzle.cfg $AJ/rpi_nozzle.cfg"
+rm -rf "$T/asjoin"
 check "bed warp wait 2.11.0: an update brings the START_PRINT lines and ADAPTIVE fix into a 2.10.0 macros.cfg, and a second run changes nothing" "rm -rf $T/mp && mkdir -p $T/mp && ( cd $ROOT && git show 72d16a2:factory/ultra-s/config/macros.cfg ) > $T/mp/macros.cfg 2>/dev/null || cp $ROOT/factory/ultra-s/config/macros.cfg $T/mp/macros.cfg; python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp --write --stamp t >/dev/null; cmp $T/mp/macros.cfg $ROOT/factory/ultra-s/config/macros.cfg && python3 -I $ROOT/scripts/wm_macro_patches.py $T/mp >/dev/null"
 check "screen 2.11.0: the ZR Tools page has the calibration buttons and the Bed warp wait button" "grep -q 'WM_LIVE_Z_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'WM_OFFSETS_Z_HOT' $ROOT/zr_tools/zr_tools.py && grep -q 'Bed warp wait.*WM_BED_SOAK_MENU' $ROOT/zr_tools/zr_tools.py && grep -q 'wm_sensors' $ROOT/zr_tools/zr_views.py"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li0.out" 2>&1 </dev/null
@@ -913,6 +922,13 @@ check "chamber light: WM_CHAMBER_LIGHT is the part light of rpi_pi.cfg, included
 NL1=$(ls "$CF2" | grep -c 'wm-before-light')
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li2.out" 2>&1 </dev/null
 check "chamber light: a second run changes nothing and makes no copies" "grep -q 'already has the chamber light' $T/li2.out && [ \$(ls $CF2 | grep -c 'wm-before-light') = $NL1 ] && [ \$(grep -c '^\\[include rpi_pi.cfg\\]' $CF2/printer.cfg) = 1 ] && [ \$(grep -c '^\\[gcode_macro WM_CHAMBER_LIGHT\\]' $CF2/rpi_pi.cfg) = 1 ]"
+check "chamber light F-155: when nothing changed Klipper is not restarted" "grep -q 'did not change, so Klipper was not restarted' $T/li2.out && ! grep -q 'Restarting Klipper' $T/li2.out"
+cp -p "$CF2/rpi_pi.cfg" "$T/rpi_pi.keep"; rm -f "$CF2/rpi_pi.cfg"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 WM_TEST_BUSY="a macro or a print is running" bash "$ROOT/installer.sh" --light > "$T/li3.out" 2>&1 </dev/null
+check "chamber light F-155: the macro is written but Klipper is NOT restarted while it is busy" "grep -q 'Klipper was NOT restarted because it is busy' $T/li3.out && ! grep -q 'Restarting Klipper' $T/li3.out && [ -f $CF2/rpi_pi.cfg ]"
+rm -f "$CF2/rpi_pi.cfg"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light > "$T/li4.out" 2>&1 </dev/null
+check "chamber light F-155: when the macro changed and Klipper is idle it is restarted" "grep -q 'Restarting Klipper' $T/li4.out"
 echo '{"url": "http://10.0.0.20:8765"}' > "$CF2/rpi_chamber_light.json"
 check "chamber light: the doctor notices a new board address" "WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 </dev/null | grep -q 'chamber light: moonraker.conf has no \\[power chamber_light\\] for the screen board at http://10.0.0.20:8765'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --light >/dev/null 2>&1 </dev/null
@@ -966,7 +982,7 @@ for n in macros: walk(n, [n])
 print('\n'.join(bad)); sys.exit(1 if bad else 0)
 PY
 check "windows: no ';' inside a RESPOND message (Klipper cuts the line there: Malformed command)" "! grep -n 'RESPOND.*MSG=.*;' $ROOT/rpi-cfg/*.cfg"
-check "windows: no macro of ours calls itself, directly or through others (Klipper: called recursively)" "python3 -I $T/macro_cycle.py $ROOT/rpi-cfg/rpi_nozzle.cfg $ROOT/rpi-cfg/rpi_calibration.cfg $ROOT/rpi-cfg/rpi_base.cfg $ROOT/rpi-cfg/rpi_auto_speed.cfg"
+check "windows: no macro of ours calls itself, directly or through others (Klipper: called recursively)" "python3 -I $T/macro_cycle.py $ROOT/rpi-cfg/rpi_nozzle.cfg $ROOT/rpi-cfg/rpi_calibration.cfg $ROOT/rpi-cfg/rpi_base.cfg"
 check "windows: the cycle test really catches a loop" "printf '[gcode_macro A]\ngcode:\n    B\n[gcode_macro B]\ngcode:\n    A\n' > $T/loop.cfg; ! python3 -I $T/macro_cycle.py $T/loop.cfg"
 check "windows: Extruder Setup matching goes from tool to tool through a delayed gcode" "grep -q '^\\[delayed_gcode _WM_MATCH_NEXT\\]' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q 'UPDATE_DELAYED_GCODE ID=_WM_MATCH_NEXT' $ROOT/rpi-cfg/rpi_nozzle.cfg && grep -q '^variable_next: 0' $ROOT/rpi-cfg/rpi_nozzle.cfg"
 check "windows: both start checks show a Fluidd window before they stop" "python3 -I $ROOT/tests/check_windows.py checks"
@@ -1576,7 +1592,7 @@ check "ultra backup: INDEX.txt says where each backup came from" "grep -q 'moved
 check "ultra backup: a second run changes nothing" "ubrun --ultra-backup | grep -q 'Backups: all in ~/ultra-backup'"
 check "ultra backup: the helper is copied next to the other helpers and recorded" "cmp -s $ROOT/scripts/wm_ultra_backup.py $UBX/printer_data/wm-tools/wm_ultra_backup.py"
 check "ultra backup: the doctor says when backups are lying around, and fixes it" "UBD=$T/ubd; mkdir -p \$UBD/printer_data/config \$UBD/wm-backups; echo t > \$UBD/wm-backups/wm-backup-y.tgz; UBO=\$(WM_HOME=\$UBD WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor </dev/null 2>&1); echo \"\$UBO\" | grep -q 'Backups: some are outside ~/ultra-backup' && [ -f \$UBD/ultra-backup/settings/wm-backup-y.tgz ]"
-check "ultra backup: install, update and the --ultra-backup option run the step, the size limit is 400 MB" "grep -q '^step_ultrabackup   # last, after the panel and the add-ons' $ROOT/installer.sh && grep -q '\[ -n \"\$ONLY_ADDON\" \] || step_ultrabackup   # last, after the panel and the add-ons' $ROOT/installer.sh && grep -q 'ultrabackup) step_ultrabackup' $ROOT/installer.sh && grep -q '^TOTAL_LIMIT = 400 \* MB' $ROOT/scripts/wm_ultra_backup.py"
+check "ultra backup: install, update and the --ultra-backup option run the step, the size limit is 400 MB" "grep -q '^step_ultrabackup   # after the panel and the add-ons, which write' $ROOT/installer.sh && grep -q '\[ -n \"\$ONLY_ADDON\" \] || step_ultrabackup   # last, after the panel and the add-ons' $ROOT/installer.sh && grep -q 'ultrabackup) step_ultrabackup' $ROOT/installer.sh && grep -q '^TOTAL_LIMIT = 400 \* MB' $ROOT/scripts/wm_ultra_backup.py"
 check "ultra backup: python tests (moves, limits, records, disk guard)" "python3 -I -W ignore $ROOT/tests/test_ultra_backup.py"
 
 echo "== touchscreen board status for the Fluidd Toolheads card"

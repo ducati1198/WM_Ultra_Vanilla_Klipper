@@ -435,7 +435,7 @@ nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
 rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
-    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_auto_speed.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_base.cfg ] && continue; echo "$b"; done
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_base.cfg ] && continue; echo "$b"; done
     # rpi_base.cfg comes last: step_rpicfg puts each new include line above the first one, so the file handled last is read first by Klipper, and its [wm_virtual_pins] must be read before rpi_calibration.cfg uses a wm_pin
     [ -f "$SCRIPT_DIR/rpi-cfg/rpi_base.cfg" ] && echo rpi_base.cfg; return 0
 }
@@ -489,8 +489,8 @@ rpipi_include() {   # [include rpi_pi.cfg] above the other includes (a copy of p
     if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include rpi_pi.cfg]\n&/" "$cfg"; else sed -i "1i [include rpi_pi.cfg]" "$cfg"; fi
     print_success "rpi_pi.cfg is included in printer.cfg (copy of the old one: printer.cfg.wm-before-rpipi-$STAMP)"
 }
-RPI_JOINED_OLD=(rpi_virtual_pins.cfg rpi_safety.cfg rpi_print_end.cfg rpi_tool_leds.cfg rpi_head_sensors.cfg rpi_unload.cfg rpi_zoffset.cfg rpi_homing.cfg rpi_bed_soak.cfg)
-rpi_join_migrate() {   # 2.10.0 and later: the old separate files (the last two, rpi_homing.cfg and rpi_bed_soak.cfg, since F-103) are in rpi_base.cfg and rpi_calibration.cfg now; their include lines go, the files are kept in ~/ultra-backup/config/<date>/rpi-join-<time>
+RPI_JOINED_OLD=(rpi_virtual_pins.cfg rpi_safety.cfg rpi_print_end.cfg rpi_tool_leds.cfg rpi_head_sensors.cfg rpi_unload.cfg rpi_zoffset.cfg rpi_homing.cfg rpi_bed_soak.cfg rpi_auto_speed.cfg)
+rpi_join_migrate() {   # 2.10.0 and later: the old separate files (rpi_homing.cfg and rpi_bed_soak.cfg since F-103, rpi_auto_speed.cfg since 2.21.1 in rpi_nozzle.cfg) are in rpi_base.cfg, rpi_calibration.cfg and rpi_nozzle.cfg now; their include lines go, the files are kept in ~/ultra-backup/config/<date>/rpi-join-<time>
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f bk="$ULTRA/config/$(date +%F)/rpi-join-$STAMP" n=0
     for f in "${RPI_JOINED_OLD[@]}"; do [ -e "$cd/$f" ] || rpicfg_included "$f" || continue; n=$((n+1)); done
     [ "$n" -gt 0 ] || return 0
@@ -499,7 +499,7 @@ rpi_join_migrate() {   # 2.10.0 and later: the old separate files (the last two,
         rpicfg_included "$f" && cfg_include_remove "$f"
         [ -e "$cd/$f" ] && mv "$cd/$f" "$bk/$f"
     done
-    print_info "The Pi's small files are joined: rpi_base.cfg and rpi_calibration.cfg replace ${RPI_JOINED_OLD[*]}. Their include lines left printer.cfg; the old files (and printer.cfg before) are kept in $bk"
+    print_info "The Pi's small files are joined: rpi_base.cfg, rpi_calibration.cfg and rpi_nozzle.cfg replace ${RPI_JOINED_OLD[*]}. Their include lines left printer.cfg; the old files (and printer.cfg before) are kept in $bk"
 }
 rpipi_step() {   # rpi_pi.cfg: old separate files become parts, the Pi temperature part, the include line
     local cd="$HOME_DIR/printer_data/config" ex="$HOME_DIR/klipper/klippy/extras" out rc
@@ -517,10 +517,8 @@ rpicfg_role() {   # $1 = rpi-cfg file, $2 = name | effect: what the file is, and
         rpi_calibration.cfg:effect) echo "WM_BED_LEVELING, WM_FIRST_RUN_CAL and the other WM_ calibration macros do not exist" ;;
         rpi_base.cfg:name) echo "base helpers, homing and bed warp wait" ;;
         rpi_base.cfg:effect) echo "homing and the bed drop (z_rise), the idle timeout, the bed warp wait, the switch pins, the start-up safety check, the unload menu, the head sensor load queue and live Z per tool do not exist, and the other rpi_ files that use them fail" ;;
-        rpi_nozzle.cfg:name) echo "nozzle type and extruder setup" ;;
-        rpi_nozzle.cfg:effect) echo "the Nozzle Type and Extruder Setup macros do not exist" ;;
-        rpi_auto_speed.cfg:name) echo "speed test" ;;
-        rpi_auto_speed.cfg:effect) echo "the X/Y speed test (Speed Test, Speed Check) does not exist" ;;
+        rpi_nozzle.cfg:name) echo "nozzle type, extruder setup and speed test" ;;
+        rpi_nozzle.cfg:effect) echo "the Nozzle Type and Extruder Setup macros and the X/Y speed test (WM_AUTO_SPEED) do not exist" ;;
         *:name) echo "Pi config" ;;
         *) echo "the macros in it do not exist" ;;
     esac
@@ -542,7 +540,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     # rpi_base.cfg (_WM_START_PURGE) reads the print info of the file (used tools and temperatures) from the driver wm_print_info.py, loaded by [wm_print_info] in printer.cfg: copy it first, so a merged printer.cfg never makes Klipper fail
     local pi="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_print_info.py"
     if [ -f "$pi" ] && [ -d "$ex" ] && ! cmp -s "$pi" "$ex/wm_print_info.py"; then cp "$pi" "$ex/wm_print_info.py" && print_info "driver wm_print_info.py copied into Klipper's extras (the print start purge reads the slicer's tool list with it)"; fi
-    # rpi_auto_speed.cfg needs the speed test module (klipper_auto_speed by Anonoei, MIT, with this repository's changes): same reason
+    # rpi_nozzle.cfg (the speed test part, joined from rpi_auto_speed.cfg in 2.21.1) needs the speed test module (klipper_auto_speed by Anonoei, MIT, with this repository's changes): same reason
     local asd="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras" af
     if [ -d "$ex" ] && [ -f "$asd/auto_speed.py" ]; then
         for af in auto_speed.py autospeed/__init__.py autospeed/funcs.py autospeed/main.py autospeed/move.py autospeed/wrappers.py autospeed/LICENSE; do
@@ -552,12 +550,12 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     for f in $(rpicfg_list); do
         if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_calibration.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/wm_tool_touch.py" ]; then print_warning "$f not installed: the driver wm_tool_touch.py is missing from Klipper's extras"; continue; fi
-        if [ "$f" = rpi_auto_speed.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
+        if [ "$f" = rpi_nozzle.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
         if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
         fi
         cp "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"
-        if [ "$f" = rpi_auto_speed.cfg ]; then   # the Save button of the speed test writes max_accel and max_velocity into printer.cfg with this script
+        if [ "$f" = rpi_nozzle.cfg ]; then   # the Save button of the speed test writes max_accel and max_velocity into printer.cfg with this script
             mkdir -p "$HOME_DIR/printer_data/wm-tools" && cp "$SCRIPT_DIR/scripts/wm_speed_limits.py" "$HOME_DIR/printer_data/wm-tools/wm_speed_limits.py" && chmod +x "$HOME_DIR/printer_data/wm-tools/wm_speed_limits.py"
         fi
         if [ "$f" = rpi_nozzle.cfg ]; then   # its shell command runs this script; it is kept outside the config folder, which WonderMaker updates merge
@@ -622,8 +620,42 @@ step_light() {   # ./installer.sh --light, and in every install and update: the 
 do_light() {   # ./installer.sh --light
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
     guard_not_printing
+    local cd="$HOME_DIR/printer_data/config" before after
+    light_sum() { cat "$cd/printer.cfg" "$cd/rpi_pi.cfg" "$cd/rpi_light.cfg" 2>/dev/null | md5sum; }
+    before="$(light_sum)"
     step_light
-    [ "$DRY" = 1 ] || { [ "$MOONRAKER_CHANGED" = 1 ] && [ "$TESTING" != 1 ] && SUDO systemctl restart moonraker; restart_klipper_after; }
+    [ "$DRY" = 1 ] && return 0
+    [ "$MOONRAKER_CHANGED" = 1 ] && [ "$TESTING" != 1 ] && SUDO systemctl restart moonraker
+    after="$(light_sum)"
+    # F-155: this runs by itself (wm-light.path) whenever the screen board uploads its light file, also in the middle of a load or a print. It used to restart Klipper every time, which shut down a tool MCU with a hot heater (T1, 22:58). Klipper restarts only when the light macro itself changed, and never while it is busy.
+    if [ "$before" = "$after" ]; then print_info "The Klipper config did not change, so Klipper was not restarted."; return 0; fi
+    local why_busy; why_busy="$(klipper_busy)"
+    if [ -n "$why_busy" ]; then
+        print_warning "WM_CHAMBER_LIGHT was written, but Klipper was NOT restarted because it is busy ($why_busy). The light macro starts with the next restart of Klipper."
+        return 0
+    fi
+    restart_klipper_after
+}
+klipper_busy() {   # prints why Klipper must not be restarted now (a macro runs, a heater is on, a print is active); nothing when it is idle
+    [ "$TESTING" = 1 ] && { echo "${WM_TEST_BUSY:-}"; return; }
+    api_get '/printer/objects/query?idle_timeout&print_stats&heaters' | python3 -c '
+import sys, json, urllib.request
+try:
+    st = json.load(sys.stdin)["result"]["status"]
+except Exception:
+    sys.exit(0)
+if st["idle_timeout"]["state"] == "Printing": print("a macro or a print is running"); sys.exit(0)
+if st["print_stats"]["state"] in ("printing", "paused"): print("a print is active"); sys.exit(0)
+names = st.get("heaters", {}).get("available_heaters", [])
+if names:
+    q = "&".join(n.replace(" ", "%20") for n in names)
+    try:
+        r = json.load(urllib.request.urlopen("http://127.0.0.1:7125/printer/objects/query?" + q, timeout=5))["result"]["status"]
+        hot = [n for n in names if (r.get(n) or {}).get("target", 0) > 0]
+        if hot: print("heater on: " + ", ".join(hot))
+    except Exception:
+        pass
+' 2>/dev/null
 }
 macro_patches_py() { echo "$SCRIPT_DIR/scripts/wm_macro_patches.py"; }
 step_macro_patches() {   # --update: the fixes of this version inside WonderMaker's macro files (macros.cfg, change_macros.cfg, ...) on a Pi that is already installed
@@ -3662,13 +3694,13 @@ do_remove_addon_core() {
         shell-command)
             local ef="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" users
             [ -f "$ef" ] || { print_info "The shell command extension is not installed."; return 0; }
-            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v -e '/rpi_nozzle\.cfg$' -e '/rpi_auto_speed\.cfg$' | tr '\n' ' ')"   # rpi_nozzle.cfg and rpi_auto_speed.cfg are ours: they are taken out below
+            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v -e '/rpi_nozzle\.cfg$' | tr '\n' ' ')"   # rpi_nozzle.cfg is ours (it holds the speed test too): it is taken out below
             if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
             ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
             local own what
-            for own in rpi_nozzle.cfg rpi_auto_speed.cfg; do   # _WM_NOZZLE_TYPE and the Save button of the speed test need the extension: take the include out (printer.cfg is copied first) and keep the file aside
+            for own in rpi_nozzle.cfg; do   # _WM_NOZZLE_TYPE and the Save button of the speed test need the extension: take the include out (printer.cfg is copied first) and keep the file aside
                 [ -f "$cfgd/$own" ] || continue
-                [ "$own" = rpi_nozzle.cfg ] && what="_WM_NOZZLE_TYPE" || what="the speed test WM_AUTO_SPEED"
+                [ "$own" = rpi_nozzle.cfg ] && what="_WM_NOZZLE_TYPE and the speed test WM_AUTO_SPEED" || what="?"
                 [ -f "$cfgd/printer.cfg" ] && { [ -f "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" ] || cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP"; } && sed -i "/^[[:space:]]*\[include[[:space:]]\+${own//./\\.}[[:space:]]*\]/d" "$cfgd/printer.cfg"
                 mv "$cfgd/$own" "$cfgd/$own.wm-removed-$STAMP"; print_info "$own ($what) was taken out of printer.cfg too, because it needs the extension. It is kept as $own.wm-removed-$STAMP."
             done
