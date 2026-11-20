@@ -66,3 +66,14 @@ Findings (reported, not fixed):
 ## Change log
 - 2026-11-19: patch read line by line (final files of the 31 patches); section "Patch read line by line" added; backup FLUIDD.md.bak-2026-11-19-before-patch-read.
 - 2026-11-18: document created (read-only).
+
+## Purge dialog (F-156, 2026-11-19, dev Pi only, not in the patch yet)
+New ZrPurgeDialog.vue and an orange PURGE button next to UNLOAD MENU in the Toolheads card (needs the macro _WM_PURGE). Dialog: toolhead, temperature, speed, amount; Start purge keeps the tool hot at the wipe position, Cancel wipes, cools with the part fan and parks (_WM_PURGE_DONE). The macro list also has WM_PURGE_MENU (prompt window). Checked against the live card, 2026-11-19.
+
+- 2026-11-19 (F-161, pi400 only): ZrToolheadsCard.vue watches _WM_PURGE_SEL.show; WM_PURGE_MENU from the macro list opens ZrPurgeDialog (build v11). Works only while the Dashboard is open, else the macro shows the prompt window after 2 s. Backups FLUIDD.md.bak-2026-11-19-purgemenu.
+- 2026-11-19 (F-166, pi400 only): ZrToolheadsCard.vue: Unload Menu enabled while paused, new Load Menu and Resume tool buttons (build v12, zrMixin.ts zrPrinting/zrPaused). Backups FLUIDD.md.bak-2026-11-19-f166.
+- 2026-11-19 F-167: ZrToolheadsCard.vue/zrMixin.ts call _WM_ENDLESS_*, _WM_STATS_RESET (build v13).
+- 2026-11-19 F-167 part 2: Fluidd build v14 calls the renamed _ZR_*, _ACE_WM_* macros; AcePro category created on pi400.
+- 2026-11-19 F-168: ActionCommandPromptDialog.vue window width 640, button text wraps (build v15).
+- 2026-11-19 T-001: Fluidd folder on main RPi4 replaced by the pi400 build (new macro names).
+- 2026-11-19 F-180: Fluidd macro categories database (fluidd/macros) on main RPi4 replaced by the pi400 list (ids mapped by name). Checked against the live database, 2026-11-19.

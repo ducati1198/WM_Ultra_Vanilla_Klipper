@@ -174,7 +174,7 @@ def ace_state(objects, ntools=4):
             "temp": inst.get("temp"), "humidity": inst.get("humidity"),
             "drying": drying, "dryer": dryer, "dry_left": dry_remaining_text(dryer) if drying else "",
             "max_temp": inst.get("max_dryer_temperature") or DRY_MAX_TEMP, "slots": slots,
-            "endless_available": objects.get("gcode_macro WM_ENDLESS_CONTINUE") is not None}
+            "endless_available": objects.get("gcode_macro _WM_ENDLESS_CONTINUE") is not None}
 
 
 def ace_tool_lines(objects, tool):
@@ -654,6 +654,9 @@ def build_css(theme, style, density="compact", scale=1.0):
     return """
     .zr_card { border: 2px solid %(edge)s; border-radius: %(r)dpx; background-image: none; background-color: %(card)s; color: %(text)s; }
     .zr_active { border: 2px solid %(acc)s; background-color: %(card_on)s; }
+    .zr_card_empty { background-color: #0e1114; border: 2px solid #232a30; }
+    .zr_card_empty label { color: #5f666c; }
+    .zr_card_sel { border: 3px solid #8ab4ff; background-color: #141c2e; }
     .zr_swatch { border: 2px solid %(dot_edge)s; border-radius: %(sr)dpx; }
     .zr_dot { border: 2px solid %(edge)s; border-radius: 32px; }
     .zr_dot_on { border: 5px solid %(acc)s; }
@@ -668,6 +671,9 @@ def build_css(theme, style, density="compact", scale=1.0):
     .zr_mat { font-weight: bold; font-size: %(mat)s; }
     .zr_btn, .zr_tab { border-radius: %(r)dpx; background-image: none; background-color: %(card)s; color: %(text)s; border: 1px solid %(edge)s; box-shadow: none; text-shadow: none; }
     .zr_btn_primary { background-color: %(acc)s; border-color: %(acc)s; color: #ffffff; }
+    .zr_btn_navy { background-color: #1e3a8a; border-color: #1e3a8a; color: #ffffff; }
+    .zr_btn_go { background-image: none; background-color: #0b57d0; border: 2px solid #8ab4ff; color: #ffffff; font-weight: bold; text-shadow: none; }
+    .zr_btn_big { font-size: 20px; font-weight: bold; }
     .zr_btn_green { background-color: #2e9d57; border-color: #2e9d57; color: #ffffff; }
     .zr_btn_orange { background-color: #d9822b; border-color: #d9822b; color: #ffffff; }
     .zr_btn_purple { background-color: #7b4fd0; border-color: #7b4fd0; color: #ffffff; }
@@ -679,11 +685,14 @@ def build_css(theme, style, density="compact", scale=1.0):
     .zr_pill_off { background-color: #e04545; color: #ffffff; }
     .zr_btn_cyan { background-color: #17a2b8; border-color: #17a2b8; color: #ffffff; }
     .zr_btn_red { background-color: #c0392b; border-color: #c0392b; color: #ffffff; }
+    .zr_btn_blue { background-color: #1f6feb; border-color: #1f6feb; color: #ffffff; }
     .zr_selected { background-image: none; background-color: %(acc)s; border-color: %(acc)s; color: #ffffff; }
     .zr_section { font-weight: bold; padding-top: 6px; }
     .zr_small { font-size: %(small_pct)s; color: %(small)s; }
     .zr_value { font-weight: bold; font-size: %(value)s; }
     .zr_value_dim { font-weight: bold; font-size: %(value_dim)s; color: %(small)s; }
+    .zr_value_xl { font-weight: bold; font-size: %(value_xl)s; }
+    .zr_value_xl_dim { font-weight: bold; font-size: %(value_xl)s; color: %(small)s; }
     .zr_hint { font-size: %(small_pct)s; color: %(hint)s; }
     scrollbar.vertical { min-width: 18px; }
     scrollbar slider { min-width: 14px; min-height: 40px; border-radius: 8px; background-color: %(edge)s; }
@@ -693,7 +702,7 @@ def build_css(theme, style, density="compact", scale=1.0):
            "empty_bg": empty[0], "empty_fg": empty[1],
            "pill": "%d%%" % round((100 if big else 85) * k), "title": "%d%%" % round((120 if big else 100) * k),
            "mat": "%d%%" % round((130 if big else 110) * k),
-           "value": "%d%%" % round((330 if big else 290) * k), "value_dim": "%d%%" % round((230 if big else 200) * k), "small_pct": "%d%%" % round(85 * k)}
+           "value": "%d%%" % round((330 if big else 290) * k), "value_dim": "%d%%" % round((230 if big else 200) * k), "value_xl": "%d%%" % round((380 if big else 330) * k), "small_pct": "%d%%" % round(85 * k)}
 
 
 # ---------------------------------------------------------------------

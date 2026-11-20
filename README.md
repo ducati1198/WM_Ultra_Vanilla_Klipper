@@ -36,6 +36,7 @@ More:
 
 - [Tools: new WonderMaker releases](#tools-new-wondermaker-releases-toolswm-release) (`tools/wm-release`)
 - [The menu](#the-menu)
+- Documents of the Pi: [MACROS](docs/MACROS.md) · [FLUIDD](docs/FLUIDD.md) · [MOONRAKER](docs/MOONRAKER.md) · [DIFFERENCES](docs/DIFFERENCES.md)
 - [Backup before every update](#backup-before-every-update)
 - [Status page and Network and system](#status-page-and-network-and-system)
 - [Klipper gcode shell command (installed automatically)](#klipper-gcode-shell-command-installed-automatically)
@@ -149,6 +150,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 | Webcams and timelapse | crowsnest and Moonraker timelapse, the versions WonderMaker ships. The factory camera works from the screen board too (shown in Fluidd as **Camera**, 720p at 30 fps) |
 | Fluidd with a **Toolheads** panel | four toolheads, chamber, air filter, doors, print with colours, filament mapping |
 | Safe without the printer | Moonraker and Fluidd work right away. Without the main board Klipper starts but only reports "cannot connect" (nothing moves); `--no-start` leaves it off until `--first-start` |
+| ACE page on the touchscreen | Big spools, four large buttons (Load, Unload, Feed, Retract) and one page each for the dryer, the endless spool and Feed/Retract with a Stop button; a Load menu on the Filament page (2.22.0) |
 | Optional touchscreen | KlipperScreen with a **ZR Tools** page, on the WonderMaker screen board or a screen connected to the Pi (tested on the WonderMaker screen board) |
 
 ![Before and after](docs/img/overview.svg)

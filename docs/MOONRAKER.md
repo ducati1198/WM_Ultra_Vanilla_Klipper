@@ -22,7 +22,7 @@ Written 2026-11-18 from `~/printer_data/config/moonraker.conf` (read line by lin
 | `[update_manager wm-ultra-fluidd-acepro-panel]` | git_repo ~/wm-ultra-fluidd-acepro-panel, managed_services klipper | ok. **Custom**: service `wm-panel-update` applies the update |
 | `[timelapse]` | output_path, frame_path, camera default, parkpos back_right, park speeds, `extraoutputparams: -preset superfast` | options belong to the third-party component moonraker-timelapse (its own docs), not to Moonraker's configuration.md: not verified here |
 | `[webcam Camera]` | service mjpegstreamer, stream_url /webcam/?action=stream, snapshot_url ...action=snapshot | ok (MJPEG-Streamer is a documented service) |
-| `[power chamber_light]` | type http to the screen board (http://10.11.88.36:8765/light), request/response templates, poll_interval 3 | ok; written by `scripts/wm_light_conf.py` of the installer |
+| `[power chamber_light]` | type http to the screen board (http://<screen-board-ip>:8765/light), request/response templates, poll_interval 3 | ok; written by `scripts/wm_light_conf.py` of the installer |
 
 Hidden file `.moonraker.conf.bkp` exists (Moonraker's own backup of the file).
 
@@ -40,7 +40,7 @@ Hidden file `.moonraker.conf.bkp` exists (Moonraker's own backup of the file).
 ## Custom things
 - Two extra `update_manager` entries (installer and panel) that really install on Update (services `wm-pi-update`, `wm-panel-update`).
 - `wm-light.path` / `wm-light.service` (installer) set the chamber light up when the screen board announces it. **F-155 (2026-11-18)**: this service restarted Klipper every time; it now restarts only when the light macro changed and never while Klipper is busy.
-- Power device `chamber_light` is an HTTP device on the screen board (10.11.88.36), not a GPIO.
+- Power device `chamber_light` is an HTTP device on the screen board, not a GPIO.
 
 ## Problems / things to re-check
 1. `trusted_clients` trusts all private ranges (convenient, but no login on the LAN).

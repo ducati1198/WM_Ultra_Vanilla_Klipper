@@ -130,7 +130,7 @@ class Logic(unittest.TestCase):
                                 "slots": [{"index": 0, "status": "ready"}, {"index": 1, "status": "empty"}], "feed_assist_slot": 2,
                                 "dryer_status": {"status": "drying", "remain_time": 90, "duration": 120}},
              "gcode_macro _WM_ACE": {"mode": "load", "tool": 0}, "filament_switch_sensor path_1": {"filament_detected": True},
-             "gcode_macro WM_ENDLESS_CONTINUE": {}}
+             "gcode_macro _WM_ENDLESS_CONTINUE": {}}
         a = L.ace_state(o)
         self.assertTrue(a["connected"] and a["drying"] and a["endless_available"])
         self.assertEqual([s["text"] for s in a["slots"]], ["loading", "empty", "assist", "no data"])
@@ -339,7 +339,7 @@ class Smoke(unittest.TestCase):
         zl.SETTINGS_FILE = os.path.join(self.home, "zr_screen.conf")
         zl.save_settings({"layout": layout, "density": "auto", "theme": "dark"}, zl.SETTINGS_FILE)
         zr.L.SETTINGS_FILE = zl.SETTINGS_FILE
-        screen = mock.MagicMock(); screen.width = width
+        screen = mock.MagicMock(); screen.width = width; screen.height = 480 if width <= 900 else 1200
         if height is not None:
             screen.height = height
         screen.printer.get_config_section_list.return_value = [
@@ -417,7 +417,7 @@ class Smoke(unittest.TestCase):
         p._confirm = lambda title, text, script, message=None: seen.append(script)
         p.st["print_stats"] = {"state": "standby"}
         p._act_load(1); p._act_unload(1)
-        self.assertEqual(seen, ["ZR_LOAD T=1", "ZR_RETRACT T=1"])           # no ACE: regular load, retract
+        self.assertEqual(seen, ["_ZR_LOAD T=1", "_ZR_RETRACT T=1"])           # no ACE: regular load, retract
         del seen[:]
         p.st["ace_instance_0"] = {"connection_state": "connected", "slots": [], "dryer_status": {"status": "stop"}}
         p._act_load(2); p._act_unload(2)
@@ -425,7 +425,7 @@ class Smoke(unittest.TestCase):
         del seen[:]
         p.st["ace_instance_0"]["connection_state"] = "disconnected"
         p._act_load(0); p._act_unload(0)
-        self.assertEqual(seen, ["ZR_LOAD T=0", "ZR_RETRACT T=0"])           # ACE unplugged: back to the regular ones
+        self.assertEqual(seen, ["_ZR_LOAD T=0", "_ZR_RETRACT T=0"])           # ACE unplugged: back to the regular ones
 
     def test_calibration_page_lists_the_wm_macros(self):
         p, screen = self.make("tabs")
@@ -463,7 +463,7 @@ class Smoke(unittest.TestCase):
         self.assertEqual((p.edit["mat"], p.edit["color"]), (1, 0xE01010))
         p._save_tool()
         sent = [c.args[0] for c in screen._ws.api.gcode_script.call_args_list]
-        self.assertTrue(any(x.startswith("ZR_SET_TOOL_INFO T=1 COLOR=%d MAT=1" % 0xFF1C2E) for x in sent), sent)
+        self.assertTrue(any(x.startswith("_ZR_SET_TOOL_INFO T=1 COLOR=%d MAT=1" % 0xFF1C2E) for x in sent), sent)
         self.assertEqual(p.view, "tool")          # saving returns to the toolhead page
         p.show_tool_edit(1)
         self.assertTrue(p.on_back()); self.assertEqual(p.view, "tool")
@@ -495,13 +495,13 @@ class Smoke(unittest.TestCase):
             fn()
         p._ace_select(2); p._ace_preset(55, 6); p._ace_step("ace_len", 10); p._ace_step("dry_temp", 5)
         sent = [c.args[0] for c in screen._ws.api.gcode_script.call_args_list]
-        self.assertIn("ACE_WM_DRY_START TEMP=55 DURATION=360".replace("55", "60"), [s for s in sent] + ["ACE_WM_DRY_START TEMP=60 DURATION=360"]) \
+        self.assertIn("_ACE_WM_DRY_START TEMP=55 DURATION=360".replace("55", "60"), [s for s in sent] + ["_ACE_WM_DRY_START TEMP=60 DURATION=360"]) \
             if False else None
         self.assertTrue(any(s.startswith("ACE_ENABLE_FEED_ASSIST T=0") for s in sent), sent)
         self.assertIn("ACE_WM_STOP", sent)
-        self.assertIn("ACE_WM_DRY_STOP", sent)
-        self.assertIn("WM_ENDLESS_SET ENABLE=1", sent)
-        self.assertTrue(any(s.startswith("ACE_WM_DRY_START TEMP=55 DURATION=") for s in sent), sent)
+        self.assertIn("_ACE_WM_DRY_STOP", sent)
+        self.assertIn("_WM_ENDLESS_SET ENABLE=1", sent)
+        self.assertTrue(any(s.startswith("_ACE_WM_DRY_START TEMP=55 DURATION=") for s in sent), sent)
 
     def test_dryer_is_on_the_climate_page(self):
         p, screen = self.make("tabs", ace=True)
@@ -511,7 +511,7 @@ class Smoke(unittest.TestCase):
         self.assertEqual((p.dry_temp, p.dry_hours), (65, 7))
         p._ace_dry_start()
         sent = [c.args[0] for c in screen._ws.api.gcode_script.call_args_list]
-        self.assertIn("ACE_WM_DRY_START TEMP=65 DURATION=420", sent)
+        self.assertIn("_ACE_WM_DRY_START TEMP=65 DURATION=420", sent)
         p.show_ace(); p._refresh_view()
         self.assertNotIn("dry_lbl", p.w)          # the ACE page no longer has the dryer
         p, _ = self.make("tabs")                   # no ACE: no dryer on the Climate page
@@ -574,12 +574,12 @@ class Smoke(unittest.TestCase):
         PL = sys.modules[type(p).__module__].L
         with mock.patch.object(PL, "ace_state", return_value={"slots": slots, "connected": True}):
             p._act_assist(2)
-        self.assertEqual(sent, ["ACE_WM_ASSIST T=2 STATE=on"])
+        self.assertEqual(sent, ["_ACE_WM_ASSIST T=2 STATE=on"])
         sent.clear()
         slots2 = [{"assist": False}, {"assist": False}, {"assist": True}, {"assist": False}]
         with mock.patch.object(PL, "ace_state", return_value={"slots": slots2, "connected": True}):
             p._act_assist(2)
-        self.assertEqual(sent, ["ACE_WM_ASSIST T=2 STATE=off"])
+        self.assertEqual(sent, ["_ACE_WM_ASSIST T=2 STATE=off"])
 
     def test_feed_assist_button_is_under_load_and_unload_and_shows_on_off(self):
         p, screen = self.make("tabs", ace=True)

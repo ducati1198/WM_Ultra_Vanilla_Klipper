@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.22.0
+
+- **KlipperScreen ACE page redone (F-193, F-194).** Bigger spools, four big buttons, and three page buttons (Dryer, Endless spool, Feed/Retract) that each open their own page: a larger endless circle with larger tool numbers, a Feed/Retract page with Stop, a dryer page with bigger temperature and time. Nothing scrolls on the 800x480 screen. The Filament page has a Load menu and a coloured Feed assist button. `zr_tools.py`, `zr_views.py`, `zr_logic.py` and the screen board bundle are updated.
+- **Hidden secondary macros (F-167).** `_WM_ENDLESS_SET/_FIXED/_PLAN/_CONTINUE`, `_WM_STATS_RESET`, `_WM_LOAD_STOP`, `_WM_UNLOAD_STOP`, `_ACE_WM_RETRACT`, `_ACE_WM_ASSIST` and `_WM_Z_TRIM` start with an underscore. The Fluidd build and KlipperScreen call them by these names.
+- **Macro fixes and tests from the F-187 to F-192 series** in `rpi_base.cfg`, `rpi_calibration.cfg`, `rpi_nozzle.cfg`, `zr_tools.cfg` and the factory `macros.cfg`, `change_macros.cfg`, `extruder0-3.cfg`, `fz-wipe-nozzle.cfg` of Ultra and Ultra S. `scripts/wm_macro_patches.json` has 28 new entries for 2.22.0.
+- **Docs:** `docs/MACROS.md` and `docs/FLUIDD.md` follow the renames.
+- Goes with the panel repository 1.17.0 (Fluidd build with the new macro names).
+
 ## 2.21.1
 
 - **`rpi_auto_speed.cfg` is joined into `rpi_nozzle.cfg` (2.21.1).** One file less: the speed test (`WM_AUTO_SPEED`, `WM_AUTO_SPEED_VALIDATE`) needs the same shell command extension as the nozzle macros, so it lives in the file that has the same install condition (not in `rpi_calibration.cfg`, which every printer gets, and not in the panel's `rpi_ace.cfg`, which only an ACE printer gets). The update moves an old `rpi_auto_speed.cfg` to ~/ultra-backup/config/<date>/rpi-join-*, takes its include line out of printer.cfg and installs the new `rpi_nozzle.cfg`. The macro names do not change. The module check (`auto_speed.py`) now applies to `rpi_nozzle.cfg`. New test for the move.

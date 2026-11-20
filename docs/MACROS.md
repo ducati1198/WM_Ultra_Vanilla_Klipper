@@ -1,6 +1,6 @@
 # MACROS.md - every macro of the WonderMaker Ultra / Ultra-S on the Raspberry Pi
 
-Generated 2026-11-18 from the live config of the dev Pi (10.11.88.35), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
+Generated 2026-11-18 from the live config of the dev Pi (the dev Pi), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
 Klipper v0.13.0-827-g29d4ec2d6 (upstream master 2026-11-10 + WonderMaker additions, see DIFFERENCES.md), Moonraker newer than 0.11.0, Fluidd v1.38.0 (patched, see FLUIDD.md), Debian 12.  
 Checked against: Klipper docs of the installed version (`reference/klipper-docs-0.13.0-827-g29d4ec2d6/docs/G-Codes.md`, online https://www.klipper3d.org/G-Codes.html), the live command registry of the running Klipper (`/printer/gcode/help`) and the Klipper source on the Pi, 2026-11-18.
 
@@ -490,6 +490,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 ### START_PRINT
 - **File / lines**: macros.cfg L7-108 (gcode_macro)
 - **What it does**: Print start: light on, speeds, bed soak mark, heat bed and tool, home, mesh (adaptive or full), wipe, purge settings, tool offsets.
+- **Change 2026-11-19 (F-160)**: the print start purge of F-105 (_WM_START_PURGE, one 20 mm purge per used toolhead + KAMP line) is no longer called; the factory left-edge purge (X0 Y70 to Y150, 20 mm) runs again. The F-105 macros stay in rpi_base.cfg, unused. Checked against FIX-LOG F-105, 2026-11-19.
 - **Calls**: BED_MESH_CALIBRATE, M104, M109, M190, SET_GCODE_OFFSET, WIPE_NOZZLE, WM_CHAMBER_LIGHT, _WM_BED_SOAK, _WM_BED_SOAK_MARK, _WM_LIVEZ_RESET, _WM_START_PURGE
 - **Called by**: - (entry point: Fluidd / screen / slicer / console)
 - **Variables**: adaptive_mesh, adaptive_mesh_enable, print_body_ready
@@ -1141,7 +1142,7 @@ ZR tools: tool info/mapping, chamber, load/unload without ACE
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _WM_GO_WIPE_HEAT
 - **File / lines**: zr_tools.cfg L160-177 (gcode_macro)
-- **What it does**: Helper: toolhead T (on the carriage) goes to the wipe area and heats to S, waits (idle: lowers the bed first)
+- **What it does**: Helper: toolhead T (on the carriage) goes to the purge location (_WM_PURGE_LOCATION, X-13 Y60 Z7) while cold, then heats to S and waits (F-164, 2026-11-19, was the wipe area; changed on pi400 only, checked against pi400 files 2026-11-19)
 - **Calls**: _WM_CAL_CLEARANCE, z_rise
 - **Called by**: LOAD_FILAMENT, UNLOAD_FILAMENT, ZR_LOAD, _WM_ACE_GRAB, _WM_UNLOAD_TIP
 - **Variables**: -
@@ -3867,3 +3868,68 @@ Everything under "Calls / Called by / Variables / Uses / Commands / Risk" is ext
 - 2026-11-19 (later): line-by-line blocks added for rpi_endless.cfg, rpi_stats.cfg, zr_tools.cfg, offset_calibrate.cfg, change_macros.cfg, macros.cfg, timelapse.cfg; the wrong `#XYZ:` finding in rpi_base.cfg was corrected (Klipper strips ` #` and ` ;` when it loads the config). Backups: ...-before-endless-stats-zrtools, ...-before-hash-correction.
 - 2026-11-19: line-by-line blocks added for rpi_ace.cfg, rpi_nozzle.cfg, rpi_base.cfg, rpi_calibration.cfg; ACE driver field check block; Files done table updated. Backups: MACROS.md.bak-2026-11-18-before-ace-read, ...-before-nozzle-read, MACROS.md.bak-2026-11-19-before-base-read, ...-before-calib-read, ...-before-ace-driver-note.
 - 2026-11-18: document created from the live config (336 macros / timers in 19 files). Nothing on the printer was changed.
+
+## F-156 purge (added 2026-11-19, checked against the files on the dev Pi, 2026-11-19; not in the repos yet)
+### WM_PURGE_MENU
+- **File**: rpi_base.cfg (end of file, F-156 block). **What it does**: Fluidd prompt window: toolhead, temperature, speed, amount, Start purge, Cancel. **Risk**: MOVES THE TOOLHEAD, HEATS, ACE. **Fluidd**: WM Ultra Filament. **Tested**: window renders (console); start from it not tested.
+### _WM_PURGE (hidden)
+- **What it does**: T= [S= temperature, 0 = the filament's own] [SPEED= mm/s] [LEN= mm] [FINISH=1|0|2]. Checks (not printing, no unload, ACE idle, limits 170..max_temp-10 C, 1..30 mm/s, 1..300 mm, filament in the head), homes if needed, then _WM_PURGE_GO. **Called by**: WM_PURGE_MENU Start button, KlipperScreen Purge page (FINISH=1), Fluidd Purge dialog (FINISH=2). **Tested**: T1 10 mm OK 2026-11-19.
+### _WM_PURGE_GO, _WM_PURGE_DONE, _WM_PURGE_PICK, _WM_PURGE_SEL (hidden)
+- _GO: tool change (read after the homing), _WM_GO_WIPE_HEAT, _WM_PURGE_ASSIST on, push, assist off, then DONE / message / window. _DONE: closes the prompt, wipe, heater off, M106 S255 until below 140 C, M107, park. _PICK: one window button. _SEL: window choices (t, temp, speed, len, hot).
+- **Change log**: 2026-11-19 new. Replaces the "better purge macro" to-do (ZR_PURGE was removed in F-104).
+### _WM_PURGE_LOCATION (hidden, F-156, 2026-11-19, not in the repos yet)
+- **What it does**: the place where the purge heats and pushes: variables x -13, y 60, z 7. Moves there (z_rise, _WM_CAL_CLEARANCE, G0 Y, G0 X, G1 Z) and, with T= S=, heats toolhead T and waits. **Used by**: _WM_PURGE_GO; free for other macros. **Change log**: 2026-11-19 new, replaces the wipe position X-13 Y240 for the purge. **Tested**: not yet.
+
+## Index in the config files (2026-11-19, F-158)
+Each rpi_*.cfg (except rpi_pi.cfg) and zr_tools.cfg starts with its header and an auto index of its macros (visible / hidden, with description). The index is made by `~/idx-test/mkindex.py FILE --write` on the dev Pi. Checked against the files on the Pi, 2026-11-19.
+
+### WM_PURGE_MENU change (F-161, 2026-11-19, pi400 only, checked against the files on pi400, 2026-11-19)
+- Old: showed the prompt window (RESPOND action:prompt_*). New: after the checks it sets _WM_PURGE_SEL.show=1; the Fluidd panel (Dashboard) opens its own purge window (same as the PURGE button) and sets show=0; if nothing answers within 2 s, delayed_gcode _WM_PURGE_SHOW_CHECK shows the prompt window through the new hidden macro _WM_PURGE_PROMPT (_WM_PURGE_PICK calls it too). Why: same window in the macro list as in the panel. Tested on the dev box (pi400). Not on .35, not in the repos.
+
+### Z trim window change (F-162, 2026-11-19, pi400 only, checked against the files on pi400, 2026-11-19)
+- WM_Z_TRIM was renamed _WM_Z_TRIM (hidden in Fluidd; same behaviour, limit 0.30 mm; only _WM_Z_TRIM_STEP calls it; the console still accepts it). WM_Z_TRIM no longer exists as a visible macro. _WM_Z_TRIM_WIN: rows 0.01 0.02 0.05 0.1 for both Closer and Further (same order, aligned); footer "Save and back" (returns to WM_Z_TRIM_MENU) replaces "Back". Why: user request. Tested on the dev box.
+
+
+## Change log F-164 (2026-11-19, pi400 only)
+Purge, push and heat spots moved from the wipe area (X-13 Y240) and X-13 Y80 to `_WM_PURGE_LOCATION` (X-13 Y60 Z7): `_WM_GO_WIPE_HEAT`, `_WM_HEAT_AT_WIPE` (X/Y only), `_WM_PURGE_HEAT`, `ACE_WM_LOAD` (waiting spot), `RESUME` (heat + 20 mm purge), `M109` (trip made before the heater is set = cold nozzle), `EXTRUDE_FILAMENT`, `filament_insert_gcode`. `WIPE_NOZZLE` stays at the wiper. See FIX-LOG F-164. Checked against pi400 files, 2026-11-19. Backups on pi400 in printer_data/config/backup (wm-before-purgeloc).
+
+## Change log F-165 (2026-11-19, pi400 only)
+`_WM_PURGE_LOCATION`: Y 60 -> 80; the fixed Z7 is replaced by a bed drop of 10 mm from the current Z (Z up = bed down), limited to 2 mm before the Z endstop (Z298), skipped when Z is not homed. Variables now x, y, drop, stop_before. Checked against pi400 files, 2026-11-19.
+
+## Change log F-165 revised (2026-11-19, pi400 only)
+`_WM_PURGE_LOCATION`: the 10 mm bed drop is removed; it moves only to X-13 Y80 (clearance from `z_rise` and `_WM_CAL_CLEARANCE`). Variables x, y. Checked against pi400 files, 2026-11-19.
+
+## Change log F-166 steps 1-2 (2026-11-19, pi400 only)
+`PAUSE` now saves `wm_pause_tool` (the tool on the carriage). `RESUME` checks that tool first: empty head sensor = error and stays paused; docked = `_CHANGE_TOOL` picks it up. extruder0-3.cfg `insert_gcode`: while paused, the print's tool is not parked after its load (other tools are). Why: B-075 (RESUME printed without a tool). Checked against pi400 files, 2026-11-19.
+- 2026-11-19 F-166 step 3: WM_LOAD_MENU, _WM_LOAD_* helpers, _wm_load_runner added to rpi_base.cfg; paused unload allowed (WM_UNLOAD_MENU/_WM_UNLOAD_GO/_WM_UNLOAD_END, _wm_unload_runner); ZR_RETRACT/_WM_ZR_LOAD_GO keep print tool on carriage while paused (zr_tools.cfg); _WM_ACE_HEAD_DONE marks load done (rpi_ace.cfg); insert_gcode extruder0-3 keep print tool while paused.
+- 2026-11-19 F-166 step 4: new WM_RESUME_TOOL, WM_RESUME_TOOL_GO and hidden _WM_RTOOL* (rpi_base.cfg); RESUME purge length variable (macros.cfg). Fluidd category: WM Ultra Filament (not set yet).
+- 2026-11-19 F-166 step 5: WM_RESUME_TOOL_GO pre-check of the print's tool map (rpi_base.cfg).
+- 2026-11-19 F-166 step 6: WM_RESUME_TOOL_GO renamed _WM_RESUME_TOOL_GO (hidden helper). Fluidd category WM Ultra Filament: WM_LOAD_MENU, WM_LOAD_STOP, WM_RESUME_TOOL, WM_PURGE_MENU.
+- 2026-11-19 F-167: renamed WM_ENDLESS_SET/FIXED/PLAN/CONTINUE, WM_STATS_RESET, WM_LOAD_STOP, WM_UNLOAD_STOP to _WM_... (hidden helpers). WM_SET_TOOL_MAP kept (Orca plugin), hidden in Fluidd only.
+- 2026-11-19 F-167 part 2: 19 macros renamed with _ (ZR_LOAD/UNLOAD/RETRACT/MAP_*/SET_TOOL_*/CHAMBER/AIR_FILTER, WM_BED_WARP_STOP, WM_LIVE_Z_ZERO, WM_AUTO_SPEED_VALIDATE, WM_CAL_HELP, Z_HOMING, ACE_WM_ASSIST/AUTO/DRY_START/DRY_STOP/RETRACT); 24 factory macros hidden in Fluidd only.
+- 2026-11-19 F-168: _WM_LOAD_SHOW and _WM_RTOOL_SHOW1 button labels shortened (T0 print tool · in head).
+
+- 2026-11-19 (F-170 Resume tool two pages + messages 1-4): user messages of _WM_HEAD_QUEUE (sensors back on, Loading T..), _WM_UNLOAD_GO/_WM_UNLOAD runner, _WM_LOAD_GO/_WM_LOAD runner and _WM_RESUME_TOOL_GO now count toolheads 1-4 (before: 0-3) to match the screens. Checked against rpi_base.cfg on pi400, 2026-11-19. Backup config/backup/rpi_base.cfg.wm-before-numbering-*.
+- 2026-11-19 F-174: _WM_RTOOL_SHOW1/_WM_RTOOL_PICK/_WM_RTOOL_SHOW2/_WM_LOAD_SHOW: Toolhead 1-4 numbers, plain wording, empty tool in Resume tool opens Load for it, swap sentence "T2 takes over from T1". Checked against files, 2026-11-19. Note: running pi400 Klipper reads printer_data/devbox/config.
+- 2026-11-19 F-175: message texts of _ZR_UNLOAD/_ZR_LOAD runner, _WM_UNLOAD*, _WM_HEAT_AT_WIPE, ACE unload messages, _CHANGE_TOOL, wipe: Toolhead 1-4 numbers (parameters unchanged). Checked against files, 2026-11-19.
+- 2026-11-19 F-176/F-177: _WM_ENDLESS_CONTINUE/_WM_ENDLESS_3 etc: messages in T1-T4; _WM_ENDLESS_3 now saves wm_pause_tool = new tool before RESUME (stops RESUME changing back to the empty head). Checked against files, 2026-11-19.
+- 2026-11-19 T-001: all macro changes of F-166..F-177 (renames with _, Load menu, Resume tool, endless, Toolhead 1-4 messages) copied from pi400 to main RPi4 (.35); Fluidd build replaced; checked against files, 2026-11-19.
+- 2026-11-19 F-178: WM_UNLOAD_MENU button labels and rpi_calibration tool lists in T1-T4 (parameters unchanged). Checked against files, 2026-11-19.
+
+- Change log 2026-11-19 (F-181): START_PRINT now sets G90 right after "START_PRINT begin"; _Z_HOMING sets G90 before G1 X150 Y135 (WIPE_NOZZLE restores the old mode). Why: a failed Fluidd jog left G91 on and broke the print start. Backups .bak-2026-11-19-f181, config/backup/*.wm-before-g90-*. Checked against the real files, 2026-11-19.
+
+- Change log 2026-11-19 (F-183, F-184): _ACE_WM_RETRACT starts the watcher _wm_ace_tick before ACE_RETRACT; ACE texts show T1-T4. Backups .bak-2026-11-19-f183, config/backup/rpi_ace.cfg.wm-before-f183-*. Checked against the real files, 2026-11-19.
+- 2026-11-19 F-186: START_PRINT calls `_WM_START_PURGE` unconditionally; the factory left-edge purge fallback (X0 Y70-150) was removed.
+- 2026-11-19 F-187: RETRACT_FILAMENT now moves to _WM_PURGE_LOCATION (was X-13 Y232); LOAD_FILAMENT, filament_insert_gcode and the pause/resume prime call _WM_PURGE_LOCATION unconditionally (own X/Y fallbacks removed). Checked against MACROS.md and the real files, 2026-11-19.
+- 2026-11-20 RULE (user): the purge location of the calibration macros WM_OFFSETS_ACCURATE (calls _WM_NOZZLE_PREPARE) and CALIBRATE_OFFSET_ALL_FINE_MODE / _RAPID_MODE (call NOZZLE_PREPARE, POP) is never changed. They heat at the wiper (_WM_GO_WIPE), go back, and push 120/120/88 mm where the head was; they do NOT use _WM_PURGE_LOCATION, on purpose. _WM_GO_WIPE stays (also used by G29). Checked against the real files on .35, 2026-11-20.
+- 2026-11-20 F-188: WM_FIRST_RUN_CAL / _WM_FIRST_RUN_CAL / _WM_FIRST_RUN_CAL_DONE: new stage 4 `WM_NOZZLE_GROWTH_CAL CONFIRM=1` after WM_OFFSETS_Z_HOT (eight stages now, calls WM_NOZZLE_GROWTH_CAL in addition); result window shows the growth value; no extra homing (both macros home only when not homed). pi400 only, tested windows, not a full run. Checked against the real file on pi400, 2026-11-20.
+- 2026-11-20 F-188 part 2: WM_FIRST_RUN_CAL window explains step 4 (growth) and the Z trim; _WM_FIRST_RUN_CAL_DONE shows the growth effect and the 3 Z trim steps (copied from the guided WM_FULL_OFFSET_CAL windows). pi400 only. Checked against the real file on pi400, 2026-11-20.
+
+- F-189 (B-077) 2026-11-20: `_WM_START_PURGE_RUN`, `_WM_WIPE_PURGE`, `_WM_WIPE_PURGE_GO` messages show Toolhead 1-4 (head+1). Text only. pi400 done, .35 pending.
+
+- F-190 2026-11-20: line per head. `_WM_PURGE_SETTINGS` (+head_lines, line_spacing), `_WM_START_PURGE_RUN` (N/TOTAL, no trailing line when head_lines), `_WM_WIPE_PURGE` (message), `_WM_WIPE_PURGE_GO` (calls `_WM_LINE_PURGE N= TOTAL=` instead of 20 mm push), `_WM_LINE_PURGE` (params N, TOTAL, spacing). head_lines=0 = old way. pi400 done, .35 pending.
+
+- F-190 TEST 2026-11-20: new file wm_test_head_lines.cfg: WM_TEST_HEAD_LINES (visible, WM Ultra Print), _WM_TEST_START_PURGE_RUN, _WM_TEST_WIPE_PURGE, _WM_TEST_WIPE_PURGE_GO, _WM_TEST_LINE_PURGE. On .35 and pi400. Test only, START_PRINT not using them.
+
+- F-190 2026-11-20: real on .35 and pi400 (rpi_base.cfg md5 6fc1011e). Test file and WM_TEST_HEAD_LINES removed (_WM_TEST_* macros no longer exist).
+- F-192 2026-11-20: _WM_LOAD_SHOW window text shortened (macro name and wipe sentence removed). pi400 done, .35 pending.

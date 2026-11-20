@@ -169,7 +169,7 @@ class Panel(ViewsMixin, ScreenPanel):
         if not self.tiny:            # on a 3 to 4 inch screen Calibrate moves into More to keep the tabs big enough to hit
             e.append(("settings", "Calibrate", self.show_utilities, ("utilities", "growth")))
         if L.has_ace(self.st):
-            e.append(("spool", "ACE", self.show_ace, ("ace",)))
+            e.append(("spool", "ACE", self.show_ace, ("ace", "ace_feed", "ace_endless", "ace_dryer")))
         more = ("more", "hub", "collision", "extras", "system", "settings", "mapping")
         e.append(("main", "More", self.show_more, more + (("utilities",) if self.tiny else ())))
         return e
@@ -223,9 +223,10 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _view_fn(self, v):
         m = {"main": self.show_main, "hub": self.show_hub, "more": self.show_more, "chamber": self.show_chamber,
-             "ace": self.show_ace, "utilities": self.show_utilities, "collision": self.show_collision,
+             "ace": self.show_ace, "ace_feed": self.show_ace_feed, "ace_endless": self.show_ace_endless, "ace_dryer": self.show_ace_dryer, "utilities": self.show_utilities, "collision": self.show_collision,
              "extras": self.show_extras, "system": self.show_system, "settings": self.show_settings,
-             "mapping": self.show_mapping, "growth": self.show_growth, "unload": self.show_unload,
+             "mapping": self.show_mapping, "growth": self.show_growth, "unload": self.show_unload, "load": self.show_load, "resume_tool": self.show_resume_tool, "resume_tool2": self.show_resume_tool2,
+             "purge": lambda: self.show_purge(self.view_tool),
              "tool": lambda: self.show_tool(self.view_tool), "tool_edit": lambda: self.show_tool_edit(self.view_tool)}
         return m.get(v)
 
@@ -233,6 +234,8 @@ class Panel(ViewsMixin, ScreenPanel):
         """KlipperScreen calls back() on the Back button: True = handled here, False = KlipperScreen goes to its own previous page."""
         if self._offline():
             return False
+        if self.view == "purge" and not self.__dict__.pop("_purge_quiet", False):
+            self._purge_finish()
         h = self.__dict__.setdefault("_hist", [])
         self.__dict__["_navback"] = True
         try:
@@ -278,7 +281,10 @@ class Panel(ViewsMixin, ScreenPanel):
             "output_pin Nozzle_Heat_Growth": ["value"],
             "gcode_macro _WM_ENDLESS": None,
             "gcode_macro _WM_UNLOAD": None,
-            "gcode_macro WM_ENDLESS_CONTINUE": None,
+            "gcode_macro _WM_PURGE_SEL": None,
+            "gcode_macro _WM_ENDLESS_CONTINUE": None,
+            "gcode_macro RESUME": None,           # F-166: the print's resume temperatures (Resume tool screen)
+            "gcode_macro _WM_LOAD": None,
             "save_variables": ["variables"],
             "heater_generic chamber": ["temperature", "target"],
             "fan_generic air_fan": ["speed"],
@@ -390,6 +396,8 @@ class Panel(ViewsMixin, ScreenPanel):
         for key, val in status.items():
             if isinstance(val, dict):
                 self.st.setdefault(key, {}).update(val)
+        if "gcode_macro _WM_PURGE_SEL" in status:
+            self._purge_sync()               # the purge window was closed in Fluidd: close this page too
         self._refresh_view()
         return False
 
@@ -493,11 +501,11 @@ class Panel(ViewsMixin, ScreenPanel):
     # F-137: Unload menu in the ZR Tools design (replaces the Fluidd style popup of WM_UNLOAD_MENU on this screen)
     # ------------------------------------------------------------------
     def _unload_open(self):
-        if not self._require_idle():
+        if not self._require_not_printing():
             return
         u = (self.st.get("gcode_macro _WM_UNLOAD") or {})
         if u.get("active"):
-            self._screen.show_popup_message("An unload is already running. Stop it with WM_UNLOAD_STOP.")
+            self._screen.show_popup_message("An unload is already running. Stop it with _WM_UNLOAD_STOP.")
             return
         self.show_unload()
 
@@ -523,8 +531,9 @@ class Panel(ViewsMixin, ScreenPanel):
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             for m in ("top", "bottom", "start", "end"):
                 getattr(row, "set_margin_" + m)(8)
-            sp = self._spool(56)
+            sp = self._spool(88)
             self._set_swatch(sp, self._tool_info(i)["color"])
+            self._mark_empty(ev, sp, self._sensor("filament%d" % i) is False)
             row.pack_start(sp, False, False, 0)
             t1, t2 = self._unload_label(i)
             txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -535,6 +544,10 @@ class Panel(ViewsMixin, ScreenPanel):
             b.set_halign(Gtk.Align.START)
             txt.pack_start(a, False, False, 0)
             txt.pack_start(b, False, False, 0)
+            c = self._label("In head" if self._sensor("filament%d" % i) else "No filament", "zr_small")
+            c.set_halign(Gtk.Align.START)
+            txt.pack_start(c, False, False, 0)
+            self._card_text(a, b, c)
             row.pack_start(txt, True, True, 0)
             ev.add(row)
             ev.connect("button-release-event", lambda _w, _e, n=i: self.show_unload_ask(str(n)))
@@ -576,13 +589,377 @@ class Panel(ViewsMixin, ScreenPanel):
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
 
-    def _unload_go(self, which):
+    # F-156 (restored 2026-11-19, F-179): the Purge page of a toolhead
+    PURGE_TEMPS = (0, 200, 220, 240, 260)      # 0 = the temperature saved for the filament
+    PURGE_SPEEDS = (2, 5, 10, 20)              # mm/s
+    PURGE_LENS = (10, 20, 50, 100)             # mm
+
+    def _purge_open(self, i):
         if not self._require_idle():
+            return
+        u = (self.st.get("gcode_macro _WM_UNLOAD") or {})
+        if u.get("active"):
+            self._screen.show_popup_message("An unload is running. Stop it with _WM_UNLOAD_STOP.")
+            return
+        self.view_tool = i
+        # the page is closed when another window finishes the purge (open goes 1 -> 0). When the other window is open already
+        # (open is 1) no change arrives for our own "open = 1", so that window counts as seen now.
+        self._purge_seen = int((self.st.get("gcode_macro _WM_PURGE_SEL") or {}).get("open", 0) or 0) == 1
+        self._gcode("SET_GCODE_VARIABLE MACRO=_WM_PURGE_SEL VARIABLE=open VALUE=1")
+        self.show_purge(i)
+
+    def _purge_pick(self, key, value):
+        self.purge[key] = value
+        self.show_purge(self.view_tool)
+
+    def show_purge(self, i):
+        self.view = "purge"
+        self.view_tool = i
+        if not hasattr(self, "purge"):
+            self.purge = {"temp": 0, "speed": 5, "len": 20}
+        own = int(self._tool_info(i)["temp"]) or 210
+        self._clear()
+        self.root.pack_start(self._header("Purge T%d" % (i + 1)), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+
+        def chips(label, key, values, text):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            lab = self._label(label, "zr_hint")
+            lab.set_size_request(80, -1)
+            lab.set_halign(Gtk.Align.START)
+            row.pack_start(lab, False, False, 0)
+            for v in values:
+                b = self._button(None, text(v), "color3", self._purge_pick, key, v)
+                if self.purge[key] == v:
+                    b.get_style_context().add_class("zr_btn_primary")
+                b.set_hexpand(True)
+                b.set_size_request(-1, 50)
+                row.pack_start(b, True, True, 0)
+            body.pack_start(row, False, False, 0)
+
+        chips("Temp", "temp", self.PURGE_TEMPS, lambda v: ("Filament %d" % own) if v == 0 else "%d" % v)
+        chips("Speed", "speed", self.PURGE_SPEEDS, lambda v: "%d mm/s" % v)
+        chips("Amount", "len", self.PURGE_LENS, lambda v: "%d mm" % v)
+        note = ("ACE feed assist is automatic. " if self._ace_connected() else "") + "Start purges and stays hot, purge again if you want. Cancel wipes, cools and parks."
+        if self.__dict__.get("_purge_hot") is not None:
+            note = "T%d is hot at the purge location. " % (self._purge_hot + 1) + note
+        body.pack_start(self._label(note, "zr_hint", wrap=True), False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        go = self._button(None, "Start purge", "color3", self._purge_go, i)
+        go.get_style_context().add_class("zr_btn_green")
+        no = self._button(None, "Cancel", "color3", self._purge_cancel)
+        for b in (go, no):
+            b.set_size_request(-1, 84)
+            row.pack_start(b, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+
+    def _purge_go(self, i):
+        if not self._require_idle():
+            return
+        p = self.purge
+        # FINISH=2: the tool stays hot at the purge location and this page stays open; Cancel (or Back) wipes, cools and parks it
+        self._gcode("_WM_PURGE T=%d S=%d SPEED=%d LEN=%d FINISH=2" % (i, p["temp"], p["speed"], p["len"]),
+                    "Purging T%d: %d mm at %d mm/s..." % (i + 1, p["len"], p["speed"]))
+        self._purge_hot = i
+        self.show_purge(i)
+
+    def _purge_finish(self):
+        """Wipe, cool with the part fan and park the tool the purge page left hot (_WM_PURGE_DONE). Always sent: it also closes the Fluidd window."""
+        hot = self.__dict__.get("_purge_hot") is not None
+        self._purge_hot = None
+        self._purge_seen = False
+        self._gcode("_WM_PURGE_DONE", "Wiping, cooling and parking..." if hot else None)
+
+    def _purge_sync(self):
+        """The purge window was closed on the other side (Fluidd): close this page too, without sending anything."""
+        if self.view != "purge":
+            return
+        o = int((self.st.get("gcode_macro _WM_PURGE_SEL") or {}).get("open", 0) or 0)
+        if o == 1:
+            self._purge_seen = True
+        elif self.__dict__.get("_purge_seen"):
+            self._purge_seen = False
+            self._purge_hot = None
+            self._purge_quiet = True         # the other window already sent _WM_PURGE_DONE: send nothing again
+            self.back()
+
+    def _purge_cancel(self):
+        self._purge_finish()
+        self.back()
+
+    def _unload_go(self, which):
+        if not self._require_not_printing():
             return
         t = "ALL" if which == "ALL" else str(int(which))
         self._gcode("_WM_UNLOAD_GO T=%s" % t, "Unloading %s..." % ("all tools" if t == "ALL" else "T%d" % (int(t) + 1)))
         self.back()      # ask page -> tool list
         self.back()      # tool list -> the page the Unload menu was opened from
+
+    # ------------------------------------------------------------------
+    # F-166: Load window (paused or idle) and Resume tool window (paused)
+    # ------------------------------------------------------------------
+    def _tool_card_row(self, i, extra, on_tap, selected=False, spool=88):
+        ev = Gtk.EventBox()
+        ev.get_style_context().add_class("zr_card")
+        if selected:
+            ev.get_style_context().add_class("zr_card_sel")
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(row, "set_margin_" + m)(8)
+        sp = self._spool(spool)
+        self._set_swatch(sp, self._tool_info(i)["color"])
+        self._mark_empty(ev, sp, self._sensor("filament%d" % i) is False)
+        row.pack_start(sp, False, False, 0)
+        t1, t2 = self._unload_label(i)
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        txt.set_valign(Gtk.Align.CENTER)
+        a = self._label(t1, "zr_title")
+        a.set_halign(Gtk.Align.START)
+        b = self._label(t2, "zr_small")
+        b.set_halign(Gtk.Align.START)
+        txt.pack_start(a, False, False, 0)
+        txt.pack_start(b, False, False, 0)
+        if extra:                     # the status on its own short line: a long line made the page wider than the screen
+            c = self._label(extra, "zr_small")
+            c.set_halign(Gtk.Align.START)
+            txt.pack_start(c, False, False, 0)
+            self._card_text(a, b, c)
+        else:
+            self._card_text(a, b)
+        row.pack_start(txt, True, True, 0)
+        ev.add(row)
+        ev.connect("button-release-event", lambda _w, _e, n=i: on_tap(n))
+        return ev
+
+    def _hint(self, text, css="zr_hint"):
+        # F-166: a wrapping label with a maximum width, so a long text cannot make the whole page wider than the screen
+        lbl = self._label(text, css, wrap=True)
+        lbl.set_max_width_chars(34)
+        lbl.set_width_chars(20)
+        return lbl
+
+    def _load_open(self):
+        if not self._require_not_printing():
+            return
+        l = (self.st.get("gcode_macro _WM_LOAD") or {})
+        if l.get("active"):
+            self._screen.show_popup_message("A load is already running. Stop it with _WM_LOAD_STOP.")
+            return
+        self.__dict__["load_sel"] = set()
+        self.show_load()
+
+    def show_load(self):
+        self.view = "load"
+        self._clear()
+        sel = self.__dict__.setdefault("load_sel", set())
+        paused = self._print_state() == "paused"
+        pt = self._pause_tool()
+        self.root.pack_start(self._header("Load filament"), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        hint = "Tap the tools to load, then press Load selected tools."
+        if paused:
+            pass
+        body.pack_start(self._hint(hint), False, False, 0)
+        grid = Gtk.Grid()
+        grid.set_row_spacing(8)
+        grid.set_column_spacing(8)
+        grid.set_column_homogeneous(True)
+        for i in range(NTOOLS):
+            fil = self._sensor("filament%d" % i)
+            extra = ("In head" if fil else "No filament")
+            if paused and pt == i:
+                extra += " \u00b7 print tool"
+            if i in sel:
+                extra = "Selected \u00b7 " + extra
+            grid.attach(self._tool_card_row(i, extra, self._load_toggle, i in sel, 78), i % 2, i // 2, 1, 1)
+        body.pack_start(grid, False, False, 0)
+        go = self._button(None, "Load selected tools", "color3", self._load_go)
+        go.get_style_context().add_class("zr_btn_primary")
+        go.set_size_request(-1, BIG_H)
+        body.pack_start(go, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+
+    def _load_toggle(self, i):
+        sel = self.__dict__.setdefault("load_sel", set())
+        if i in sel:
+            sel.discard(i)
+        else:
+            sel.add(i)
+        self.show_load()
+
+    def _load_go(self, *_):
+        if not self._require_not_printing():
+            return
+        sel = sorted(self.__dict__.get("load_sel") or [])
+        if not sel:
+            self._screen.show_popup_message("Tap at least one tool first.")
+            return
+        names = ", ".join("T%d" % (i + 1) for i in sel)
+        self._gcode('SET_GCODE_VARIABLE MACRO=_WM_LOAD VARIABLE=sel VALUE=\'"%s"\'\n_WM_LOAD_GO' % ",".join(str(i) for i in sel),
+                    "Loading %s..." % names)
+        self.back()
+
+    def _pause_tool(self):
+        try:
+            v = int(self._vars().get("wm_pause_tool", 99))
+        except (TypeError, ValueError):
+            v = 99
+        return v if 0 <= v < NTOOLS else -1
+
+    def _resume_tool_open(self):
+        if self._print_state() != "paused":
+            self._screen.show_popup_message("Resume tool works while the print is paused.")
+            return
+        pt = self._pause_tool()
+        if pt < 0:
+            self._screen.show_popup_message("The print was paused with no tool on the carriage. Load and pick a tool first, or press Resume.")
+            return
+        self.__dict__["rt"] = {"rep": -1, "dtemp": 0, "purge": 20}
+        self.show_resume_tool()
+
+    def _rt_base_temp(self):
+        pt = self._pause_tool()
+        r = self.st.get("gcode_macro RESUME") or {}
+        try:
+            return float(r.get("resume_temperature%d" % pt, 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def show_resume_tool(self):
+        # F-168: step 1 = choose the tool; step 2 (show_resume_tool2) = temperature, purge and the Resume button.
+        # Two short pages fit the small screen board without scrolling.
+        self.view = "resume_tool"
+        self._clear()
+        rt = self.__dict__.setdefault("rt", {"rep": -1, "dtemp": 0, "purge": 20})
+        pt = self._pause_tool()
+        self.root.pack_start(self._header("Resume tool"), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        red = self._label("", "zr_title")      # F-173: the pause tool on its own line, big and red
+        red.set_markup("<span foreground='#ff4d4d' font='20' weight='bold'>The print was paused with T%d</span>" % (pt + 1))
+        red.set_halign(Gtk.Align.START)
+        body.pack_start(red, False, False, 0)
+        body.pack_start(self._hint("Pick the tool that finishes the print. A grey tool has no filament: tap it to load it."), False, False, 0)
+        grid = Gtk.Grid()
+        grid.set_row_spacing(8)
+        grid.set_column_spacing(8)
+        grid.set_column_homogeneous(True)
+        for i in range(NTOOLS):
+            fil = self._sensor("filament%d" % i)
+            extra = ("Print tool" if i == pt else "Ready") if fil else "No filament"
+            grid.attach(self._tool_card_row(i, extra, self._rt_pick, False), i % 2, i // 2, 1, 1)
+        body.pack_start(grid, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+
+    def show_resume_tool2(self):
+        rt = self.__dict__.get("rt")
+        if not rt or rt["rep"] < 0:
+            self.show_resume_tool()
+            return
+        self.view = "resume_tool2"
+        self._clear()
+        pt = self._pause_tool()
+        rep = rt["rep"]
+        self.root.pack_start(self._header("Resume with T%d" % (rep + 1)), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        if rep == pt:
+            title = "T%d continues the print" % (pt + 1)
+            lines = ["T%d is the tool the print was paused with." % (pt + 1),
+                     "It stays on the carriage, heats, purges and wipes, then the print continues with it."]
+        else:
+            title = "T%d takes over from T%d" % (rep + 1, pt + 1)
+            lines = ["T%d goes back to its dock and is not used again in this print." % (pt + 1),
+                     "T%d heats, purges and wipes, then continues where T%d stopped." % (rep + 1, pt + 1),
+                     "T%d finishes the print, including the parts meant for T%d." % (rep + 1, pt + 1)]
+        body.pack_start(self._label(title, "zr_title"), False, False, 0)
+        for ln in lines:
+            dl = self._label("", None, wrap=True)
+            dl.set_markup("<span font='14'>%s</span>" % ln)
+            body.pack_start(dl, False, False, 0)
+        self._rt_tl = self._label("", "zr_title")
+        self._rt_sm = self._hint("", "zr_small")
+        body.pack_start(self._rt_tl, False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        for lab, dd in (("Temp -5", -5), ("Temp +5", 5)):
+            b = self._button(None, lab, "color3", self._rt_temp, dd)
+            b.set_size_request(-1, 46)
+            row.pack_start(b, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row2.set_homogeneous(True)
+        self._rt_pb = {}
+        for l in (20, 40, 60, 100):
+            b = self._button(None, "%d mm" % l, "color3", self._rt_purge, l)
+            b.set_size_request(-1, 46)
+            self._rt_pb[l] = b
+            row2.pack_start(b, True, True, 0)
+        body.pack_start(row2, False, False, 0)
+        go = self._button(None, "Resume with T%d" % (rep + 1), "color3", self._rt_go)
+        go.get_style_context().add_class("zr_btn_go")
+        go.set_size_request(-1, 54)
+        body.pack_start(go, False, False, 0)
+        self._rt_refresh()
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+
+    def _rt_refresh(self):
+        # update the texts and the chosen purge button in place: no page rebuild, so nothing is drawn twice
+        rt = self.__dict__["rt"]
+        base = self._rt_base_temp()
+        self._rt_tl.set_text("Temperature %d C  (the print had %d C)" % (int(base + rt["dtemp"]), int(base)))
+        for l, b in self.__dict__.get("_rt_pb", {}).items():
+            ctx = b.get_style_context()
+            if rt["purge"] == l:
+                ctx.add_class("zr_btn_go")
+            else:
+                ctx.remove_class("zr_btn_go")
+
+    def _rt_pick(self, i):
+        if not self._sensor("filament%d" % i):      # F-174: an empty tool opens the Load page for it (no dead end)
+            if not self._require_not_printing():
+                return
+            self.__dict__["load_sel"] = {i}
+            self.show_load()
+            return
+        rt = self.__dict__["rt"]
+        rt["rep"] = i
+        rt["dtemp"] = 0
+        self.show_resume_tool2()
+
+    def _rt_temp(self, d):
+        rt = self.__dict__["rt"]
+        t = self._rt_base_temp() + rt["dtemp"] + d
+        if t < 170 or t > 300:
+            self._screen.show_popup_message("The temperature must stay between 170 and 300 C.")
+            return
+        rt["dtemp"] += d
+        self._rt_refresh()
+
+    def _rt_purge(self, l):
+        self.__dict__["rt"]["purge"] = l
+        self._rt_refresh()
+
+    def _rt_go(self, *_):
+        rt = self.__dict__["rt"]
+        if self._print_state() != "paused" or rt["rep"] < 0:
+            self._screen.show_popup_message("The print must be paused and a tool chosen.")
+            return
+        temp = int(self._rt_base_temp() + rt["dtemp"])
+        self._gcode("_WM_RESUME_TOOL_GO REP=%d TEMP=%d PURGE=%d" % (rt["rep"], temp, rt["purge"]),
+                    "Resuming with T%d..." % (rt["rep"] + 1))
+        self.back()
+
+    def _require_not_printing(self):
+        # F-166: load, unload and Resume tool are allowed while the print is PAUSED, not while it prints
+        if self._print_state() == "printing":
+            self._screen.show_popup_message("Not available while printing. Pause the print first.")
+            return False
+        return True
 
     def _require_idle(self):
         if self._busy():
@@ -639,6 +1016,24 @@ class Panel(ViewsMixin, ScreenPanel):
         box.get_style_context().add_class("zr_swatch")
         return box
 
+    def _card_text(self, a, b, c=None):
+        # F-171: card texts as in the approved picture: big tool name, material line, status line
+        esc = GLib.markup_escape_text
+        a.set_markup("<b><span font='18'>%s</span></b>" % esc(a.get_text()))
+        b.set_markup("<span font='12'>%s</span>" % esc(b.get_text()))
+        if c is not None:
+            c.set_markup("<span font='11'>%s</span>" % esc(c.get_text()))
+
+    def _mark_empty(self, ev, sp, empty):
+        # F-171: a tool with no filament in its head: the whole box and the spool are greyed out
+        sp.zr_empty = bool(empty)
+        sp.queue_draw()
+        ctx = ev.get_style_context()
+        if empty:
+            ctx.add_class("zr_card_empty")
+        else:
+            ctx.remove_class("zr_card_empty")
+
     def _set_swatch(self, box, color_int):
         if hasattr(box, "zr_color"):       # spool (drawn)
             box.zr_color = color_int
@@ -661,13 +1056,17 @@ class Panel(ViewsMixin, ScreenPanel):
             d = min(w, h)
             cx, cy, rad = w / 2.0, h / 2.0, d / 2.0 - 3
             r_, g_, b_ = _rgb(widget.zr_color)
-            if widget.zr_empty:
-                cr.set_source_rgba(0.55, 0.6, 0.65, 1)
-                cr.set_line_width(2)
-                cr.set_dash([5, 4])
+            if widget.zr_empty:          # F-171: no filament = the whole spool grey
+                cr.set_source_rgb(0.24, 0.27, 0.30)
                 cr.arc(cx, cy, rad, 0, 6.2832)
+                cr.fill()
+                cr.set_source_rgba(1, 1, 1, 0.18)
+                cr.set_line_width(max(2, rad * 0.06))
+                cr.arc(cx, cy, rad * 0.62, 0, 6.2832)
                 cr.stroke()
-                cr.set_dash([])
+                cr.set_source_rgb(0.07, 0.09, 0.11)
+                cr.arc(cx, cy, rad * 0.26, 0, 6.2832)
+                cr.fill()
                 return False
             cr.set_source_rgb(r_ / 255.0, g_ / 255.0, b_ / 255.0)
             cr.arc(cx, cy, rad, 0, 6.2832)
@@ -819,6 +1218,17 @@ class Panel(ViewsMixin, ScreenPanel):
             for i in range(NTOOLS):
                 cards.pack_start(self._make_card(i), True, True, 0)
         self.root.pack_start(cards, True, True, 0)
+        # F-166: while the print is PAUSED: Load, Unload and Resume tool (hidden otherwise)
+        pb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        pb.set_homogeneous(True)
+        for lab, fn in (("Resume tool", self._resume_tool_open), ("Load", self._load_open), ("Unload", self._unload_open)):
+            b = self._button(None, lab, "color3", fn)
+            b.get_style_context().add_class("zr_btn_primary")
+            b.set_size_request(-1, 62)
+            b.get_style_context().add_class("zr_btn_big")
+            pb.pack_start(b, True, True, 0)
+        self.w["pausebar"] = pb
+        self.root.pack_start(pb, False, False, 0)
         self.root.show_all()
         self._refresh_view()
 
@@ -864,6 +1274,8 @@ class Panel(ViewsMixin, ScreenPanel):
     def _refresh_main(self):
         active = self._active_tool()
         state = self._print_state() or "unknown"
+        if "pausebar" in self.w:
+            self.w["pausebar"].set_visible(self._print_state() == "paused")
         self.w["p_car"].set_text("On carriage: %s" % ("T%d" % active if active >= 0 else "none"))
         self.w["p_state"].set_text("Printer: %s" % state)
         self.w["p_ch"].set_text(self._chamber_text())
@@ -871,6 +1283,7 @@ class Panel(ViewsMixin, ScreenPanel):
         bar = L.ace_bar_text(self.st)
         self.w["p_ace"].set_text(bar)
         self.w["p_ace"].set_visible(bool(bar))
+        paused_now = self._print_state() == "paused"
         for i, c in enumerate(self.w.get("cards", [])):
             info = self._tool_info(i)
             name, _ = MATERIALS[info["mat"]]
@@ -882,12 +1295,15 @@ class Panel(ViewsMixin, ScreenPanel):
                 ctx.remove_class("zr_active")
             if i == active:
                 self._set_pill(c["chip"], "Active", "active")
-            elif has:
+            elif has and self._sensor("filament%d" % i) is not False:
                 self._set_pill(c["chip"], "Ready", "ready")
             else:
                 self._set_pill(c["chip"], "Empty", "empty")
-            c["spool"].zr_empty = not has
+            fil = self._sensor("filament%d" % i)
+            self._mark_empty(c["ev"], c["spool"], (not has) or (fil is False))
             self._set_swatch(c["spool"], info["color"] if has else 0x303030)
+            sz = 46 if paused_now else (100 if self.density == "comfortable" else 78)
+            c["spool"].set_size_request(sz, sz)
             c["mat"].set_text(name if has else "Empty")
             c["color"].set_text(_color_name(info["color"]) if has else " ")
             cur, tgt = self._temps(i)
@@ -899,9 +1315,8 @@ class Panel(ViewsMixin, ScreenPanel):
                 c["temp"].set_text("%.0f\u00b0 / %.0f\u00b0" % (cur, tgt or info.get("temp") or 0))
                 c["bar"].zr_frac = (cur / goal) if goal else 0.0
             c["bar"].queue_draw()
-            fil = self._sensor("filament%d" % i)
             dock = self._sensor("docked%d" % i)
-            c["fil"].set_markup(self._dot(fil, "Filament"))
+            c["fil"].set_markup(self._dot(fil, "Filament" if fil else "No filament"))
             c["dock"].set_text(("In dock" if dock else "On carriage") if dock is not None else " ")
             c["ace"].set_text(L.ace_card_text(self.st, i))
 
@@ -921,7 +1336,7 @@ class Panel(ViewsMixin, ScreenPanel):
         self.view_tool = i
         self.edit = dict(self._tool_info(i))
         self._clear()
-        head = self._header("Toolhead %d (T%d)" % (i + 1, i))
+        head = self._header("Toolhead %d" % (i + 1))
         kids = head.get_children()
         lbl = kids[-1]
         head.remove(lbl)
@@ -945,6 +1360,7 @@ class Panel(ViewsMixin, ScreenPanel):
         card = Gtk.EventBox()
         card.get_style_context().add_class("zr_card")
         card.connect("button-release-event", lambda *_a, n=i: self.show_tool_edit(n))     # F-137: tap the spool to edit the filament
+        self.w["h_card"] = card
         col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         for m in ("top", "bottom", "start", "end"):
             getattr(col, "set_margin_" + m)(8)
@@ -979,11 +1395,13 @@ class Panel(ViewsMixin, ScreenPanel):
         # Row 1: Select, Park tool, Edit filament.  Right column: Heat under Edit filament, Cool under Heat.
         # Left two columns: Load and Unload; with an ACE the feed assist button goes across the bottom under them,
         # without an ACE Load and Unload are two rows tall. (The Purge button was removed with ZR_PURGE, F-104.)
-        tall = 1 if L.has_ace(self.st) else 2
+        have = {str(x).strip().upper() for x in (self._sections() or [])}
+        lm_ok = (not have) or ("GCODE_MACRO WM_LOAD_MENU" in have)    # F-193: Load menu replaces the Feed assist button on this page (feed assist stays on the ACE Pro page)
+        tall = 1 if (lm_ok or L.has_ace(self.st)) else 2
         items = [
             ("extruder", "Select", "color1", self._act_select, "", 0, 0, 1, 1),
             ("arrow-down", "Load", "color2", self._act_load, "", 0, 1, 1, tall),
-            ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1, tall),
+            ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1, 1),
             ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 1, 1, 1),
             ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 2, 1, 1),
         ]
@@ -1008,7 +1426,12 @@ class Panel(ViewsMixin, ScreenPanel):
             um_btn.get_style_context().add_class("zr_btn_primary")
             um_btn.set_vexpand(True)
             actions.attach(um_btn, 2, 0, 1, 1)
-        if L.has_ace(self.st):          # ACE feed assist of this toolhead, under Load and Unload: purple + green ON, dark grey + red OFF
+        if lm_ok:                       # F-193: Load menu (same window as Fluidd) under Load and Unload
+            lm_btn = self._button(None, "Load menu", "color3", self._load_open)
+            lm_btn.get_style_context().add_class("zr_btn_primary")
+            lm_btn.set_vexpand(True)
+            actions.attach(lm_btn, 0, 2, 1, 1)
+        elif L.has_ace(self.st):        # old Pi without WM_LOAD_MENU: ACE feed assist of this toolhead, purple + green ON, dark grey + red OFF
             assist_btn = Gtk.Button()
             assist_btn.get_style_context().add_class("zr_btn")
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1022,7 +1445,12 @@ class Panel(ViewsMixin, ScreenPanel):
             assist_btn.set_hexpand(True)
             assist_btn.set_vexpand(True)
             assist_btn.connect("clicked", lambda _w, n=i: self._act_assist(n))
-            actions.attach(assist_btn, 0, 2, 2, 1)
+            actions.attach(assist_btn, 0, 2, 1, 1)
+        # F-156: Purge button (dark blue) beside Feed assist, or under Unload without an ACE; it opens the purge page
+        purge_btn = self._button(None, "Purge", "color3", self._purge_open, i)
+        purge_btn.get_style_context().add_class("zr_btn_navy")
+        purge_btn.set_vexpand(True)
+        actions.attach(purge_btn, 1, 2, 1, 1)
         page.pack_start(actions, True, True, 0)
 
         self.root.pack_start(page, True, True, 0)
@@ -1190,7 +1618,7 @@ class Panel(ViewsMixin, ScreenPanel):
         midx = next((n for n, m in enumerate(L.TOUCH_MATERIALS) if m[2] == int(e["mat"])), 0)
         if int(e["mat"]):
             self._write_tmt1(i, cidx, midx)
-        script = (f"ZR_SET_TOOL_INFO T={i} COLOR={int(e['color'])} "
+        script = (f"_ZR_SET_TOOL_INFO T={i} COLOR={int(e['color'])} "
                   f"MAT={int(e['mat'])} TEMP={int(e['temp'])}")
         old_pa = self._tool_info(i)["pa"]
         if abs(e["pa"] - old_pa) > 1e-6:
@@ -1206,7 +1634,7 @@ class Panel(ViewsMixin, ScreenPanel):
         dock = self._sensor("docked%d" % i)
         has = bool(info["mat"])
         name = MATERIALS[info["mat"]][0] if has else "Empty"
-        self.w["e_swatch"].zr_empty = not has
+        self._mark_empty(self.w["h_card"], self.w["e_swatch"], (not has) or (fil is False))
         self._set_swatch(self.w["e_swatch"], info["color"] if has else 0x303030)
         self.w["h_mat"].set_text(name)
         temp = ("%.0f\u00b0 / %.0f\u00b0" % (cur, tgt or info.get("temp") or 0)) if cur is not None else "--"
@@ -1239,7 +1667,7 @@ class Panel(ViewsMixin, ScreenPanel):
     # tool actions --------------------------------------------------------
     def _act_select(self, i):
         if self._require_idle():
-            self._confirm("Select toolhead", f"Pick up toolhead {i + 1} (T{i})?",
+            self._confirm("Select toolhead", f"Pick up toolhead {i + 1}?",
                           f"_CHANGE_TOOL T={i}", f"Changing to toolhead {i + 1}...")
 
     def _act_park(self):
@@ -1254,7 +1682,7 @@ class Panel(ViewsMixin, ScreenPanel):
             return
         slots = L.ace_state(self.st)["slots"]
         on_now = bool(slots[i]["assist"]) if 0 <= i < len(slots) else False
-        self._gcode(f"ACE_WM_ASSIST T={i} STATE={'off' if on_now else 'on'}",
+        self._gcode(f"_ACE_WM_ASSIST T={i} STATE={'off' if on_now else 'on'}",
                     f"Feed assist {'off' if on_now else 'on'}, toolhead {i + 1}")
 
     def _act_heat(self, i):
@@ -1281,7 +1709,7 @@ class Panel(ViewsMixin, ScreenPanel):
                       f"Press OK: toolhead {i + 1} is picked up and heated at the wipe area to its saved temperature.\n"
                       "Then insert the filament until you feel resistance: the printer loads it by itself.\n"
                       "Filament already in: it pushes a little, wipes and parks.",
-                      f"ZR_LOAD T={i}", "Heating for the load...")
+                      f"_ZR_LOAD T={i}", "Heating for the load...")
 
     def _act_unload(self, i):
         if not self._require_idle():
@@ -1294,7 +1722,7 @@ class Panel(ViewsMixin, ScreenPanel):
                       f"Unload filament from toolhead {i + 1}?\n"
                       "It picks up the toolhead, heats it at the wipe area to the saved temperature, forms the tip and parks.\n"
                       "Then pull the filament out by hand.",
-                      f"ZR_RETRACT T={i}", "Unloading...")
+                      f"_ZR_RETRACT T={i}", "Unloading...")
 
     # ------------------------------------------------------------------
     # MAPPING VIEW
@@ -1336,11 +1764,11 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _map(self, t, h):
         if self._require_idle():
-            self._gcode(f"ZR_MAP_TOOL T={t} H={h}", f"Slicer T{t} -> toolhead {h + 1}")
+            self._gcode(f"_ZR_MAP_TOOL T={t} H={h}", f"Slicer T{t} -> toolhead {h + 1}")
 
     def _map_reset(self):
         if self._require_idle():
-            self._gcode("ZR_MAP_RESET", "Mapping reset to 1:1")
+            self._gcode("_ZR_MAP_RESET", "Mapping reset to 1:1")
 
     def _refresh_mapping(self):
         mapping = self._mapping()
@@ -1503,14 +1931,14 @@ class Panel(ViewsMixin, ScreenPanel):
         return float((self.st.get("heater_generic chamber") or {}).get("target") or 0)
 
     def _chamber_set(self, t):
-        self._gcode(f"ZR_CHAMBER S={int(t)}", "Chamber off" if t == 0 else f"Chamber -> {t} C")
+        self._gcode(f"_ZR_CHAMBER S={int(t)}", "Chamber off" if t == 0 else f"Chamber -> {t} C")
 
     def _chamber_step(self, d):
         t = max(0, min(CHAMBER_MAX, int(self._chamber_target() + d)))
         self._chamber_set(t)
 
     def _air_filter(self, on):
-        self._gcode(f"ZR_AIR_FILTER S={on}", "Air filter on" if on else "Air filter off")
+        self._gcode(f"_ZR_AIR_FILTER S={on}", "Air filter on" if on else "Air filter off")
 
     def _refresh_chamber(self):
         ch = self.st.get("heater_generic chamber")

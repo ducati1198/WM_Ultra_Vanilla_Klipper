@@ -101,6 +101,10 @@ class ViewsMixin:
         have = {str(x).strip().upper() for x in (self._sections() or [])}
         if not have or "GCODE_MACRO WM_UNLOAD_MENU" in have:      # the unload window of the Pi (one tool or all tools), hidden when the Pi lacks it
             items.append(("retract", "Unload menu", self._unload_open))
+        if not have or "GCODE_MACRO WM_LOAD_MENU" in have:         # F-166: Load window (also while paused)
+            items.append(("filament", "Load menu", self._load_open))
+        if not have or "GCODE_MACRO WM_RESUME_TOOL" in have:       # F-166: choose the tool that continues a paused print
+            items.append(("extruder", "Resume tool", self._resume_tool_open))
         if L.collision_settings(self._collision_section()):
             items.append(("warning", "Collision", self.show_collision))
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),
@@ -140,6 +144,7 @@ class ViewsMixin:
         self.ace_speed = getattr(self, "ace_speed", 5)
         self._clear()
         hdr = self._header("ACE Pro")
+        small_screen = bool(self.sz.get("tiny") or self.density == "compact" or (getattr(self._screen, "height", 1200) or 1200) <= 600)    # 800x480 board: no scrolling
         if self._pin_value("ACE_Pro") is not None:     # F-137: the ACE Pro on/off switch (output_pin ACE_Pro, the same as Fluidd)
             sbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             self.w["ace_pro_lbl"] = self._label("", "zr_small")
@@ -147,22 +152,22 @@ class ViewsMixin:
             sbox.pack_start(self._switch("sw_ace", self._ace_pro_set), False, False, 0)
             hdr.pack_end(sbox, False, False, 0)
         self.root.pack_start(hdr, False, False, 0)
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4 if small_screen else 6)
         self.w["ace_info"] = self._label("", "zr_small")
 
         # Four slot cards like the Toolheads page (spool in the filament colour, status chip) ...
         cards = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         cards.set_homogeneous(True)
         self.w["ace_cards"] = []
-        small = self.sz.get("tiny") or self.density == "compact"
-        for i in range(NTOOLS):
+        small = small_screen
+        for i in range(NTOOLS):      # F-194: spools a hair bigger
             ev = Gtk.EventBox()
             ev.get_style_context().add_class("zr_card")
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             for m in ("top", "bottom", "start", "end"):
-                getattr(box, "set_margin_" + m)(5)
+                getattr(box, "set_margin_" + m)(3 if small else 5)
             c = {"ev": ev, "title": self._label("T%d" % (i + 1), "zr_title"),
-                 "spool": self._spool(40 if small else 48), "chip": self._pill("", "empty"),
+                 "spool": self._spool(58 if small else 64), "chip": self._pill("", "empty"),
                  "hub": self._label("", "zr_small")}
             for key in ("title", "spool", "chip", "hub"):
                 box.pack_start(c[key], False, False, 0)
@@ -176,52 +181,136 @@ class ViewsMixin:
         bh = int(self.sz["btn_h"] * 1.0)
         acts = [("load", "Load from ACE", "zr_btn_green", self._ace_load),
                 ("retract", "Unload to ACE", "zr_btn_orange", self._ace_unload),
-                ("fan", "Feed assist", "zr_btn_primary", self._ace_assist),
-                ("arrow-down", "Feed", "", self._ace_feed),
-                ("arrow-up", "Retract", "", self._ace_retract),
+                ("fan", "Feed assist", "zr_btn_blue", self._ace_assist),
                 ("stop", "Stop motor", "zr_btn_red", self._ace_stop)]
         grid = Gtk.Grid()
         grid.set_row_spacing(6)
         grid.set_column_spacing(6)
         grid.set_column_homogeneous(True)
         for n, (icon, text, cls, cb) in enumerate(acts):
-            b = self._button(icon, text, "color3", cb)
+            if text == "Feed assist":       # F-193: blue when feed assist is on, red when off, with a small ON / OFF tag
+                b = Gtk.Button()
+                b.get_style_context().add_class("zr_btn")
+                bx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)      # label and tag side by side = same height as the other buttons
+                bx.set_halign(Gtk.Align.CENTER)
+                bx.set_valign(Gtk.Align.CENTER)
+                bx.pack_start(Gtk.Label(label="Feed assist"), False, False, 0)
+                self.w["ace_assist_pill"] = self._pill("OFF", "off")
+                bx.pack_start(self.w["ace_assist_pill"], False, False, 0)
+                b.add(bx)
+                b.connect("clicked", lambda _w, f=cb: f())
+                self.w["ace_assist_btn"] = b
+            else:
+                b = self._button(icon, text, "color3", cb)
             if cls:
                 b.get_style_context().add_class(cls)
             b.set_size_request(-1, bh)
-            grid.attach(b, n % 3, n // 3, 1, 1)
+            grid.attach(b, n % 2, n // 2, 1, 1)
         body.pack_start(grid, False, False, 0)
+        pages = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)      # F-194: one page per rare job
+        pages.set_homogeneous(True)
+        for icon, text, cls, cb in (("heat-up", "Dryer", "zr_btn_cyan", self.show_ace_dryer),
+                                    ("spool", "Endless spool", "zr_btn_purple", self.show_ace_endless),
+                                    ("arrow-down", "Feed / Retract", "zr_btn_navy", self.show_ace_feed)):
+            pb = self._button(icon, text, "color3", cb)
+            pb.get_style_context().add_class(cls)
+            pb.set_size_request(-1, bh)
+            pages.pack_start(pb, True, True, 0)
+        body.pack_start(pages, False, False, 0)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.get_style_context().add_class("zr_card")
-        box.set_border_width(6)
-        self.w["ace_len_lbl"] = self._label("", "zr_mat")
-        box.pack_start(self.w["ace_len_lbl"], False, False, 0)
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        row.set_homogeneous(True)
-        for text, key, step in (("Length -", "ace_len", -10), ("Length +", "ace_len", 10),
-                                ("Speed -", "ace_speed", -1), ("Speed +", "ace_speed", 1)):
-            b = self._button(None, text, "color3", self._ace_step, key, step)
-            b.set_size_request(-1, self.sz["btn_h"] - 16)
-            row.pack_start(b, True, True, 0)
-        box.pack_start(row, False, False, 0)
-        body.pack_start(box, False, False, 0)
-
-        self._build_endless(body)      # F-137: the endless spool section, shown whenever an ACE Pro is present
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
         self._refresh_ace()
 
-    def _build_dryer(self, body):
-        """The ACE dryer card: big temperature and hours, presets, Temp / Hours steps, start and stop."""
+    # ------------------------------------------------------------------
+    # F-194: the three ACE sub pages (each fits one screen, no scrolling)
+    # ------------------------------------------------------------------
+    def show_ace_feed(self):
+        self.view = "ace_feed"
+        self.ace_slot = getattr(self, "ace_slot", 0)
+        self.ace_len = getattr(self, "ace_len", 50)
+        self.ace_speed = getattr(self, "ace_speed", 5)
+        self._clear()
+        self.root.pack_start(self._header("Feed / Retract"), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body.set_valign(Gtk.Align.CENTER)
+        self.w["feed_slot"] = self._label("", "zr_small")
+        body.pack_start(self.w["feed_slot"], False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        for icon, text, cls, cb in (("arrow-down", "Feed", "", self._ace_feed),
+                                    ("arrow-up", "Retract", "", self._ace_retract),
+                                    ("stop", "Stop", "zr_btn_red", self._ace_stop)):
+            b = self._button(icon, text, "color3", cb)
+            if cls:
+                b.get_style_context().add_class(cls)
+            b.set_size_request(-1, int(self.sz["btn_h"] * 1.6))
+            row.pack_start(b, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        cols = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        cols.set_homogeneous(True)
+        for title, key, wkey, steps in (("Length", "ace_len", "feed_len", (-10, 10)), ("Speed", "ace_speed", "feed_spd", (-1, 1))):
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            card.get_style_context().add_class("zr_card")
+            card.set_border_width(8)
+            card.pack_start(self._label(title, "zr_small"), False, False, 0)
+            self.w[wkey] = self._label("", "zr_value")
+            card.pack_start(self.w[wkey], False, False, 0)
+            br = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            br.set_homogeneous(True)
+            for st in steps:
+                b = self._button(None, ("%+d" % st), "color3", self._ace_step, key, st)
+                b.set_size_request(-1, self.sz["btn_h"])
+                br.pack_start(b, True, True, 0)
+            card.pack_start(br, False, False, 0)
+            cols.pack_start(card, True, True, 0)
+        body.pack_start(cols, False, False, 0)
+        self.root.pack_start(body, True, True, 0)
+        self.root.show_all()
+        self._refresh_feed()
+
+    def _refresh_feed(self):
+        if "feed_len" not in self.w:
+            return
+        self.w["feed_slot"].set_text("Toolhead T%d" % (self.ace_slot + 1))
+        self.w["feed_len"].set_text("%d mm" % self.ace_len)
+        self.w["feed_spd"].set_text("%d mm/s" % self.ace_speed)
+
+    def show_ace_endless(self):
+        self.view = "ace_endless"
+        self._clear()
+        self.root.pack_start(self._header("Endless spool"), False, False, 0)
+        h = getattr(getattr(self, "_screen", None), "height", 480) or 480
+        self.RING = int(max(150, min(h * 0.42, h - 270)))       # a bigger circle, tool numbers scale with it
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        body.set_valign(Gtk.Align.CENTER)
+        self._build_endless(body)
+        self.root.pack_start(body, True, True, 0)
+        self.root.show_all()
+        self._refresh_endless()
+
+    def show_ace_dryer(self):
+        self.view = "ace_dryer"
+        self._clear()
+        self.root.pack_start(self._header("ACE Dryer"), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        body.set_valign(Gtk.Align.CENTER)
+        self._build_dryer(body, big=True)
+        self.root.pack_start(body, True, True, 0)
+        self.root.show_all()
+        self._refresh_dryer()
+
+    def _build_dryer(self, body, big=False):
+        """The ACE dryer card: big temperature and hours, presets, Temp / Hours steps, start and stop. big=True: the full ACE Dryer page (F-194)."""
         self.dry_temp = getattr(self, "dry_temp", 55)
         self.dry_hours = getattr(self, "dry_hours", 6)
-        bh = min(self.sz["btn_h"], 42)
-        body.pack_start(self._label("ACE DRYER", "zr_small"), False, False, 0)
-        vals = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        bh = int(self.sz["btn_h"] * 1.2) if big else min(self.sz["btn_h"], 42)      # F-194: the ACE Dryer page has bigger buttons
+        if not big:
+            body.pack_start(self._label("ACE DRYER", "zr_small"), False, False, 0)
+        vals = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14 if not big else 70)
         vals.set_halign(Gtk.Align.CENTER)
-        self.w["dry_lbl"] = self._label("", "zr_value")
-        self.w["dry_hrs"] = self._label("", "zr_value_dim")
+        self.w["dry_lbl"] = self._label("", "zr_value_xl" if big else "zr_value")
+        self.w["dry_hrs"] = self._label("", "zr_value_xl_dim" if big else "zr_value_dim")
         vals.pack_start(self.w["dry_lbl"], False, False, 0)
         vals.pack_start(self.w["dry_hrs"], False, False, 0)
         body.pack_start(vals, False, False, 0)
@@ -279,11 +368,19 @@ class ViewsMixin:
         if a["drying"]:
             t.append("drying, %s left" % a["dry_left"])
         self.w["ace_info"].set_text("   ".join(t))
+        ab = self.w.get("ace_assist_btn")
+        if ab is not None and 0 <= self.ace_slot < len(a["slots"]):      # F-193: Feed assist button blue when on, red when off
+            on = bool(a["slots"][self.ace_slot]["assist"])
+            ctx = ab.get_style_context()
+            for c in ("zr_btn_primary", "zr_btn_blue", "zr_btn_red"):
+                ctx.remove_class(c)
+            ctx.add_class("zr_btn_blue" if on else "zr_btn_red")
+            self._set_pill(self.w["ace_assist_pill"], "ON" if on else "OFF", "on" if on else "off")
         for i, c in enumerate(self.w["ace_cards"]):
             sl = a["slots"][i]
             info = self._tool_info(i)
             has = not sl["empty"] and sl["text"] != "no data"
-            c["spool"].zr_empty = not has
+            self._mark_empty(c["ev"], c["spool"], not has)   # F-172: empty ACE slot = whole box + spool grey
             self._set_swatch(c["spool"], info["color"] if has else 0x303030)
             kind = "empty" if not has else ("active" if sl["text"] in ("loading", "unloading", "assist") else "ready")
             self._set_pill(c["chip"], sl["text"].capitalize(), kind)
@@ -293,7 +390,6 @@ class ViewsMixin:
                 ctx.add_class("zr_active")
             else:
                 ctx.remove_class("zr_active")
-        self.w["ace_len_lbl"].set_text("Manual move:  %d mm at %d mm/s  (slot T%d)" % (self.ace_len, self.ace_speed, self.ace_slot + 1))
         pin = self._pin_value("ACE_Pro")
         if pin is not None and "sw_ace" in self.w:
             self._set_switch("sw_ace", pin)
@@ -336,8 +432,10 @@ class ViewsMixin:
     def _ace_step(self, key, step):
         if key == "ace_len":
             self.ace_len = max(10, min(500, self.ace_len + step))
+            return self._refresh_feed() if self.view == "ace_feed" else self._refresh_ace()
         elif key == "ace_speed":
             self.ace_speed = max(1, min(30, self.ace_speed + step))
+            return self._refresh_feed() if self.view == "ace_feed" else self._refresh_ace()
         elif key == "dry_temp":
             self.dry_temp, self.dry_hours = L.clamp_dry(self.dry_temp + step, self.dry_hours, L.ace_state(self.st)["max_temp"])
             return self._refresh_dryer()
@@ -351,14 +449,14 @@ class ViewsMixin:
         self._refresh_dryer()
 
     def _ace_dry_start(self):
-        self._gcode("ACE_WM_DRY_START TEMP=%d DURATION=%d" % (self.dry_temp, self.dry_hours * 60), "Drying started")
+        self._gcode("_ACE_WM_DRY_START TEMP=%d DURATION=%d" % (self.dry_temp, self.dry_hours * 60), "Drying started")
 
     def _ace_dry_stop(self):
-        self._gcode("ACE_WM_DRY_STOP", "Drying stopped")
+        self._gcode("_ACE_WM_DRY_STOP", "Drying stopped")
 
     def _ace_endless_toggle(self):
         on = L.endless_enabled(self._vars())
-        self._gcode("WM_ENDLESS_SET ENABLE=%d" % (0 if on else 1), "Endless spool %s" % ("off" if on else "on"))
+        self._gcode("_WM_ENDLESS_SET ENABLE=%d" % (0 if on else 1), "Endless spool %s" % ("off" if on else "on"))
 
     # ------------------------------------------------------------------
     # CALIBRATION (only macros that exist on this printer)
@@ -710,6 +808,12 @@ class ViewsMixin:
     def refresh_extra_views(self):
         if self.view == "ace":
             self._refresh_ace()
+        elif self.view == "ace_feed":
+            self._refresh_feed()
+        elif self.view == "ace_endless":
+            self._refresh_endless()
+        elif self.view == "ace_dryer":
+            self._refresh_dryer()
         elif self.view == "system":
             self._refresh_system()
         elif self.view == "growth":
@@ -763,10 +867,10 @@ class ViewsMixin:
         self._gcode("SET_PIN PIN=ACE_Pro VALUE=%d" % (1 if on else 0), "ACE Pro %s" % ("on" if on else "off"))
 
     def _endless_set(self, on):
-        self._gcode("WM_ENDLESS_SET ENABLE=%d" % (1 if on else 0), "Endless spool %s" % ("on" if on else "off"))
+        self._gcode("_WM_ENDLESS_SET ENABLE=%d" % (1 if on else 0), "Endless spool %s" % ("on" if on else "off"))
 
     def _auto_set(self, on):
-        self._gcode("WM_ENDLESS_SET AUTO=%d" % (1 if on else 0), "Swap automatically %s" % ("on" if on else "off"))
+        self._gcode("_WM_ENDLESS_SET AUTO=%d" % (1 if on else 0), "Swap automatically %s" % ("on" if on else "off"))
 
     # ------------------------------------------------------------------
     # F-137: endless spool section = the same ring and chips as the Fluidd Toolheads card
@@ -813,6 +917,7 @@ class ViewsMixin:
                                                 "zr_hint", wrap=True)
             card.pack_start(self.w["endless_off"], False, False, 0)
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+            row.set_halign(Gtk.Align.CENTER)
             ring = Gtk.DrawingArea()
             ring.set_size_request(self.RING, self.RING)
             ring.set_valign(Gtk.Align.CENTER)
@@ -837,7 +942,7 @@ class ViewsMixin:
         active = self._active_tool() if self._busy() else -1
         shift = -math.pi / 2          # the circle starts at the top, clockwise (as the Fluidd graph)
         cr.select_font_face("Sans", 0, 1)
-        cr.set_font_size(12)
+        cr.set_font_size(max(14, int(self.RING * 0.14)))      # F-194: bigger tool numbers
         for i in range(n):
             a0 = i * 2 * math.pi / n + 0.04
             a1 = (i + 1) * 2 * math.pi / n - 0.04
@@ -951,7 +1056,7 @@ class ViewsMixin:
         for heads, mat, note, kind, col, faded in chips:
             lbl = Gtk.Label()
             lbl.set_xalign(0)
-            lbl.set_markup('<span foreground="%s" alpha="%s">\u25CF</span> <b>%s</b> %s <span foreground="%s">%s</span>' % (
+            lbl.set_markup('<span foreground="%s" alpha="%s" size="x-large">\u25CF</span> <span size="x-large"><b>%s</b></span> %s <span foreground="%s">%s</span>' % (
                 col, "35%" if faded else "100%", GLib.markup_escape_text(heads), GLib.markup_escape_text(mat),
                 kind_col[kind], GLib.markup_escape_text(note)))
             box.pack_start(lbl, False, False, 0)

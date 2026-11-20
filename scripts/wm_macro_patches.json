@@ -411,5 +411,201 @@
   "new": "        T{tool}\n        # F-150: heat at the wipe position, then back to where the tool change left the head\n        {% if \"gcode_macro _WM_GO_WIPE\" in printer %}\n            SAVE_GCODE_STATE NAME=_wm_pop\n            _WM_GO_WIPE\n            M109 S222 T{tool}\n            RESTORE_GCODE_STATE NAME=_wm_pop MOVE=1 MOVE_SPEED=100\n        {% else %}\n            M109 S222 T{tool}\n        {% endif %}\n        G1 Y2 Z2",
   "old": "        T{tool}\n        M109 S222 T{tool}\n        G1 Y2 Z2",
   "version": "2.17.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    M118 START_PRINT begin\n    G90                            # G90: a jog error can leave G91 on (F-181), every print start begins in absolute mode\n    {% if \"gcode_macro _WM_LIVEZ_RESET\" in printer %}",
+  "old": "    M118 START_PRINT begin\n    {% if \"gcode_macro _WM_LIVEZ_RESET\" in printer %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    SAVE_VARIABLE VARIABLE=box_modify_t0  value={t}\n    # print start purge (item 32, F-105, rpi_base.cfg): 20 mm + wipe at the wipe area for every used toolhead (the first tool last), then the KAMP line in front of the parts\n    # F-186: the old factory left-edge purge fallback is removed, one purge only\n    _WM_START_PURGE INITIAL_TOOL={INITIAL_TOOL} EXTRUDER={EXTRUDER}\n",
+  "old": "    SAVE_VARIABLE VARIABLE=box_modify_t0  value={t}\n    {% if \"gcode_macro _WM_START_PURGE\" in printer %}\n        # print start purge (item 32, F-105, rpi_base.cfg): 20 mm + wipe at the wipe area for every used toolhead (the first tool last), then the KAMP line in front of the parts\n        _WM_START_PURGE INITIAL_TOOL={INITIAL_TOOL} EXTRUDER={EXTRUDER}\n    {% else %}\n        # without the F-105 macros: the factory left-edge purge\n        T{INITIAL_TOOL}\n        SET_GCODE_OFFSET X=0.0 Y=0.0 Z=0.0 MOVE=1\n        G90\n        # SET_GCODE_OFFSET Z=0.145 MOVE=0\n        G1 Z7.0 F3000                    # Move Z Axis up\n        G1 X0.0 Y70.0 F10000.0       # Move to the left-edge purge start\n        M109 S{EXTRUDER} T{INITIAL_TOOL}\n        G1 Y100.0 F5000.0\n        G1 Z0.4 F5000.0\n        G1 Y150.0 E20 F1000.0          # purge 20 mm along the left edge\n        G91\n        G1 Z5 X5 F600\n        G90\n    {% endif %}\n",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "    RESPOND MSG=\"Print paused. Parking the tool head.\"\n    # F-166: remember the print's tool (the one on the carriage now); RESUME puts it back if a load or unload while paused moved it\n    SAVE_VARIABLE VARIABLE=wm_pause_tool VALUE={printer.save_variables.variables.current_extruder|default(99)|int}\n    SET_IDLE_TIMEOUT TIMEOUT={printer.configfile.settings.idle_timeout.timeout}",
+  "old": "    RESPOND MSG=\"Print paused. Parking the tool head.\"\n    SET_IDLE_TIMEOUT TIMEOUT={printer.configfile.settings.idle_timeout.timeout}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 4,
+  "new": "    RESPOND MSG=\"Resuming the print. Heating the bed and nozzles first.\"\n    # F-166: the print's tool (saved by PAUSE) must be on the carriage with filament in its head sensor before anything heats or moves\n    {% set pt = printer.save_variables.variables.wm_pause_tool|default(99)|int %}\n    {% set pcur = printer.save_variables.variables.current_extruder|default(99)|int %}\n    {% if pt >= 0 and pt <= 3 %}\n        {% set psk = \"filament_switch_sensor filament%d\" % pt %}\n        {% if psk in printer and not printer[psk].filament_detected %}\n            {action_raise_error(\"RESUME: T%d has no filament in its head. Load it first (unload/load while paused), then RESUME again\" % pt)}\n        {% elif pcur != pt %}\n            RESPOND MSG=\"RESUME: T{pt} is not on the carriage, picking it up\"\n            _CHANGE_TOOL T={pt}\n        {% endif %}\n    {% endif %}\n    {% set thr_number = printer.save_variables.variables.thr_number|int %}",
+  "old": "    RESPOND MSG=\"Resuming the print. Heating the bed and nozzles first.\"\n    {% set thr_number = printer.save_variables.variables.thr_number|int %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 5,
+  "new": "\n    # F-164: the tool on the carriage heats at the purge location (cold move first), not at the pause park spot\n    {% if \"gcode_macro _WM_PURGE_LOCATION\" in printer %}\n        _WM_PURGE_LOCATION\n    {% elif \"gcode_macro _WM_GO_WIPE\" in printer %}\n        _WM_GO_WIPE",
+  "old": "\n    # F-150: the tool on the carriage heats at the wipe position, not at the pause park spot\n    {% if \"gcode_macro _WM_GO_WIPE\" in printer %}\n        _WM_GO_WIPE",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 6,
+  "new": "    {% set pr_t = printer.save_variables.variables.current_extruder|int %}\n    {% set pr_ace = pr_t < 4 and \"gcode_macro _WM_ACE\" in printer and printer[\"gcode_macro _WM_ACE\"].mode == \"idle\" and (\"ace_instance_\" ~ printer[\"gcode_macro _WM_ACE\"].ace_instance) in printer %}\n    {% if pr_ace %}\n        _ACE_WM_ASSIST T={pr_t} STATE=on\n    {% endif %}\n    # F-164/F-187: the purge is at the purge location (X-13 Y80), the wiper (WIPE_NOZZLE) comes after it; no own-position fallback\n    _WM_PURGE_LOCATION\n    M400\n    # F-166: purge length = 20 mm, or the length chosen in WM_RESUME_TOOL\n    {% set pl = printer[\"gcode_macro _WM_RTOOL\"].purge|default(20)|int if \"gcode_macro _WM_RTOOL\" in printer else 20 %}\n    E_axis_move L={pl} S=300    # purge before the print continues (factory 10 mm)\n    M400",
+  "old": "    {% set pr_t = printer.save_variables.variables.current_extruder|int %}\n    {% set pr_pos = printer.save_variables.variables.wipe_position|default([-13.0, 240.0]) %}\n    {% set pr_ace = pr_t < 4 and \"gcode_macro _WM_ACE\" in printer and printer[\"gcode_macro _WM_ACE\"].mode == \"idle\" and (\"ace_instance_\" ~ printer[\"gcode_macro _WM_ACE\"].ace_instance) in printer %}\n    {% if pr_ace %}\n        ACE_WM_ASSIST T={pr_t} STATE=on\n    {% endif %}\n    G90\n    G0 Y{pr_pos[1]} F12000\n    G0 X{pr_pos[0]} F12000\n    M400\n    E_axis_move L=20 S=300    # purge before the print continues (factory 10 mm)\n    M400",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 7,
+  "new": "    {% set heater = 'extruder' if t == 0 else 'extruder' ~ t %}\n    # F-164: in a print the cold nozzle first goes to the purge location, and only then is the heater set (no drip on the part on the way)\n    {% if s > 0 and \"gcode_macro _WM_HEAT_AT_WIPE\" in printer %}\n        _WM_HEAT_AT_WIPE T={t} S={s}       # in a print: the nozzle on the carriage heats at the purge location (rpi_base.cfg)\n    {% endif %}\n    SET_HEATER_TEMPERATURE HEATER={heater} TARGET={s}",
+  "old": "    {% set heater = 'extruder' if t == 0 else 'extruder' ~ t %}\n    SET_HEATER_TEMPERATURE HEATER={heater} TARGET={s}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 8,
+  "new": "    {% if s > 0 %}\n        TEMPERATURE_WAIT SENSOR={heater} MINIMUM={s-2.5} MAXIMUM={s+2.5}",
+  "old": "    {% if s > 0 %}\n        {% if \"gcode_macro _WM_HEAT_AT_WIPE\" in printer %}\n            _WM_HEAT_AT_WIPE T={t} S={s}       # in a print: the nozzle on the carriage heats at the wipe position (rpi_base.cfg)\n        {% endif %}\n        TEMPERATURE_WAIT SENSOR={heater} MINIMUM={s-2.5} MAXIMUM={s+2.5}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 9,
+  "new": "# The fans and the nozzle are switched off again at the end (START_PRINT sets its own temperatures afterwards).\nvariable_max_chamber: 65             # C, the same limit as _ZR_CHAMBER\nvariable_part_fan_speed: 0.5         # 0.0 - 1.0 while waiting, 0 = off  ([fan], M106 S)",
+  "old": "# The fans and the nozzle are switched off again at the end (START_PRINT sets its own temperatures afterwards).\nvariable_max_chamber: 65             # C, the same limit as ZR_CHAMBER\nvariable_part_fan_speed: 0.5         # 0.0 - 1.0 while waiting, 0 = off  ([fan], M106 S)",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 10,
+  "new": "    G90\n    # F-164/F-187: the purge is at the purge location; no own-position fallback\n    _WM_PURGE_LOCATION\n    M83",
+  "old": "    G90\n    G1 X-13 Y80 F6000  ; move to a safe position  ; move to a safe position\n    M83",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 11,
+  "new": "    G90\n    # F-187: the retract is at the purge location too (before: X-13 Y232)\n    _WM_PURGE_LOCATION\n    M83",
+  "old": "    G90\n    G1 X-13 Y232 F6000\n    M83",
+  "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 12,
+  "new": "    M109 S220 T{T}\n    # F-164/F-187: the purge is at the purge location (before: X-13 Y80); no own-position fallback\n    _WM_PURGE_LOCATION\n    M83",
+  "old": "    M109 S220 T{T}\n    G1 X-13 Y80 F6000\n    M83",
+  "version": "2.22.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 1,
+  "new": "    {% set cur = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Changing tool: {'T' ~ (cur + 1) if cur < 4 else 'no tool'} to T{params.T|default(0)|int + 1}\"\n    # reset the check values",
+  "old": "    {% set cur = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Changing tool: {'T' ~ cur if cur < 4 else 'no tool'} to T{params.T|default(0)|int}\"\n    # reset the check values",
+  "version": "2.22.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 2,
+  "new": "                    \n            M118 start change tool T{target_tool|int + 1}\n            SAVE_VARIABLE VARIABLE=changing_tool VALUE=1",
+  "old": "                    \n            M118 start change tool T{target_tool}\n            SAVE_VARIABLE VARIABLE=changing_tool VALUE=1",
+  "version": "2.22.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 3,
+  "new": "\n            M118 finish change tool T{target_tool|int + 1}\n        {% endif %}",
+  "old": "\n            M118 finish change tool T{target_tool}\n        {% endif %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 4,
+  "new": "    {% set pc = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Parking {'T' ~ (pc + 1) if pc < 4 else 'the tool'} in its dock\"\n    SAVE_VARIABLE VARIABLE=fail_flag VALUE=0",
+  "old": "    {% set pc = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Parking {'T' ~ pc if pc < 4 else 'the tool'} in its dock\"\n    SAVE_VARIABLE VARIABLE=fail_flag VALUE=0",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder0.cfg",
+  "n": 1,
+  "new": "insert_gcode:\n    _WM_ACE_HEAD T=0\n    {% set printer_state = printer.print_stats.state %}",
+  "old": "insert_gcode:\n    {% set printer_state = printer.print_stats.state %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder0.cfg",
+  "n": 2,
+  "new": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        _WM_ACE_GRAB T=0\n        filament_insert",
+  "old": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        filament_insert",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder0.cfg",
+  "n": 3,
+  "new": "        M104 S0 T0\n        # F-166: while a print is paused the print's tool stays on the carriage after its load (RESUME continues with it); any other tool is parked\n        {% if printer.print_stats.state == \"paused\" and printer.save_variables.variables.wm_pause_tool|default(99)|int == 0 %}\n            RESPOND MSG=\"T0 loaded: it is the print's tool, it stays on the carriage until RESUME\"\n        {% else %}\n            PARK_CURRENT_TOOL\n        {% endif %}\n        _WM_ACE_HEAD_DONE T=0\n    {% endif %}",
+  "old": "        M104 S0 T0\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder1.cfg",
+  "n": 1,
+  "new": "insert_gcode:\n    _WM_ACE_HEAD T=1\n    {% set printer_state = printer.print_stats.state %}",
+  "old": "insert_gcode:\n    {% set printer_state = printer.print_stats.state %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder1.cfg",
+  "n": 2,
+  "new": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        _WM_ACE_GRAB T=1\n        filament_insert",
+  "old": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        filament_insert",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder1.cfg",
+  "n": 3,
+  "new": "        M104 S0 T1\n        # F-166: while a print is paused the print's tool stays on the carriage after its load (RESUME continues with it); any other tool is parked\n        {% if printer.print_stats.state == \"paused\" and printer.save_variables.variables.wm_pause_tool|default(99)|int == 1 %}\n            RESPOND MSG=\"T1 loaded: it is the print's tool, it stays on the carriage until RESUME\"\n        {% else %}\n            PARK_CURRENT_TOOL\n        {% endif %}\n        _WM_ACE_HEAD_DONE T=1\n    {% endif %}",
+  "old": "        M104 S0 T1\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder2.cfg",
+  "n": 1,
+  "new": "insert_gcode:\n    _WM_ACE_HEAD T=2\n    {% set printer_state = printer.print_stats.state %}",
+  "old": "insert_gcode:\n    {% set printer_state = printer.print_stats.state %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder2.cfg",
+  "n": 2,
+  "new": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        _WM_ACE_GRAB T=2\n        filament_insert",
+  "old": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        filament_insert",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder2.cfg",
+  "n": 3,
+  "new": "        M104 S0 T2\n        # F-166: while a print is paused the print's tool stays on the carriage after its load (RESUME continues with it); any other tool is parked\n        {% if printer.print_stats.state == \"paused\" and printer.save_variables.variables.wm_pause_tool|default(99)|int == 2 %}\n            RESPOND MSG=\"T2 loaded: it is the print's tool, it stays on the carriage until RESUME\"\n        {% else %}\n            PARK_CURRENT_TOOL\n        {% endif %}\n        _WM_ACE_HEAD_DONE T=2\n    {% endif %}",
+  "old": "        M104 S0 T2\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder3.cfg",
+  "n": 1,
+  "new": "insert_gcode:\n    _WM_ACE_HEAD T=3\n    {% set printer_state = printer.print_stats.state %}",
+  "old": "insert_gcode:\n    {% set printer_state = printer.print_stats.state %}",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder3.cfg",
+  "n": 2,
+  "new": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        _WM_ACE_GRAB T=3\n        filament_insert",
+  "old": "        SAVE_VARIABLE VARIABLE=if_check_extruder_status value=0\n        filament_insert",
+  "version": "2.22.0"
+ },
+ {
+  "file": "extruder3.cfg",
+  "n": 3,
+  "new": "        M104 S0 T3\n        # F-166: while a print is paused the print's tool stays on the carriage after its load (RESUME continues with it); any other tool is parked\n        {% if printer.print_stats.state == \"paused\" and printer.save_variables.variables.wm_pause_tool|default(99)|int == 3 %}\n            RESPOND MSG=\"T3 loaded: it is the print's tool, it stays on the carriage until RESUME\"\n        {% else %}\n            PARK_CURRENT_TOOL\n        {% endif %}\n        _WM_ACE_HEAD_DONE T=3\n    {% endif %}",
+  "old": "        M104 S0 T3\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "version": "2.22.0"
  }
 ]
