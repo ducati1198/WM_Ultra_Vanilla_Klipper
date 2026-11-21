@@ -46,8 +46,9 @@ for f in ("zr_tools", "zr_views", "zr_logic", "wm_ztrim", "wm_setter"):
         check("%s.py compiles (%s)" % (f, e), False)
 check("Back goes to the previous page: back() and a history", "def back(self" in zt and "_hist" in zt)
 check("every ZR confirm is a page: _ask_page with a blue Yes and a dark Cancel", "def _ask_page" in zt and "zr_btn_primary" in zt)
-pk = [f for f in ("zr_tools", "zr_views", "wm_ztrim", "wm_setter") if "zr_btn_pink" in open("%s/zr_tools/%s.py" % (root, f)).read()]
-check("no pink button is used any more (the style stays defined in zr_logic) " + str(pk), not pk)
+# F-197: the Select button of the Filament page is pink on purpose (the user chose a colour not used elsewhere on that page); nothing else is
+pk = [f for f in ("zr_tools", "zr_views", "wm_ztrim", "wm_setter") if open("%s/zr_tools/%s.py" % (root, f)).read().count("zr_btn_pink") > (1 if f == "zr_tools" else 0)]
+check("no pink button is used except the Select button of the Filament page (the style stays defined in zr_logic) " + str(pk), not pk)
 check("switches hold the tapped value until Klipper reports it (no flicker)", "_sw_hold" in zv or "_toggled" in zv)
 check("Unload menu pages exist", "def show_unload" in zt and "def _unload_open" in zt)
 print("f137 tests: passed %d failed %d" % (ok, bad))
