@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.22.1
+
+- **Update: no more "changed" lines for fixes that a later version takes back.** `scripts/wm_macro_patches.py`. The heat-at-wipe lines added to `change_macros.cfg`/`macros.cfg` in 2.13.0 were removed again in 2.22.0; on a Pi already at 2.22.0 the update applied the first and then the second, reported "changed macros.cfg #1 (2.13.0)" and "#8 (2.22.0)" and exited with 10 every time, though the file did not change. A file that ends up the same is now reported as unchanged.
+- **Tests:** the installer test mode no longer looks at the machine's real `klipper`/`klipper-mcu` services (`--remove` and `--doctor`), so the suite also passes on a Pi that runs Klipper; the macro patch list test uses the 2.22.0 base commit; tests updated to the 2.22.0 macros (purge length from `_WM_RTOOL`, start purge macro in `rpi_base.cfg`); the panel test is skipped when the panel repository is not on the machine (`WM_PANEL_REPO`).
+- No change for a real Pi apart from the update message above.
+
 ## 2.22.0
 
 - **KlipperScreen ACE page redone (F-193, F-194).** Bigger spools, four big buttons, and three page buttons (Dryer, Endless spool, Feed/Retract) that each open their own page: a larger endless circle with larger tool numbers, a Feed/Retract page with Stop, a dryer page with bigger temperature and time. Nothing scrolls on the 800x480 screen. The Filament page has a Load menu and a coloured Feed assist button. `zr_tools.py`, `zr_views.py`, `zr_logic.py` and the screen board bundle are updated.

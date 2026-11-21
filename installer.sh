@@ -3364,7 +3364,7 @@ do_doctor() {
         [ "$(service_state $s)" = active ] && doc_ok "$s is running" || { doc_bad "$s is not running" "journalctl -u $s -n 30"; offer_fix "restart $s" bash -c "sudo systemctl restart $s"; }
         [ "$(service_enabled $s)" = enabled ] && doc_ok "$s starts at boot" || { doc_bad "$s will not start at boot" "The Pi would come up without the web page."; offer_fix "enable $s" bash -c "sudo systemctl enable $s"; }
     done
-    if [ -f /etc/systemd/system/klipper-mcu.service ] || [ "$TESTING" != 1 ] && [ -x /usr/local/bin/klipper_mcu ]; then
+    if [ "$TESTING" != 1 ] && [ -x /usr/local/bin/klipper_mcu ]; then   # a test run never looks at the real services of the machine
         [ "$(service_state klipper-mcu)" = active ] && doc_ok "klipper-mcu (the host MCU) is running" || { doc_bad "klipper-mcu (the host MCU) is not running" "$(rpipi_has host-mcu && echo "printer.cfg uses [mcu rpi], so Klipper cannot start without it." || echo "Nothing uses it yet, but Fluidd lists it as stopped.")"; offer_fix "start klipper-mcu and enable it at boot" bash -c "sudo systemctl enable --now klipper-mcu"; }
     elif rpipi_has host-mcu; then doc_bad "printer.cfg uses [mcu rpi] but the klipper-mcu service is not installed" "Klipper cannot start without it. Run ./installer.sh --update to build it."; fi
     id -nG "$WM_USER" 2>/dev/null | tr ' ' '\n' | grep -qx tty || [ "$TESTING" = 1 ] && doc_ok "user $WM_USER is in the tty group (Klipper can open the host MCU)" || { doc_bad "user $WM_USER is not in the tty group" "Klipper could not open the host MCU ([mcu rpi]): 'Permission denied' on /tmp/klipper_host_mcu."; offer_fix "add $WM_USER to the tty group (Klipper must be restarted afterwards)" bash -c "sudo usermod -aG tty $WM_USER"; }
@@ -3835,7 +3835,7 @@ PY
             print_success "Fluidd web page removed." ;;
         moonraker|klipper)
             local pre; pre="$name"
-            [ -d "$HOME_DIR/$pre" ] || [ -f /etc/systemd/system/$pre.service ] || { print_info "$name is not installed."; return 0; }
+            [ -d "$HOME_DIR/$pre" ] || { [ "$TESTING" != 1 ] && [ -f /etc/systemd/system/$pre.service ]; } || { print_info "$name is not installed."; return 0; }
             if [ "$name" = moonraker ]; then echo "  This removes Moonraker (its service, ~/moonraker and ~/moonraker-env). Fluidd, KlipperScreen and the remote-access add-ons need it. ~/printer_data stays."
             else echo "  This removes Klipper (its service, ~/klipper and ~/klippy-env). The printer will not run without it. ~/printer_data stays."; fi
             ask_yn "Remove $name?" n || { echo "Nothing changed."; return 0; }

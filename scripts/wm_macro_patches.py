@@ -19,6 +19,7 @@ import json, os, shutil, sys, time
 def plan(text, entries):
     """-> (new text, applied, already, skipped) for the entries of one file, in list order"""
     applied, already, skipped = [], [], []
+    orig = text
     ok_by_version, bad, proven = {}, [], set()
     for e in entries:
         tag = "%s #%d (%s)" % (e["file"], e["n"], e["version"])
@@ -57,6 +58,8 @@ def plan(text, entries):
             already.append(tag + " (changed again by a later fix)")
         else:
             skipped.append(tag)
+    if text == orig:                       # a fix that a later fix takes back (2.13.0 adds, 2.22.0 removes the heat-at-wipe lines) changes nothing
+        applied = []
     return text, applied, already, skipped
 
 
