@@ -3221,6 +3221,7 @@ ACE panel: endless spool
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _WM_ENDLESS_3
 - **File / lines**: rpi_endless.cfg L225-255 (gcode_macro)
+- **Change 2026-11-20 (F-202)**: before RESUME it sets _WM_RTOOL.purge to _WM_ENDLESS.swap_purge (50 mm) when that is longer than the current purge (20), and sets it back to 20 after RESUME. Why: after a swap the spare head's filament was never pushed (B-079), the 20 mm purge was too short to prime it. Checked against the real file rpi_endless.cfg on .35, 2026-11-20.
 - **What it does**: Step 3 of an endless spool swap: RESUME with the spare head, restores tool mapping.
 - **Calls**: RESUME, _WM_ENDLESS_4
 - **Called by**: WM_ENDLESS_CONTINUE
@@ -3946,3 +3947,37 @@ Purge, push and heat spots moved from the wipe area (X-13 Y240) and X-13 Y80 to 
 
 - F-190 2026-11-20: real on .35 and pi400 (rpi_base.cfg md5 6fc1011e). Test file and WM_TEST_HEAD_LINES removed (_WM_TEST_* macros no longer exist).
 - F-192 2026-11-20: _WM_LOAD_SHOW window text shortened (macro name and wipe sentence removed). pi400 done, .35 pending.
+
+- F-202 2026-11-20: _WM_ENDLESS new variable swap_purge (50 mm); _WM_ENDLESS_3 raises the resume purge to it for a swap. .35 (restart 21:42) and pi400 devbox/config (22:00). Backups rpi_endless.cfg.20261120-2140-before-F202 (config/backup on .35), MACROS.md.bak-2026-11-20-f202.
+
+### Purge while PAUSED change (F-203, 2026-11-20, pi400 only, not tested, checked against pi400 files rpi_base.cfg, 2026-11-20)
+- `WM_PURGE_MENU`, `_WM_PURGE`: old: refused "not while printing or paused". New: refuse only while printing; while paused `_WM_PURGE` accepts only the tool on the carriage (save_variables.current_extruder), another tool -> error "use Resume tool".
+- `_WM_PURGE_DONE`: new paused branch: closes the window, `_WM_PURGE_ASSIST` off, `WIPE_NOZZLE`, heater of that tool off, message; no park and no tool change (RESUME goes to `_WM_PURGE_LOCATION`, heats and restores the saved position). Not paused: unchanged (wipe, cool, park).
+- Why: purge to engage the filament while the print is paused (B-079). Backup: pi400 devbox/config/backup/rpi_base.cfg.*-before-pausepurge. Screen/Fluidd side in FIX-LOG F-203.
+
+### Resume tool confirmation (F-204, 2026-11-20, pi400 only, checked against pi400 rpi_base.cfg, 2026-11-20)
+- `_WM_RTOOL_SHOW2`: the footer button "Resume with T*" now calls `_WM_RTOOL_CONFIRM` (before: `_WM_RESUME_TOOL_GO` at once).
+- `_WM_RTOOL_CONFIRM` (new, hidden helper, Fluidd: -): Resume tool window 3. Needs a paused print and a chosen tool. Shows what will happen (same tool or swap, temperature, no purge length), the reminder to check the filament, "Do you confirm?" and the buttons Resume (`_WM_RESUME_TOOL_GO`) and Back (`_WM_RTOOL_SHOW2`). Risk: none (only a window). Tested on the pi400 simulation. KlipperScreen has the same page in zr_tools.py (show_resume_confirm). Backup: pi400 devbox/config/backup/rpi_base.cfg.*-before-F204.
+
+- 2026-11-20 F-204 change 2: `_WM_RTOOL_CONFIRM` text shortened (swap = 3 steps), the line "Do you confirm?" removed. md5 rpi_base.cfg 262eccf4 (pi400). Checked against pi400 file, 2026-11-20.
+
+### WM_OFFSETS_Z_HOT change (F-205, 2026-11-21, pi400 only, checked against pi400 rpi_calibration.cfg, 2026-11-21)
+- Old: touches started right after the bed reached its temperature. New: waits `_WM_ZHOT.bed_soak_min` minutes (new setting, 15, 0 = no wait) after M190, one console line per minute; window and start message say about 25 minutes. Why: the bed plate keeps moving 0.03-0.06 mm for minutes after heating (measured 2026-11-21). Backup: pi400 devbox/config/backup/rpi_calibration.cfg.*-before-F205. Tested on the simulator only.
+- 2026-11-21 F-202 change: `_WM_ENDLESS.swap_purge` set back from 50 to 20 mm (user request). `_WM_ENDLESS_3` then leaves the resume purge as it is. Checked against the real file on .35, 2026-11-21.
+
+### Print start purge switch (F-206, 2026-11-21, pi400 only, checked against pi400 rpi_base.cfg, 2026-11-21)
+- `[output_pin Purge_Line_Every_Toolhead]` (new, Fluidd switch): ON = every used toolhead draws its own purge line (F-190); OFF = only the first tool draws one line, the other heads are not purged at the start. Saved in `wm_purge_all_heads`.
+- `WM_PURGE_LINES_PIN_WATCH` (new delayed_gcode, every 2 s): gives the switch its saved state at start-up and saves a change made in Fluidd. Risk: none.
+- `_WM_START_PURGE_RUN`: old: always purged every used head. New: when `wm_purge_all_heads` is 0 it purges only the first tool. `_WM_PURGE_SETTINGS` has the new variable `pin_synced`.
+- Why: user wants to choose between four lines and one line. Tested on the simulator. Backup: pi400 devbox/config/backup/rpi_base.cfg.*-before-F206.
+
+- 2026-11-21 F-205 change 2: `WM_OFFSETS_Z_HOT` no longer waits a fixed 15 minutes; it calls `_WM_BED_SOAK_MARK` before heating the bed and `_WM_BED_SOAK` after it (the print start's bed warp wait). `_WM_ZHOT.bed_soak_min` removed. On pi400 and the main RPi4 .35 (md5 fd3c8687). Checked against the real file on .35, 2026-11-21.
+
+## 2026-11-21 F-208 (test pair only, zr_tools.cfg)
+- NEW _ZR_MAP_SET MAP=a,b,c,d : sets the whole tool map (slicer T0..T3 -> toolhead 0..3). Validates 4 entries 0-3, refused while printing/paused. Writes box_modify_tN and box_modify_tN_backup.
+- CHANGED _ZR_MAP_TOOL and _ZR_MAP_RESET: also write box_modify_tN_backup.
+- New saved variables (written by the screen page): wm_last_map_file, wm_last_map.
+- Checked against pi400 devbox zr_tools.cfg md5 1f47a136, 2026-11-21.
+
+## Change log F-162 final wording (2026-11-21, pi400 devbox only)
+- `_WM_Z_TRIM_WIN` (rpi_calibration.cfg): the top line of the Z trim window was a button "T0 trim now +0.00 mm"; it is now plain text "T0 TRIM IS 0.00 MM" (prompt_text, two decimals, minus sign when negative). Reason: user request, a button that does nothing looked pressable. Backup: backup/rpi_calibration.cfg.20261121-before-F162-topline (config and devbox/config). Checked against pi400 devbox rpi_calibration.cfg md5 d2abe2ec, 2026-11-21.

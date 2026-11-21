@@ -77,3 +77,5 @@ New ZrPurgeDialog.vue and an orange PURGE button next to UNLOAD MENU in the Tool
 - 2026-11-19 F-168: ActionCommandPromptDialog.vue window width 640, button text wraps (build v15).
 - 2026-11-19 T-001: Fluidd folder on main RPi4 replaced by the pi400 build (new macro names).
 - 2026-11-19 F-180: Fluidd macro categories database (fluidd/macros) on main RPi4 replaced by the pi400 list (ids mapped by name). Checked against the live database, 2026-11-19.
+- 2026-11-20 F-203 (pi400 only, not tested): Dashboard-Bl-QdHqC.js: purge dialog (`blocked`, `blockedText`) and the Purge button in the Toolheads card use print_stats.state === "printing" instead of zrBusy (printing or paused), text "Pause the print first, then purge". Edited in the built file (no source rebuild), backup printer_data/config/backup/Dashboard-Bl-QdHqC.js.*-before-pausepurge on pi400, md5 328f05ec. Checked against the live file, 2026-11-20.
+- 2026-11-20 F-204 (pi400 only): the Resume tool window in Fluidd is a prompt window made by macros (_WM_RTOOL_SHOW1/2); a third window _WM_RTOOL_CONFIRM now asks for the confirmation. No Fluidd file changed. See MACROS.md F-204.

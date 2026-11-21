@@ -2,6 +2,12 @@
 
 ## 2.23.0
 
+- **Start purge (F-190, F-206).** At the start of a print every toolhead the print uses draws its own purge line. New Fluidd switch `Purge_Line_Every_Toolhead` (ON = every used head, OFF = only the first tool). The old F-160 purge block is dropped; F-190 replaces it.
+- **Purge while paused (F-203) and a confirmation page before "Resume with T*" (F-204).** `rpi_base.cfg` (`WM_PURGE_MENU`, `_WM_PURGE`, `_WM_PURGE_DONE`, `_WM_RTOOL_CONFIRM`) and `zr_tools.py`.
+- **Hot Z offset calibration waits for the bed (F-205).** `WM_OFFSETS_Z_HOT` waits after the bed is hot, before touching it, with the same bed warp wait as a print start (switch `Bed_Warp_Stabilisation`).
+- **KlipperScreen Tools page (F-195, F-197).** The bottom tab is now "Tools" (category buttons); Filament layout and Climate page with ACE off; centred banner.
+- **Choose toolheads page (F-208, B-080).** Starting a print from the file list or the job page opens the toolhead choice page first, with a remembered tool map and "More" labels. New stock KlipperScreen patches in `zr_tools/ks_wm_patches.json` (`gcodes` key, a 7th `job_status` hunk), applied by the screen board script.
+- **Z trim window (F-162).** The trim window shows a plain-text top line `TRIM IS x.xx MM` (`rpi_calibration.cfg`).
 - **More logs for troubleshooting (F-210).** Everything is in Fluidd > Configuration > Other Files and in `./installer.sh --support-bundle`.
   - New `wm-system.log`: when Klipper, Moonraker, KlipperScreen, crowsnest, nginx and the network services started, stopped, failed or restarted, with their journal warnings.
   - `wm-events.log` gets a `STATE` line at every pause, resume and cancel: tool, G-code position, head position, offsets, heaters, print state. A print that is misplaced after a resume can now be checked in numbers.

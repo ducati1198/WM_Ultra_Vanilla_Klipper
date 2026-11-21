@@ -55,6 +55,10 @@
   {
    "new": "            self.can_close = False\n        elif self.wm_live_on():\n            # WonderMaker: Klipper's Save Z to probe / endstop would bake tool offset, trim and heat growth into the calibration.\n            # One button instead, only when a tool has a live adjust; it opens the Save all / Do not save window.\n            self.buttons[\"button_grid\"].attach(Gtk.Label(), 0, 0, 1, 1)\n            if self.wm_live_any():\n                self.buttons[\"button_grid\"].attach(self.buttons[\"wm_save_trim\"], 1, 0, 1, 1)\n            else:\n                self.buttons[\"button_grid\"].attach(Gtk.Label(), 1, 0, 1, 1)\n            self.wm_live_fetch()\n            if self.filename:\n                self.buttons[\"button_grid\"].attach(self.buttons[\"restart\"], 2, 0, 1, 1)\n                self.enable_button(\"restart\")\n            else:\n                self.disable_button(\"restart\")\n            self.buttons[\"button_grid\"].attach(self.buttons[\"menu\"], 3, 0, 1, 1)\n            self.enable_button(\"menu\")\n            self.can_close = True\n        else:",
    "old": "            self.can_close = False\n        else:"
+  },
+  {
+   "old": "                self._screen._ws.api.gcode_script(\"SDCARD_RESET_FILE\")\n            self._screen._ws.api.print_start(self.filename)\n",
+   "new": "                self._screen._ws.api.gcode_script(\"SDCARD_RESET_FILE\")\n            try:                                              # F-208: choose the toolheads first; the page starts the print\n                import os as _os\n                if _os.path.exists(_os.path.join(_os.path.dirname(__file__), \"zr_tools.py\")):\n                    self.enable_button(\"restart\")\n                    self._screen.zr_pending_print = self.filename\n                    self._screen.show_panel(\"zr_tools\", \"ZR Tools\")\n                    return\n            except Exception as e:\n                logging.error(f\"ZR: Choose toolheads page failed: {e}\")\n            self._screen._ws.api.print_start(self.filename)\n"
   }
  ],
  "prompts": [
@@ -161,6 +165,12 @@
   {
    "old": "    def update_graph_visibility(self, force_hide=False):\n        count = 0\n",
    "new": "    def update_graph_visibility(self, force_hide=False):\n        # WM: never show the temperature graph on the Temperature page (too heavy for this board)\n        force_hide = True\n        count = 0\n"
+  }
+ ],
+ "gcodes": [
+  {
+   "old": "        elif response_id == Gtk.ResponseType.OK:\n            logging.info(f\"Starting print: {filename}\")\n",
+   "new": "        elif response_id == Gtk.ResponseType.OK:\n            try:                                              # F-208: choose the toolheads first; the page starts the print\n                import os as _os\n                if _os.path.exists(_os.path.join(_os.path.dirname(__file__), \"zr_tools.py\")):\n                    self._screen.zr_pending_print = filename\n                    self._screen.show_panel(\"zr_tools\", \"ZR Tools\")\n                    return\n            except Exception as e:\n                logging.error(f\"ZR: Choose toolheads page failed: {e}\")\n            logging.info(f\"Starting print: {filename}\")\n"
   }
  ]
 }

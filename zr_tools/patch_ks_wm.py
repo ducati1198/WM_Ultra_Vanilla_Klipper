@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """WonderMaker changes to KlipperScreen's own files (2.9.0). The changes are listed in ks_wm_patches.json next to this script.
 
-  patch_ks_wm.py KEY FILE        KEY = extrude | job_status | fine_tune | prompts | screen | main_menu | temperature
+  patch_ks_wm.py KEY FILE        KEY = extrude | job_status | gcodes | fine_tune | prompts | screen | main_menu | temperature
 
   extrude     panels/extrude.py           the sensor strip shows T<n> head, T<n> hub and Tool lock of the tool on the carriage,
                                           and a button "All sensors" opens the Sensors page (panels/wm_sensors.py)
   job_status  panels/job_status.py        the Z offset of the print screen is the live Z adjust of the tool on the carriage, and
                                           after a print one button "Save Z Trim" opens the Save all / Do not save window
                                           (instead of Klipper's Save Z to probe / endstop, which would bake the tool offsets in)
+  gcodes      panels/gcodes.py            (2.23.0, F-208) a print started from the file list opens the Choose toolheads page of ZR Tools first
+                                          (the page starts the print); job_status.py does the same for Restart on the print screen
   fine_tune   panels/fine_tune.py         Fine Tuning shows and changes the live Z adjust of the tool on the carriage
   prompts     ks_includes/widgets/prompts.py   (2.19.0: every window in the ZR Tools design: blue Start/Yes buttons, dark Cancel, no pink,
                                           a card for the text, a scroll area that fits the screen)
