@@ -607,5 +607,54 @@
   "new": "        M104 S0 T3\n        # F-166: while a print is paused the print's tool stays on the carriage after its load (RESUME continues with it); any other tool is parked\n        {% if printer.print_stats.state == \"paused\" and printer.save_variables.variables.wm_pause_tool|default(99)|int == 3 %}\n            RESPOND MSG=\"T3 loaded: it is the print's tool, it stays on the carriage until RESUME\"\n        {% else %}\n            PARK_CURRENT_TOOL\n        {% endif %}\n        _WM_ACE_HEAD_DONE T=3\n    {% endif %}",
   "old": "        M104 S0 T3\n        PARK_CURRENT_TOOL\n    {% endif %}",
   "version": "2.22.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    {% endif %}\n\n[gcode_macro _WM_LOG_STATE]\ndescription: Support log: writes one line (tool, G-code position, head position, offsets, heaters, state) that the log digest copies into wm-events.log. Called by PAUSE, RESUME and CANCEL_PRINT\ngcode:\n    {% set what = params.WHAT|default(\"STATE\") %}\n    {% set cur = printer.save_variables.variables.current_extruder|default(99)|int %}\n    {% set gm = printer.gcode_move %}\n    {% set th = printer.toolhead %}\n    {% set en = \"extruder\" if cur == 0 else \"extruder%d\" % cur %}\n    {% set nt = printer[en].temperature|round(0)|int if en in printer else 0 %}\n    {% set ng = printer[en].target|round(0)|int if en in printer else 0 %}\n    {% set bt = printer.heater_bed.temperature|round(0)|int if \"heater_bed\" in printer else 0 %}\n    {% set bg = printer.heater_bed.target|round(0)|int if \"heater_bed\" in printer else 0 %}\n    {% set hd = th.homed_axes if th.homed_axes else \"none\" %}\n    RESPOND MSG=\"WMLOG {what} T{cur} gcode X{\"%.2f\"|format(gm.gcode_position.x)} Y{\"%.2f\"|format(gm.gcode_position.y)} Z{\"%.2f\"|format(gm.gcode_position.z)} head X{\"%.2f\"|format(th.position.x)} Y{\"%.2f\"|format(th.position.y)} Z{\"%.2f\"|format(th.position.z)} offset X{\"%.2f\"|format(gm.homing_origin.x)} Y{\"%.2f\"|format(gm.homing_origin.y)} Z{\"%.2f\"|format(gm.homing_origin.z)} homed {hd} nozzle {nt}/{ng} bed {bt}/{bg} speed {(gm.speed_factor * 100)|round(0)|int}% state {printer.print_stats.state}\"\n\n[gcode_macro PAUSE]\nrename_existing: BASE_PAUSE",
+  "old": "    {% endif %}\n\n[gcode_macro PAUSE]\nrename_existing: BASE_PAUSE",
+  "version": "2.23.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    SAVE_GCODE_STATE NAME=PAUSE                                                                  \n    _WM_LOG_STATE WHAT=PAUSE_START\n    M25                                                                              ",
+  "old": "    SAVE_GCODE_STATE NAME=PAUSE                                                                  \n    M25                                                                              ",
+  "version": "2.23.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "    SET_STEPPER_ENABLE STEPPER={printer.toolhead.extruder} ENABLE=0\n    _WM_LOG_STATE WHAT=PAUSE_PARKED\n    {% endif %}",
+  "old": "    SET_STEPPER_ENABLE STEPPER={printer.toolhead.extruder} ENABLE=0\n    {% endif %}",
+  "version": "2.23.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 4,
+  "new": "    RESPOND MSG=\"Resuming the print. Heating the bed and nozzles first.\"\n    _WM_LOG_STATE WHAT=RESUME_START\n    # F-166: the print's tool (saved by PAUSE) must be on the carriage with filament in its head sensor before anything heats or moves",
+  "old": "    RESPOND MSG=\"Resuming the print. Heating the bed and nozzles first.\"\n    # F-166: the print's tool (saved by PAUSE) must be on the carriage with filament in its head sensor before anything heats or moves",
+  "version": "2.23.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 5,
+  "new": "    {% endif %}\n    _WM_LOG_STATE WHAT=RESUME_DONE\n    M24",
+  "old": "    {% endif %}\n    M24",
+  "version": "2.23.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 6,
+  "new": "    RESPOND MSG=\"Print cancelled. Heaters and fans off.\"\n    _WM_LOG_STATE WHAT=CANCEL_START\n    {% set RUN_VELOCITY = printer.configfile.settings['printer'].max_velocity|float %}",
+  "old": "    RESPOND MSG=\"Print cancelled. Heaters and fans off.\"\n    {% set RUN_VELOCITY = printer.configfile.settings['printer'].max_velocity|float %}",
+  "version": "2.23.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 7,
+  "new": "    SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False\n    _WM_LOG_STATE WHAT=CANCEL_DONE\n    SDCARD_RESET_FILE",
+  "old": "    SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False\n    SDCARD_RESET_FILE",
+  "version": "2.23.0"
  }
 ]

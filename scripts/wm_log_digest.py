@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WonderMaker log digest (item 30).
 
-Writes three small files into ~/printer_data/logs, where Fluidd shows them under Configuration > Other Files:
+Writes small files into ~/printer_data/logs, where Fluidd shows them under Configuration > Other Files:
   wm-events.log        one line per important event (Klipper start, config / macro / MCU errors, failed tool changes,
                        ACE drops, load / unload / purge steps, print start / end, commands typed by hand)
   wm-config-check.log  config check after every Klipper start (missing includes, a section defined twice,
@@ -9,6 +9,9 @@ Writes three small files into ~/printer_data/logs, where Fluidd shows them under
   wm-blackbox.log      the last 3000 lines of /var/log/wm-blackbox/blackbox.log (Pi power / load / temperature)
   wm-ace.log           everything about the ACE Pro: its driver lines from klippy.log (without the RFID noise), the ACE
                        messages of the console, and when the USB serial port (/dev/ttyACM*) appears or disappears
+  wm-system.log        when Klipper, Moonraker, KlipperScreen, crowsnest, nginx and the network services started,
+                       stopped, failed or restarted, plus their journal warnings and errors
+  (wm-events.log also gets one STATE line from PAUSE, RESUME and CANCEL_PRINT: tool, position, offsets, heaters)
 
 It only READS klippy.log, Moonraker, the config files and the black box. It changes nothing in Klipper.
   python3 wm_log_digest.py              run as the service
@@ -19,6 +22,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.request
@@ -33,7 +37,10 @@ CHECK = os.path.join(LOGS, "wm-config-check.log")
 BB_SRC = "/var/log/wm-blackbox/blackbox.log"
 BB_DST = os.path.join(LOGS, "wm-blackbox.log")
 ACELOG = os.path.join(LOGS, "wm-ace.log")
-ACE_MAX = 500000             # wm-ace.log is rotated at 500 KB (.1 kept)
+ACE_MAX = 1000000            # wm-ace.log is rotated at 1 MB (.1 and .2 kept)
+SYSLOG = os.path.join(LOGS, "wm-system.log")
+SYS_MAX = 500000             # wm-system.log is rotated at 500 KB (.1 kept)
+SYS_CURSOR = os.path.join(DATA, ".wm-system.cursor")
 API = "http://localhost:7125"
 MAX_BYTES = 1000000          # wm-events.log is rotated at 1 MB (.1 and .2 kept)
 BB_BYTES = 400000            # about 3000 black box lines
@@ -87,7 +94,7 @@ _ACE_RATE = {"minute": 0, "n": 0, "dropped": 0}
 
 
 def ace(msg, t=None):
-    """one line into wm-ace.log (rotated at 500 KB, at most 200 lines per minute)"""
+    """one line into wm-ace.log (rotated at 1 MB, .1 and .2 kept, at most 200 lines per minute)"""
     msg = " ".join(str(msg).split())[:400]
     now = time.time()
     minute = int(now // 60)
@@ -105,6 +112,8 @@ def ace(msg, t=None):
         return
     try:
         if os.path.exists(ACELOG) and os.path.getsize(ACELOG) > ACE_MAX:
+            if os.path.exists(ACELOG + ".1"):
+                os.replace(ACELOG + ".1", ACELOG + ".2")
             os.replace(ACELOG, ACELOG + ".1")
         with open(ACELOG, "a") as f:
             f.write(line)
@@ -243,6 +252,10 @@ class ConsoleRules:
         if (it.get("type") == "command" and m.split(" ")[0].startswith(("ACE_", "_WM_ACE"))) or \
                 re.match(r"^(echo: |// |!! )ACE", m):
             ace("console: " + m, t)
+        if m.startswith(("// WMLOG ", "echo: WMLOG ")):
+            # _WM_LOG_STATE (called by PAUSE, RESUME and CANCEL_PRINT): where the tool head, offsets and heaters were
+            ev("STATE", m.split("WMLOG ", 1)[1], t)
+            return
         if it.get("type") == "command":
             if m.startswith("SDCARD_PRINT_FILE") or RE_CMD_SKIP.match(m):
                 return
@@ -360,6 +373,57 @@ class SerialWatch:
             ace("USB serial port %s DISAPPEARED (USB drop or ACE unplugged)" % p)
             ev("ACE", "USB serial port %s DISAPPEARED (USB drop or ACE unplugged)" % p)
         self.ports = now
+
+
+RE_SYS = re.compile(r"Started |Stopped |Stopping |Failed|failed|Main process exited|Scheduled restart|killed|"
+                    r"Out of memory|\boom\b|code=|signal=|watchdog|Timed out|timed out", re.I)
+SYS_UNITS = ("klipper", "moonraker", "KlipperScreen", "crowsnest", "wm-log-digest", "wm-blackbox", "nginx",
+             "NetworkManager", "wpa_supplicant", "systemd-timesyncd", "ModemManager")
+
+
+class SystemLog:
+    """wm-system.log: when the printer's services started, stopped, failed or were restarted, and every warning
+    or error the system journal holds for them (a service that quietly restarted shows here and nowhere else)"""
+
+    def __init__(self):
+        self.first = True
+
+    def poll(self):
+        cmd = ["journalctl", "--no-pager", "-o", "short", "--no-hostname", "--cursor-file=" + SYS_CURSOR]
+        for u in SYS_UNITS:
+            cmd += ["-u", u]
+        if self.first:
+            cmd += ["-n", "0"]                      # start from now (the first call only sets the cursor)
+            self.first = False
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=20)
+            except Exception:
+                pass
+            return
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout
+        except Exception:
+            return
+        lines = []
+        for l in out.splitlines():
+            if l.startswith("-- ") or not l.strip():
+                continue
+            if RE_SYS.search(l) or re.search(r"\b(ERROR|CRITICAL|WARNING)\b", l):
+                lines.append(" ".join(l.split())[:300])
+        if not lines:
+            return
+        if len(lines) > 60:
+            lines = lines[:60] + ["... %d more lines left out" % (len(lines) - 60)]
+        if SINK is not None:
+            SINK.extend("SYSLOG " + l for l in lines)
+            return
+        try:
+            if os.path.exists(SYSLOG) and os.path.getsize(SYSLOG) > SYS_MAX:
+                os.replace(SYSLOG, SYSLOG + ".1")
+            with open(SYSLOG, "a") as f:
+                f.write("\n".join(lines) + "\n")
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------------------------------
@@ -568,7 +632,7 @@ def selftest():
                    ("response", "!! Error evaluating 'gcode_macro ZR_LOAD:gcode': x"),
                    ("response", "echo: start change tool T0"), ("response", "// LOCK fail retry 2"), ("response", "// Lock fail"),
                    ("response", "echo: T3 heats to 210 C at the wipe area"), ("response", "echo: Idle timeout, all heaters and motors off"),
-                   ("response", "echo: Wipe nozzle done"), ("response", "B:22.2 /0.0 T0:23.3 /0.0")]:
+                   ("response", "echo: Wipe nozzle done"), ("response", "echo: WMLOG PAUSE start T0 gcode X140.5 Y110.25 Z5.6 E2.0 offset X0.35 Y-0.42 Z0.12 nozzle 220/220 bed 55/55 state printing"), ("response", "B:22.2 /0.0 T0:23.3 /0.0")]:
         cr.item({"time": time.time(), "type": typ, "message": m})
     cr.printing = True
     for m in ["echo: T3 heats to 210 C at the wipe area", "echo: Print start purge: T0 20 mm at the wipe area at 220 C"]:
@@ -594,9 +658,11 @@ def main():
     sw = StateWatch()
     bb = BlackBox()
     sp = SerialWatch()
+    sl = SystemLog()
     check_at = time.time() + 8
     reason = "service start"
     next_bb = 0
+    next_sys = 0
     while True:
         try:
             started = tail.poll()
@@ -605,6 +671,9 @@ def main():
             con.poll()
             sp.poll()
             pw.poll()
+            if time.time() >= next_sys:
+                next_sys = time.time() + 30
+                sl.poll()
             if sw.poll() and check_at is None:
                 check_at, reason = time.time() + 6, "Klipper state changed"
             if check_at is not None and time.time() >= check_at:

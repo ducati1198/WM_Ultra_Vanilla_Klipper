@@ -528,6 +528,16 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Commands**: all exist (built-in/module commands used: SET_GCODE_VARIABLE) - checked 2026-11-18
 - **Risk**: none  |  **Tags**: print  |  **Fluidd**: —
 - **Tested**: no per-macro record in FIX-LOG.md
+### _WM_LOG_STATE
+- **File / lines**: macros.cfg (gcode_macro, new 2.23.0, before PAUSE)
+- **What it does**: Support log: writes one console line `WMLOG <WHAT> T<tool> gcode X Y Z head X Y Z offset X Y Z homed .. nozzle t/target bed t/target speed % state ..`; the log digest copies it into wm-events.log as a STATE line.
+- **Calls**: RESPOND
+- **Called by**: PAUSE, RESUME, CANCEL_PRINT
+- **Variables**: -
+- **Uses**: reads printer.save_variables, printer.gcode_move, printer.toolhead, printer.extruder / extruderN, printer.heater_bed (guarded), printer.print_stats
+- **Commands**: all exist (RESPOND) - checked 2026-11-21 on the pi400 devbox
+- **Risk**: none (reads only)  |  **Tags**: misc  |  **Fluidd**: hidden (leading underscore)
+- **Tested**: pi400 devbox 2026-11-21: pause, resume and cancel each wrote their lines with the right numbers
 ### PAUSE
 - **File / lines**: macros.cfg L175-260 (gcode_macro) - renames the original to BASE_PAUSE
 - **What it does**: Pause: keeps tool map and temperatures, retracts, raises Z and parks, turns heaters down after the idle timer.
@@ -538,6 +548,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Commands**: all exist (built-in/module commands used: G1, G90, G91, M25, RESPOND, SAVE_GCODE_STATE, SAVE_VARIABLE, SET_GCODE_VARIABLE, SET_IDLE_TIMEOUT, SET_STEPPER_ENABLE) - checked 2026-11-18
 - **Risk**: MOVES THE TOOLHEAD, HEATS  |  **Tags**: print  |  **Fluidd**: WM Ultra Print
 - **Tested**: F-011 guards confirmed in a real print 2026-11-15
+- **Change log**: 2.23.0 (2026-11-21): calls _WM_LOG_STATE at PAUSE_START (after the state is saved) and PAUSE_PARKED (end); behaviour unchanged.
 ### RESUME
 - **File / lines**: macros.cfg L261-363 (gcode_macro) - renames the original to BASE_RESUME
 - **What it does**: Resume: heats the tool at the wipe position (F-150), wipes, restores position, offsets and feed assist, continues the print.
@@ -548,6 +559,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Commands**: all exist (built-in/module commands used: G0, G90, M118, M24, M400, RESPOND, RESTORE_GCODE_STATE, SAVE_VARIABLE, SET_GCODE_VARIABLE, SET_IDLE_TIMEOUT) - checked 2026-11-18
 - **Risk**: MOVES THE TOOLHEAD, HEATS, ACE  |  **Tags**: print  |  **Fluidd**: WM Ultra Print
 - **Tested**: F-011 confirmed 2026-11-15; F-150 heat-at-wipe NOT tested (pushed 2.21.0)
+- **Change log**: 2.23.0 (2026-11-21): calls _WM_LOG_STATE at RESUME_START and RESUME_DONE (just before M24); behaviour unchanged.
 ### CANCEL_PRINT
 - **File / lines**: macros.cfg L364-420 (gcode_macro) - renames the original to BASE_CANCEL_PRINT
 - **What it does**: Cancel: heaters off, fan off, retract, wipe, park head, clear mesh, reset flow.
@@ -558,6 +570,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Commands**: all exist (built-in/module commands used: BED_MESH_CLEAR, G1, G90, G92, M220, M400, M84, RESPOND, SAVE_VARIABLE, SDCARD_RESET_FILE, SET_GCODE_VARIABLE, SET_IDLE_TIMEOUT, SET_VELOCITY_LIMIT, TURN_OFF_HEATERS) - checked 2026-11-18
 - **Risk**: MOVES THE TOOLHEAD (+ through the macros it calls: ACE, HEATS)  |  **Tags**: print  |  **Fluidd**: WM Ultra Print
 - **Tested**: no per-macro record in FIX-LOG.md
+- **Change log**: 2.23.0 (2026-11-21): calls _WM_LOG_STATE at CANCEL_START and CANCEL_DONE; behaviour unchanged.
 ### PROBE_CALIBRATE
 - **File / lines**: macros.cfg L421-434 (gcode_macro) - renames the original to PROBE_CALIBRATE_BASE
 - **What it does**: Z offset calibration, please enable bed preheating first

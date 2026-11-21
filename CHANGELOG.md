@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.23.0
+
+- **More logs for troubleshooting (F-210).** Everything is in Fluidd > Configuration > Other Files and in `./installer.sh --support-bundle`.
+  - New `wm-system.log`: when Klipper, Moonraker, KlipperScreen, crowsnest, nginx and the network services started, stopped, failed or restarted, with their journal warnings.
+  - `wm-events.log` gets a `STATE` line at every pause, resume and cancel: tool, G-code position, head position, offsets, heaters, print state. A print that is misplaced after a resume can now be checked in numbers.
+  - `wm-ace.log` now rotates at 1 MB and keeps two old files (`.1`, `.2`).
+  - The support bundle also holds `wm-system.log`, `wm-ace.log.2` and the last 800 lines of `moonraker.log`, `KlipperScreen.log` and `crowsnest.log`.
+- **New hidden macro `_WM_LOG_STATE`** (macros.cfg, both models) writes the `STATE` line. `PAUSE`, `RESUME` and `CANCEL_PRINT` call it at their start and end; nothing else in them changed. It only reads values (guarded for a missing heater), so it cannot stop a pause. `./installer.sh --update` adds it to an installed Pi (macro patch list: 7 entries for 2.23.0).
+- The Fluidd console shows the new lines (`WMLOG ...`) after each pause, resume and cancel.
+
 ## 2.22.1
 
 - **Update: no more "changed" lines for fixes that a later version takes back.** `scripts/wm_macro_patches.py`. The heat-at-wipe lines added to `change_macros.cfg`/`macros.cfg` in 2.13.0 were removed again in 2.22.0; on a Pi already at 2.22.0 the update applied the first and then the second, reported "changed macros.cfg #1 (2.13.0)" and "#8 (2.22.0)" and exited with 10 every time, though the file did not change. A file that ends up the same is now reported as unchanged.

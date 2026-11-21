@@ -18,7 +18,7 @@
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
-# ./installer.sh --logs                the troubleshooting logs (wm-events.log, wm-config-check.log, wm-ace.log, wm-blackbox.log in Fluidd > Configuration > Other Files) and the black box that records the Pi every 10 s. Also done in every install and update; the doctor checks them; --support-bundle includes them
+# ./installer.sh --logs                the troubleshooting logs (wm-events.log, wm-config-check.log, wm-ace.log, wm-system.log, wm-blackbox.log in Fluidd > Configuration > Other Files) and the black box that records the Pi every 10 s. Also done in every install and update; the doctor checks them; --support-bundle includes them
 # ./installer.sh --ultra-backup        move every backup into ~/ultra-backup (sorted by type, 400 MB limit) and show the sizes
 # ./installer.sh --wifi                Pi on Wi-Fi (NetworkManager): Wi-Fi power saving off (and an old Wi-Fi watchdog from 2.11 to 2.19.0 is removed)
 # ./installer.sh --light               set up the chamber light as a Moonraker power device (Fluidd, touchscreen and WM_CHAMBER_LIGHT then agree); needs an installed screen board
@@ -1336,7 +1336,7 @@ step_wifi() {   # every install and update, and ./installer.sh --wifi
 
 # ---------------------------------------------------------------------------
 # Troubleshooting logs (item 30, F-107) and the black box (F-022)
-#   wm-log-digest: a small service that writes wm-events.log, wm-config-check.log, wm-ace.log and a copy of the black box
+#   wm-log-digest: a small service that writes wm-events.log, wm-config-check.log, wm-ace.log, wm-system.log and a copy of the black box
 #                  into ~/printer_data/logs, where Fluidd shows them (Configuration > Other Files). It only reads.
 #   wm-blackbox:   one line every 10 s into /var/log/wm-blackbox (power, temperature, load, kernel USB messages) so a crash
 #                  leaves a trace; the system log is kept on the disk for it.
@@ -1352,9 +1352,9 @@ logs_ok() {   # 0 when the digest script and service are in place and running
 }
 step_logs() {   # every install and update, and ./installer.sh --logs
     [ -f "$SCRIPT_DIR/scripts/wm_log_digest.py" ] && [ -f "$SCRIPT_DIR/config/wm-log-digest.service" ] || { print_warning "scripts/wm_log_digest.py is missing from this repository: the troubleshooting logs are not installed"; return 0; }
-    logs_ok && { print_success "Logs: wm-events.log, wm-config-check.log and wm-ace.log are written (Fluidd > Configuration > Other Files)"; return 0; }
+    logs_ok && { print_success "Logs: wm-events.log, wm-config-check.log, wm-ace.log and wm-system.log are written (Fluidd > Configuration > Other Files)"; return 0; }
     print_header "Troubleshooting logs"
-    why "klippy.log is mostly a copy of the config written at every start, so the real events are buried. A small service keeps three short logs (what happened, config problems, the ACE Pro) next to it, and a copy of the black box. They stay small (a few MB in all) and can be opened in Fluidd; --support-bundle includes them."
+    why "klippy.log is mostly a copy of the config written at every start, so the real events are buried. A small service keeps four short logs (what happened, config problems, the ACE Pro, the system services) next to it, and a copy of the black box. They stay small (a few MB in all) and can be opened in Fluidd; --support-bundle includes them."
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm_log_digest.py and the wm-log-digest service${NC}"; return 0; fi
     local sd="$HOME_DIR/printer_data/scripts"; mkdir -p "$sd" "$HOME_DIR/printer_data/logs"
     install -m 755 "$SCRIPT_DIR/scripts/wm_log_digest.py" "$sd/wm_log_digest.py"; record "FILE $sd/wm_log_digest.py"
@@ -1362,7 +1362,7 @@ step_logs() {   # every install and update, and ./installer.sh --logs
     SUDO systemctl daemon-reload
     SUDO systemctl enable wm-log-digest
     SUDO systemctl restart wm-log-digest
-    print_success "Troubleshooting logs installed and running: Fluidd > Configuration > Other Files > wm-events.log, wm-config-check.log, wm-ace.log"
+    print_success "Troubleshooting logs installed and running: Fluidd > Configuration > Other Files > wm-events.log, wm-config-check.log, wm-ace.log, wm-system.log"
 }
 blackbox_ok() {   # 0 when the black box script, its service and the on-disk system log setting are in place and running
     if [ "$TESTING" = 1 ]; then cmp -s "$SCRIPT_DIR/scripts/wm-blackbox" "$HOME_DIR/.blackbox/wm-blackbox" && [ "$(service_state wm-blackbox)" = active ]; return; fi
@@ -3332,7 +3332,7 @@ do_doctor() {
         if wifi_ok; then doc_ok "Wi-Fi: power saving is off"
         else doc_bad "Wi-Fi: power saving is on, or an old Wi-Fi watchdog is still installed" "The Pi's Wi-Fi chip can hang while the Pi keeps running; then Fluidd and SSH lose it until a power cycle. The Wi-Fi watchdog of 2.11.0 to 2.19.0 is gone."; offer_fix "turn Wi-Fi power saving off and remove the old Wi-Fi watchdog" step_wifi; fi
     fi
-    if logs_ok; then doc_ok "Logs: the log digest runs (wm-events.log, wm-config-check.log, wm-ace.log in Fluidd > Configuration > Other Files)"
+    if logs_ok; then doc_ok "Logs: the log digest runs (wm-events.log, wm-config-check.log, wm-ace.log, wm-system.log in Fluidd > Configuration > Other Files)"
     else doc_bad "Logs: the troubleshooting log service is not installed or not running" "Without it klippy.log is the only place to look, and it is mostly a copy of the config."; offer_fix "install the troubleshooting logs" step_logs; fi
     if blackbox_ok; then doc_ok "Black box: the Pi is recorded every 10 s (wm-blackbox report shows the last crash)"
     else doc_bad "Black box: not installed or not running" "A freeze or power dip then leaves no trace of the Pi's state."; offer_fix "install the black box" step_blackbox; fi
@@ -3461,8 +3461,9 @@ scrub() {  # remove secrets and private addresses from a stream
 }
 bundle_extra_logs() {  # the troubleshooting logs, the real klippy lines, the console and the printer state into the bundle dir $1
     local b="$1" lg="$HOME_DIR/printer_data/logs" f ms=http://127.0.0.1:7125
-    for f in wm-events.log wm-events.log.1 wm-config-check.log wm-ace.log wm-ace.log.1; do [ -f "$lg/$f" ] && scrub < "$lg/$f" > "$b/logs/$f"; done
+    for f in wm-events.log wm-events.log.1 wm-config-check.log wm-ace.log wm-ace.log.1 wm-ace.log.2 wm-system.log wm-system.log.1; do [ -f "$lg/$f" ] && scrub < "$lg/$f" > "$b/logs/$f"; done
     [ -f "$lg/wm-blackbox.log" ] && tail -n 1500 "$lg/wm-blackbox.log" | scrub > "$b/logs/wm-blackbox.log"
+    for f in moonraker.log KlipperScreen.log crowsnest.log; do [ -f "$lg/$f" ] && tail -n 800 "$lg/$f" | scrub > "$b/logs/$f"; done
     # klippy.log without the config copy (about 9000 lines at every start) and without the Stats lines
     [ -f "$lg/klippy.log" ] && awk '/^===== Config file =====/{s=1} !s{print} /^=======================/{s=0}' "$lg/klippy.log" | grep -a -v '^Stats ' | tail -n 1500 | scrub > "$b/logs/klippy-real.log"
     {
@@ -3526,10 +3527,12 @@ were removed from the text files. Gcode files, calibration databases and backups
 Please look through it before sharing.
 
 Where to look first (logs/):
-  wm-events.log        one line per event: Klipper starts, config and macro errors, failed tool changes, load / unload steps, prints
+  wm-events.log        one line per event: Klipper starts, config and macro errors, failed tool changes, load / unload steps, prints, and a STATE line (tool, position, offsets, heaters) at every pause, resume and cancel
   wm-config-check.log  the config check after the last Klipper start (missing includes, doubled sections, unsupported tags ...)
   wm-ace.log           the ACE Pro: its driver lines, console messages and when its USB port appeared or disappeared
+  wm-system.log        when Klipper, Moonraker, KlipperScreen, crowsnest and the network services started, stopped, failed or restarted
   wm-blackbox.log      the Pi every 10 s: power flags, temperature, load, kernel USB messages (an UNCLEAN stop line marks a crash)
+  moonraker.log, KlipperScreen.log, crowsnest.log   the last 800 lines of each (when the Pi has them)
   klippy-real.log      the last klippy.log lines WITHOUT the config copy and the Stats lines
   console-last-300.txt the last 300 console lines, as seen in Fluidd
   ../printer-state.txt Klipper state, print state, config warnings, ACE status
