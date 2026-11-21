@@ -11,17 +11,20 @@
 #   zr_t<N>_temp (C), t<N>_pressure_advance (WonderMaker's own variable)
 # Tool mapping uses WonderMaker's own box_modify_t<N> variables.
 
+import colorsys
+import cairo
 import json
 import logging
 import math
 import threading
+import time
 import urllib.request
 import uuid
 
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gdk, GLib  # noqa: E402
+from gi.repository import Gtk, Gdk, GLib, Pango  # noqa: E402
 
 from ks_includes.screen_panel import ScreenPanel  # noqa: E402
 
@@ -55,7 +58,11 @@ MATERIALS = [
     ("Other", 220),
 ]
 
-COLOR_PRESETS = L.TOUCH_PALETTE         # same swatches, same order as the Fluidd panel and the touchscreen
+COLOR_PRESETS_TOUCH = L.TOUCH_PALETTE        # same swatches, same order as the Fluidd panel and the touchscreen
+# F-201: three more swatches fill the empty places of the last row of the editor (the 21 touchscreen swatches above keep their
+# order and indexes, tmt1.ini snaps these three to the closest touchscreen swatch; the exact colour is kept in zr_tN_color)
+EXTRA_PRESETS = [("Purple", 0x7B3FCE), ("Teal", 0x1A9C9C), ("Maroon", 0x8B1A1A)]
+COLOR_PRESETS = list(COLOR_PRESETS_TOUCH) + EXTRA_PRESETS
 
 CHAMBER_MAX = 65
 
@@ -66,7 +73,12 @@ def _rgb(color_int):
 
 
 def _color_name(color_int):
-    """Closest preset name, or the hex code."""
+    """Name of the colour (exact match in the Orca lists), else the closest preset name, else the hex code."""
+    want = int(color_int or 0) & 0xFFFFFF
+    for _lname, _items in L.COLOR_LISTS:
+        for _n, _c in _items:
+            if _c == want:
+                return _n
     best, dist = None, 10 ** 9
     r, g, b = _rgb(color_int)
     for name, col in COLOR_PRESETS:
@@ -75,6 +87,60 @@ def _color_name(color_int):
         if d < dist:
             best, dist = name, d
     return best if dist < 3000 else "#%06X" % (color_int & 0xFFFFFF)
+
+
+def _hex_to_int(v):
+    try:
+        return int(str(v).strip().lstrip("#")[:6], 16)
+    except (TypeError, ValueError):
+        return None
+
+
+def _meta_list(v):
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    if not isinstance(v, str):
+        return []
+    t = v.strip()
+    if t.startswith("["):
+        try:
+            x = json.loads(t)
+            if isinstance(x, list):
+                return x
+        except ValueError:
+            pass
+    return t.replace(";", ",").split(",")
+
+
+def file_colours(meta):
+    """F-208: the colours of a G-code file from the Moonraker metadata (the same keys the Fluidd Choose toolheads window reads).
+    [{'tool': 0, 'color': 0xRRGGBB, 'mat': 'PLA'}, ...] for the tools the file really uses; [] when the file has no colour data."""
+    meta = meta or {}
+    cols = [_hex_to_int(x) for x in _meta_list(meta.get("preset_colours") or meta.get("filament_colors"))]
+    if not cols:
+        return []
+    types = [str(x).strip() for x in _meta_list(meta.get("filament_type"))]
+    used = []
+    for x in _meta_list(meta.get("filament_used_g")):
+        try:
+            used.append(float(x))
+        except (TypeError, ValueError):
+            used.append(None)
+    ref = meta.get("referenced_tools")
+    ref = ref if isinstance(ref, list) and ref else None
+    out = []
+    for t, c in enumerate(cols):
+        if c is None or t >= NTOOLS:
+            continue
+        if ref is not None:
+            ok = t in ref
+        elif t < len(used) and used[t] is not None:
+            ok = used[t] > 0
+        else:
+            ok = True
+        if ok:
+            out.append({"tool": t, "color": c, "mat": types[t] if t < len(types) else ""})
+    return out
 
 
 def _ext_name(tool):
@@ -114,6 +180,7 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def __init__(self, screen, title):
         super().__init__(screen, title)
+        self._install_banner_fix()      # F-197
         self.view = "main"
         self.view_tool = 0
         self._timer = None
@@ -164,14 +231,14 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _nav_entries(self):
         e = [("toolchanger", "Toolheads", self.show_main, ("main",)),
-             ("filament", "Filament", self.show_filament, ("tool", "tool_edit")),
+             ("filament", "Filament", self.show_filament, ("tool", "tool_edit", "color_pick", "hsv_pick")),
              ("heat-up", "Climate", self.show_chamber, ("chamber",))]
         if not self.tiny:            # on a 3 to 4 inch screen Calibrate moves into More to keep the tabs big enough to hit
-            e.append(("settings", "Calibrate", self.show_utilities, ("utilities", "growth")))
+            e.append(("settings", "Tools", self.show_utilities, ("utilities", "cal_cat", "growth")))
         if L.has_ace(self.st):
             e.append(("spool", "ACE", self.show_ace, ("ace", "ace_feed", "ace_endless", "ace_dryer")))
         more = ("more", "hub", "collision", "extras", "system", "settings", "mapping")
-        e.append(("main", "More", self.show_more, more + (("utilities",) if self.tiny else ())))
+        e.append(("main", "More", self.show_more, more + (("utilities", "cal_cat") if self.tiny else ())))
         return e
 
     def _make_nav(self):
@@ -215,6 +282,12 @@ class Panel(ViewsMixin, ScreenPanel):
         self._query()
         if self._timer is None:
             self._timer = GLib.timeout_add_seconds(POLL_SECONDS, self._poll)
+        pend = getattr(self._screen, "zr_pending_print", None)
+        if pend:                                  # F-208: a print was started from the screen: choose the toolheads first
+            self._screen.zr_pending_print = None
+            self._map_begin(pend)
+        elif self.view == "map_start":            # the page was left with Back
+            self.show_home()
 
     def deactivate(self):
         if self._timer is not None:
@@ -223,16 +296,20 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _view_fn(self, v):
         m = {"main": self.show_main, "hub": self.show_hub, "more": self.show_more, "chamber": self.show_chamber,
-             "ace": self.show_ace, "ace_feed": self.show_ace_feed, "ace_endless": self.show_ace_endless, "ace_dryer": self.show_ace_dryer, "utilities": self.show_utilities, "collision": self.show_collision,
+             "ace": self.show_ace, "ace_feed": self.show_ace_feed, "ace_endless": self.show_ace_endless, "ace_dryer": self.show_ace_dryer, "utilities": self.show_utilities, "cal_cat": self.show_cal_cat, "collision": self.show_collision,
              "extras": self.show_extras, "system": self.show_system, "settings": self.show_settings,
-             "mapping": self.show_mapping, "growth": self.show_growth, "unload": self.show_unload, "load": self.show_load, "resume_tool": self.show_resume_tool, "resume_tool2": self.show_resume_tool2,
+             "mapping": self.show_mapping, "map_start": self.show_map_start, "growth": self.show_growth, "unload": self.show_unload, "load": self.show_load, "resume_tool": self.show_resume_tool, "resume_tool2": self.show_resume_tool2, "resume_confirm": self.show_resume_confirm,
              "purge": lambda: self.show_purge(self.view_tool),
-             "tool": lambda: self.show_tool(self.view_tool), "tool_edit": lambda: self.show_tool_edit(self.view_tool)}
+             "tool": lambda: self.show_tool(self.view_tool), "tool_edit": lambda: self.show_tool_edit(self.view_tool), "color_pick": lambda: self.show_color_pick(), "hsv_pick": lambda: self.show_hsv_pick()}
         return m.get(v)
 
     def back(self, widget=None):
         """KlipperScreen calls back() on the Back button: True = handled here, False = KlipperScreen goes to its own previous page."""
         if self._offline():
+            return False
+        if self.view == "map_start":         # F-208: Back on the Choose toolheads page = cancel, back to the page it was opened from
+            self.__dict__["_hist"] = []
+            self.__dict__["map_file"] = None
             return False
         if self.view == "purge" and not self.__dict__.pop("_purge_quiet", False):
             self._purge_finish()
@@ -244,7 +321,7 @@ class Panel(ViewsMixin, ScreenPanel):
                 fn = self._view_fn(v)
                 if fn is None:
                     continue
-                if v in ("tool", "tool_edit"):
+                if v in ("tool", "tool_edit", "color_pick", "hsv_pick"):
                     self.view_tool = tool
                 fn()
                 return True
@@ -393,6 +470,7 @@ class Panel(ViewsMixin, ScreenPanel):
             logging.debug(f"ZR: bad query response: {e}")
 
     def _apply_status(self, status):
+        self.__dict__["_status_seq"] = self.__dict__.get("_status_seq", 0) + 1       # F-208: lets the Choose toolheads page know the data is fresh
         for key, val in status.items():
             if isinstance(val, dict):
                 self.st.setdefault(key, {}).update(val)
@@ -595,7 +673,7 @@ class Panel(ViewsMixin, ScreenPanel):
     PURGE_LENS = (10, 20, 50, 100)             # mm
 
     def _purge_open(self, i):
-        if not self._require_idle():
+        if not self._require_not_printing():
             return
         u = (self.st.get("gcode_macro _WM_UNLOAD") or {})
         if u.get("active"):
@@ -657,7 +735,7 @@ class Panel(ViewsMixin, ScreenPanel):
         self.root.show_all()
 
     def _purge_go(self, i):
-        if not self._require_idle():
+        if not self._require_not_printing():
             return
         p = self.purge
         # FINISH=2: the tool stays hot at the purge location and this page stays open; Cancel (or Back) wipes, cools and parks it
@@ -899,7 +977,7 @@ class Panel(ViewsMixin, ScreenPanel):
             self._rt_pb[l] = b
             row2.pack_start(b, True, True, 0)
         body.pack_start(row2, False, False, 0)
-        go = self._button(None, "Resume with T%d" % (rep + 1), "color3", self._rt_go)
+        go = self._button(None, "Resume with T%d" % (rep + 1), "color3", self._rt_confirm)
         go.get_style_context().add_class("zr_btn_go")
         go.set_size_request(-1, 54)
         body.pack_start(go, False, False, 0)
@@ -944,6 +1022,63 @@ class Panel(ViewsMixin, ScreenPanel):
         self.__dict__["rt"]["purge"] = l
         self._rt_refresh()
 
+    def _rt_confirm(self, *_):
+        # F-204: "Resume with T*" first shows what will happen and asks for a confirmation
+        rt = self.__dict__["rt"]
+        if self._print_state() != "paused" or rt["rep"] < 0:
+            self._screen.show_popup_message("The print must be paused and a tool chosen.")
+            return
+        self.show_resume_confirm()
+
+    def show_resume_confirm(self):
+        rt = self.__dict__.get("rt")
+        if not rt or rt["rep"] < 0:
+            self.show_resume_tool()
+            return
+        self.view = "resume_confirm"
+        self._clear()
+        pt = self._pause_tool()
+        rep = rt["rep"]
+        n = rep + 1
+        base = int(self._rt_base_temp())
+        temp = int(self._rt_base_temp() + rt["dtemp"])
+        self.root.pack_start(self._header("Resume with T%d" % n), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(12)
+        card.pack_start(self._label("Resume the print with T%d?" % n, "zr_title"), False, False, 0)
+        if rep == pt:
+            lines = ["1. T%d stays on the carriage and heats to %d C (the print had %d C)." % (n, temp, base),
+                     "2. T%d purges and the nozzle is wiped." % n,
+                     "3. The print continues with T%d." % n]
+        else:
+            lines = ["1. T%d goes back to its dock, T%d is picked up and heats to %d C (the print had %d C)." % (pt + 1, n, temp, base),
+                     "2. T%d purges and the nozzle is wiped." % n,
+                     "3. The print continues with T%d where T%d stopped, including the parts of T%d." % (n, pt + 1, pt + 1)]
+        card.pack_start(self._label("What will happen:", None), False, False, 0)
+        for ln in lines:
+            dl = self._label("", None, wrap=True)
+            dl.set_markup("<span font='13'>%s</span>" % ln)
+            card.pack_start(dl, False, False, 0)
+        rl = self._label("", None, wrap=True)
+        rl.set_markup("<span font='13' foreground='#f2c744'>Check that the filament in T%d is the one you want.</span>" % n)
+        card.pack_start(rl, False, False, 0)
+        body.pack_start(card, False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        yb = self._button(None, "Resume", "color3", self._rt_go)
+        yb.get_style_context().add_class("zr_btn_go")
+        nb = self._button(None, "Back", "color3", self.back)
+        for b_ in (yb, nb):
+            b_.set_size_request(-1, BIG_H)
+            row.pack_start(b_, True, True, 0)
+        # no scrolling: the text on top, the two big buttons at the bottom
+        body.set_vexpand(True)
+        body.pack_end(row, False, False, 0)
+        self.root.pack_start(body, True, True, 0)
+        self.root.show_all()
+
     def _rt_go(self, *_):
         rt = self.__dict__["rt"]
         if self._print_state() != "paused" or rt["rep"] < 0:
@@ -952,7 +1087,7 @@ class Panel(ViewsMixin, ScreenPanel):
         temp = int(self._rt_base_temp() + rt["dtemp"])
         self._gcode("_WM_RESUME_TOOL_GO REP=%d TEMP=%d PURGE=%d" % (rt["rep"], temp, rt["purge"]),
                     "Resuming with T%d..." % (rt["rep"] + 1))
-        self.back()
+        self.show_home()
 
     def _require_not_printing(self):
         # F-166: load, unload and Resume tool are allowed while the print is PAUSED, not while it prints
@@ -1123,7 +1258,7 @@ class Panel(ViewsMixin, ScreenPanel):
             ctx.add_class("zr_pill_" + kind)
         lbl.set_text(text)
 
-    _PRIMARY_LABELS = ("Save", "Start drying", "Load from ACE", "Apply", "Confirm")
+    _PRIMARY_LABELS = ("Print", "Save", "Use colour", "Color Picker", "More colours", "Start drying", "Load from ACE", "Apply", "Confirm")
     _STYLE_CLASS = {"color1": "zr_btn_primary", "color2": "zr_btn_green", "color4": "zr_btn_orange"}
 
     def _button(self, icon, label, style, callback, *args):
@@ -1392,18 +1527,18 @@ class Panel(ViewsMixin, ScreenPanel):
         actions.set_row_spacing(8)
         actions.set_column_spacing(8)
         actions.set_column_homogeneous(True)
-        # Row 1: Select, Park tool, Edit filament.  Right column: Heat under Edit filament, Cool under Heat.
+        # F-197: Row 1: Select, Park tool, Heat.  Row 2: Load, Unload, Cool.  Row 3: Load menu, Purge, Unload menu.
         # Left two columns: Load and Unload; with an ACE the feed assist button goes across the bottom under them,
         # without an ACE Load and Unload are two rows tall. (The Purge button was removed with ZR_PURGE, F-104.)
         have = {str(x).strip().upper() for x in (self._sections() or [])}
         lm_ok = (not have) or ("GCODE_MACRO WM_LOAD_MENU" in have)    # F-193: Load menu replaces the Feed assist button on this page (feed assist stays on the ACE Pro page)
         tall = 1 if (lm_ok or L.has_ace(self.st)) else 2
         items = [
-            ("extruder", "Select", "color1", self._act_select, "", 0, 0, 1, 1),
+            ("extruder", "Select", "color3", self._act_select, "zr_btn_pink", 0, 0, 1, 1),
             ("arrow-down", "Load", "color2", self._act_load, "", 0, 1, 1, tall),
             ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1, 1),
-            ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 1, 1, 1),
-            ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 2, 1, 1),
+            ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 0, 1, 1),
+            ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 1, 1, 1),
         ]
         for icon, text, style, cb, cls, col, row, span, height in items:
             btn = self._gtk.Button(icon, text, style, lines=1)
@@ -1423,9 +1558,9 @@ class Panel(ViewsMixin, ScreenPanel):
         have = {str(x).strip().upper() for x in (self._sections() or [])}
         if not have or "GCODE_MACRO WM_UNLOAD_MENU" in have:      # F-137: Unload menu (one tool or all) where Edit filament was; hidden when the Pi lacks it
             um_btn = self._button(None, "Unload menu", "color3", self._unload_open)
-            um_btn.get_style_context().add_class("zr_btn_primary")
+            um_btn.get_style_context().add_class("zr_btn_orange")
             um_btn.set_vexpand(True)
-            actions.attach(um_btn, 2, 0, 1, 1)
+            actions.attach(um_btn, 2, 2, 1, 1)
         if lm_ok:                       # F-193: Load menu (same window as Fluidd) under Load and Unload
             lm_btn = self._button(None, "Load menu", "color3", self._load_open)
             lm_btn.get_style_context().add_class("zr_btn_primary")
@@ -1477,7 +1612,16 @@ class Panel(ViewsMixin, ScreenPanel):
         prev_row.pack_start(self.w["e_desc"], True, True, 0)
         page.pack_start(prev_row, False, False, 0)
 
-        page.pack_start(self._section("Colour"), False, False, 0)
+        crow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        crow.pack_start(self._section("Colour"), True, True, 0)
+        hsv = self._button("fine-tune", "Color Picker", "color1", self.show_hsv_pick)
+        hsv.set_size_request(190, self.sz["btn_h"])
+        more = self._button("fine-tune", "More colours", "color1", self.show_color_pick, 0, 0)
+        more.set_size_request(230, self.sz["btn_h"])
+        crow.set_margin_end(0)
+        crow.pack_end(more, False, False, 0)
+        crow.pack_end(hsv, False, False, 0)
+        page.pack_start(crow, False, False, 0)
         dots = Gtk.Grid()
         dots.set_row_spacing(8)
         dots.set_column_spacing(8)
@@ -1540,6 +1684,220 @@ class Panel(ViewsMixin, ScreenPanel):
         rgb_box.hide()
         self._update_editor()
 
+    # ------------------------------------------------------------------
+    # COLOUR PAGE (F-198): the colour lists of OrcaSlicer's picker, 4 categories, paged
+    # ------------------------------------------------------------------
+    def show_color_pick(self, cat=None, page=None):
+        if cat is not None:
+            self._cp_cat = int(cat)
+            self._cp_page = int(page or 0)
+            if cat == 0 and page == 0 and not self.__dict__.get("_cp_open"):
+                pass
+        if "_cp_start" not in self.__dict__ or self.view != "color_pick":
+            self._cp_start = int(self.edit["color"])          # Cancel puts this colour back
+        i = self.view_tool
+        self.view = "color_pick"
+        cat = getattr(self, "_cp_cat", 0)
+        pg = getattr(self, "_cp_page", 0)
+        self._clear()
+        self.root.pack_start(self._header("Colour, toolhead %d" % (i + 1), action=("complete", "Use colour", "color1", self._cp_done)), False, False, 0)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_start(4)
+        box.set_margin_end(10)
+        chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        chips.set_homogeneous(True)
+        for n, (lname, items) in enumerate(L.COLOR_LISTS):
+            chip = Gtk.Button(label="%s (%d)" % (lname, len(items)))
+            chip.get_style_context().add_class("zr_chip")
+            if n == cat:
+                chip.get_style_context().add_class("zr_chip_on")
+            chip.set_size_request(-1, self.sz["btn_h"] - 8)
+            chip.connect("clicked", lambda _w, c=n: self.show_color_pick(c, 0))
+            chips.pack_start(chip, True, True, 0)
+        box.pack_start(chips, False, False, 0)
+        items = L.COLOR_LISTS[cat][1]
+        cols = 4 if self.portrait else 6
+        rows = 6 if (self.portrait or getattr(self._screen, "height", 480) >= 800) else 3
+        per = cols * rows
+        pages = max(1, (len(items) + per - 1) // per)
+        pg = max(0, min(pg, pages - 1))
+        self._cp_page = pg
+        grid = Gtk.Grid()
+        grid.set_row_spacing(6)
+        grid.set_column_spacing(6)
+        grid.set_column_homogeneous(True)
+        self.w["cp_tiles"] = {}
+        dsz = max(26, int(self.sz["dot"] * 0.55))
+        for k, (name, col) in enumerate(items[pg * per:(pg + 1) * per]):
+            tile = Gtk.EventBox()
+            tile.get_style_context().add_class("zr_card")
+            tb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            tb.set_border_width(3)
+            dot = Gtk.EventBox()
+            dot.set_size_request(dsz, dsz)
+            dot.set_halign(Gtk.Align.CENTER)
+            dot.get_style_context().add_class("zr_dot")
+            self._set_swatch(dot, col)
+            tb.pack_start(dot, False, False, 0)
+            nl = Gtk.Label()
+            nl.set_markup("<span size='small'>%s</span>" % GLib.markup_escape_text(name))
+            nl.set_ellipsize(Pango.EllipsizeMode.END)
+            nl.set_max_width_chars(14)
+            hl = Gtk.Label()
+            hl.set_markup("<span size='x-small' foreground='#8a96a3'>#%06X</span>" % col)
+            tb.pack_start(nl, False, False, 0)
+            tb.pack_start(hl, False, False, 0)
+            tile.add(tb)
+            tile.connect("button-release-event", lambda *_a, c=col: self._cp_pick(c))
+            grid.attach(tile, k % cols, k // cols, 1, 1)
+            self.w["cp_tiles"][col] = tile
+        box.pack_start(grid, True, True, 0)
+        nav = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        prev = self._button("arrow-left", "Prev", "color3", self.show_color_pick, cat, pg - 1)
+        nxt = self._button("arrow-right", "Next", "color3", self.show_color_pick, cat, pg + 1)
+        for b in (prev, nxt):
+            b.set_size_request(110, self.sz["btn_h"] - 6)
+        prev.set_sensitive(pg > 0)
+        nxt.set_sensitive(pg < pages - 1)
+        self.w["cp_swatch"] = self._swatch(30, 30)
+        self.w["cp_text"] = self._label()
+        self.w["cp_text"].set_halign(Gtk.Align.START)
+        nav.pack_start(prev, False, False, 0)
+        nav.pack_start(self.w["cp_swatch"], False, False, 0)
+        nav.pack_start(self.w["cp_text"], True, True, 0)
+        pl = self._label()
+        pl.set_markup("<span size='small'>%d / %d</span>" % (pg + 1, pages))
+        nav.pack_start(pl, False, False, 0)
+        nav.pack_start(nxt, False, False, 0)
+        box.pack_start(nav, False, False, 0)
+        self.root.pack_start(box, True, True, 0)
+        self.root.show_all()
+        self._cp_refresh()
+
+    # ------------------------------------------------------------------
+    # HSV COLOUR PICKER (F-199): hue / saturation / brightness sliders with a big preview
+    # ------------------------------------------------------------------
+    def show_hsv_pick(self):
+        if "_cp_start" not in self.__dict__ or self.view not in ("color_pick", "hsv_pick"):
+            self._cp_start = int(self.edit["color"])
+        i = self.view_tool
+        self.view = "hsv_pick"
+        r, g, b = _rgb(int(self.edit["color"]))
+        h, sat, val = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+        self._hsv = [h * 360.0, sat * 100.0, val * 100.0]
+        self._clear()
+        self.root.pack_start(self._header("Color picker, toolhead %d" % (i + 1), action=("complete", "Use colour", "color1", self._cp_done)), False, False, 0)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_start(4)
+        box.set_margin_end(10)
+        area = Gtk.DrawingArea()
+        area.set_size_request(-1, 200)
+        area.set_vexpand(True)
+        area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.BUTTON1_MOTION_MASK)
+        area.connect("draw", self._sv_draw)
+        area.connect("button-press-event", self._sv_event)
+        area.connect("motion-notify-event", self._sv_event)
+        self.w["hs_area"] = area
+        box.pack_start(area, True, True, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.w["hs_swatch"] = self._swatch(58, 58)
+        row.pack_start(self.w["hs_swatch"], False, False, 0)
+        self.w["hs_text"] = self._label()
+        self.w["hs_text"].set_size_request(210, -1)
+        row.pack_start(self.w["hs_text"], False, False, 0)
+        sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 360, 1)
+        sc.set_value(self._hsv[0])
+        sc.set_draw_value(False)
+        sc.set_size_request(-1, 40)
+        prov = Gtk.CssProvider()
+        sc.get_style_context().add_provider(prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 5)
+        try:
+            prov.load_from_data(("scale trough { background-image: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); min-height: 22px; border-radius: 11px; } "
+                                 "scale highlight { background: none; } "
+                                 "scale slider { min-width: 30px; min-height: 30px; border-radius: 15px; background: #ffffff; border: 3px solid #2196f3; }").encode())
+        except Exception:
+            pass
+        sc.connect("value-changed", self._hue_changed)
+        self.w["hs_hue"] = sc
+        row.pack_start(sc, True, True, 0)
+        box.pack_start(row, False, False, 0)
+        self.root.pack_start(box, True, True, 0)
+        self.root.show_all()
+        self._hsv_refresh()
+
+    def _sv_draw(self, area, cr):
+        w, h = area.get_allocated_width(), area.get_allocated_height()
+        hr, hg, hb = colorsys.hsv_to_rgb(self._hsv[0] / 360.0, 1.0, 1.0)
+        cr.set_source_rgb(hr, hg, hb)
+        cr.rectangle(0, 0, w, h)
+        cr.fill()
+        gw = cairo.LinearGradient(0, 0, w, 0)
+        gw.add_color_stop_rgba(0, 1, 1, 1, 1)
+        gw.add_color_stop_rgba(1, 1, 1, 1, 0)
+        cr.set_source(gw)
+        cr.rectangle(0, 0, w, h)
+        cr.fill()
+        gb = cairo.LinearGradient(0, 0, 0, h)
+        gb.add_color_stop_rgba(0, 0, 0, 0, 0)
+        gb.add_color_stop_rgba(1, 0, 0, 0, 1)
+        cr.set_source(gb)
+        cr.rectangle(0, 0, w, h)
+        cr.fill()
+        x = self._hsv[1] / 100.0 * w
+        y = (1.0 - self._hsv[2] / 100.0) * h
+        cr.set_line_width(3)
+        cr.set_source_rgb(1, 1, 1)
+        cr.arc(x, y, 11, 0, 6.2832)
+        cr.stroke()
+        cr.set_line_width(1.5)
+        cr.set_source_rgb(0, 0, 0)
+        cr.arc(x, y, 13, 0, 6.2832)
+        cr.stroke()
+        return False
+
+    def _sv_event(self, area, ev):
+        w, h = max(1, area.get_allocated_width()), max(1, area.get_allocated_height())
+        self._hsv[1] = max(0.0, min(100.0, ev.x / w * 100.0))
+        self._hsv[2] = max(0.0, min(100.0, (1.0 - ev.y / h) * 100.0))
+        self._hsv_apply()
+        return True
+
+    def _hue_changed(self, sc):
+        self._hsv[0] = sc.get_value()
+        self._hsv_apply()
+
+    def _hsv_apply(self):
+        r, g, b = colorsys.hsv_to_rgb(self._hsv[0] / 360.0, self._hsv[1] / 100.0, self._hsv[2] / 100.0)
+        self.edit["color"] = (int(round(r * 255)) << 16) | (int(round(g * 255)) << 8) | int(round(b * 255))
+        self._hsv_refresh()
+
+    def _hsv_refresh(self):
+        if self.view != "hsv_pick":
+            return
+        col = int(self.edit["color"])
+        self._set_swatch(self.w["hs_swatch"], col)
+        self.w["hs_text"].set_markup("<b>%s</b>  #%06X" % (GLib.markup_escape_text(_color_name(col)), col))
+        self.w["hs_area"].queue_draw()
+
+    def _cp_pick(self, col):
+        self.edit["color"] = int(col)
+        self._cp_refresh()
+
+    def _cp_refresh(self):
+        col = int(self.edit["color"])
+        if self.view != "color_pick":
+            return
+        self._set_swatch(self.w["cp_swatch"], col)
+        self.w["cp_text"].set_markup("<b>%s</b>  #%06X" % (GLib.markup_escape_text(_color_name(col)), col))
+        for c, tile in self.w.get("cp_tiles", {}).items():
+            ctx = tile.get_style_context()
+            (ctx.add_class if c == col else ctx.remove_class)("zr_card_sel")
+
+    def _cp_done(self):
+        self.__dict__.pop("_cp_start", None)
+        self.show_tool_edit(self.view_tool)
+
+
     def _toggle_rgb(self):
         box = self.w.get("rgb_box")
         if box is None:
@@ -1600,7 +1958,7 @@ class Panel(ViewsMixin, ScreenPanel):
             return
         self._set_swatch(self.w["e_swatch"], self.edit["color"])
         name = MATERIALS[self.edit["mat"]][0]
-        self.w["e_desc"].set_markup(f"<big><b>{name}</b></big>\n<span size='small'>#{self.edit['color']:06X}</span>")
+        self.w["e_desc"].set_markup(f"<big><b>{name}</b></big>\n<span size='small'>{_color_name(self.edit['color'])}  #{self.edit['color']:06X}</span>")
         self.w["v_temp"].set_text(f"{self.edit['temp']} C")
         self.w["v_pa"].set_text(f"{self.edit['pa']:.3f}")
         for idx, chip in self.w.get("chips", {}).items():
@@ -1727,68 +2085,315 @@ class Panel(ViewsMixin, ScreenPanel):
     # ------------------------------------------------------------------
     # MAPPING VIEW
     # ------------------------------------------------------------------
-    def show_mapping(self):
-        self.view = "mapping"
+    # ------------------------------------------------------------------
+    # F-208: Choose toolheads page. Opens before a print starts from the screen (Print menu, Restart on the print status page)
+    # and from ZR Tools > More > Tool mapping (then without a file: every tap is applied at once).
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _map_base(path):
+        return str(path or "").split("/")[-1].replace('"', "").replace("'", "").replace("\\", "")
+
+    @staticmethod
+    def _rgb_dist(a, b):
+        ar, ag, ab = _rgb(a)
+        br, bg, bb = _rgb(b)
+        return (ar - br) ** 2 + (ag - bg) ** 2 + (ab - bb) ** 2
+
+    def _map_head(self, h):
+        """(info, loaded) of toolhead h (0 to 3): loaded = it has a filament and its sensor does not say empty."""
+        info = self._tool_info(h)
+        return info, bool(info["mat"]) and self._sensor("filament%d" % h) is not False
+
+    def _map_default_sel(self, rows):
+        """The last choice for this file (kept after a cancel or a print end), else the closest loaded toolhead per file colour."""
+        v = self._vars()
+        base = self._map_base(self.__dict__.get("map_file"))
+        parts = str(v.get("wm_last_map", "") or "").split(",")
+        if base and str(v.get("wm_last_map_file", "") or "") == base and len(parts) == NTOOLS \
+                and all(x.strip() in ("0", "1", "2", "3") for x in parts):
+            self.map_restored = True
+            return [int(x) for x in parts]
+        sel = list(range(NTOOLS))
+        heads = [h for h in range(NTOOLS) if self._map_head(h)[1]]
+        pairs = sorted((self._rgb_dist(r["color"], self._tool_info(h)["color"]), r["tool"], h)
+                       for r in rows if r["color"] is not None for h in heads)
+        done, used = set(), set()
+        for _d, t, h in pairs:
+            if t not in done and h not in used:
+                sel[t] = h
+                done.add(t)
+                used.add(h)
+        return sel
+
+    def _map_begin(self, filename):
+        """Ask Moonraker for the colours of the file, then show the page."""
+        self.map_file = filename
+        self.map_rows = None
+        self.map_sel = None
+        self.map_restored = False
+        self.map_user = False
+        self.map_fresh = False
+        self.map_seq = self.__dict__.get("_status_seq", 0)      # the saved data may be old: the first update after this chooses again
+        self.view = "map_start"
         self._clear()
-        self.root.pack_start(self._header("Tool mapping"), False, False, 0)
-        note = self._label(
-            "Choose which toolhead prints each slicer tool. Set it just before "
-            "starting a print: WonderMaker resets it to 1:1 after every print.",
-            "zr_hint", wrap=True)
-        self.root.pack_start(note, False, False, 0)
+        self.root.pack_start(self._header("Choose toolheads"), False, False, 0)
+        self.root.pack_start(self._label("Reading the colours of the file...", "zr_hint", wrap=True), False, False, 0)
+        self.root.show_all()
+        try:
+            self._screen._ws.api.get_file_metadata(filename, self._map_meta_cb)
+        except Exception as e:
+            logging.error(f"ZR: metadata request failed: {e}")
+            GLib.idle_add(self._map_meta_done, filename, {})
+
+    def _map_meta_cb(self, result, method, params):
+        meta = result if isinstance(result, dict) and "error" not in result else {}
+        GLib.idle_add(self._map_meta_done, (params or {}).get("filename"), meta)
+
+    def _map_meta_done(self, filename, meta):
+        if self.__dict__.get("map_file") != filename or self.view != "map_start":
+            return False
+        rows = file_colours(meta)
+        if not rows:                      # no colour data in the file: slicer tools T0 to T3 without colours
+            rows = [{"tool": t, "color": None, "mat": ""} for t in range(NTOOLS)]
+        self.map_rows = rows
+        self.map_sel = None
+        self.show_map_start()
+        return False
+
+    def show_mapping(self):
+        self.__dict__["map_file"] = None
+        self.map_rows = [{"tool": t, "color": None, "mat": ""} for t in range(NTOOLS)]
+        self.map_sel = None
+        self.view = "mapping"
+        self._map_page(False)
+
+    def show_map_start(self):
+        if not self.__dict__.get("map_rows"):
+            self._map_begin(self.__dict__.get("map_file") or "")
+            return
+        self.view = "map_start"
+        self._map_page(True)
+
+    def _map_page(self, file_mode):
+        rows = self.map_rows
+        narrow = (self.portrait and self.density == "compact") or self.tiny
+        if file_mode and self.__dict__.get("_status_seq", 0) > self.__dict__.get("map_seq", 0):
+            self.map_fresh = True
+        if self.map_sel is None:
+            self.map_restored = False
+            self.map_sel = self._map_default_sel(rows) if file_mode else list(self._mapping())
+        self._clear()
+        self.root.pack_start(self._header("Choose toolheads" if file_mode else "Tool mapping"), False, False, 0)
+        if file_mode:
+            hint = self._map_base(self.map_file) + ("\nYour last choice for this file is selected." if self.map_restored else "")
+        else:
+            hint = "Tap the toolhead that prints each slicer tool. WonderMaker resets it to 1:1 after every print."
+        self.root.pack_start(self._label(hint, "zr_hint", wrap=True), False, False, 0)
         grid = Gtk.Grid()
         grid.set_row_spacing(6)
         grid.set_column_spacing(6)
-        grid.set_column_homogeneous(True)
-        self.w["map_btns"] = {}
-        self.w["map_sw"] = {}
-        for t in range(NTOOLS):
-            narrow = self.portrait and self.density == "compact"     # 480 px: "T0 ->" and "1".."4"
-            grid.attach(self._label(f"T{t} ->" if narrow else f"Slicer T{t}  ->"), 0, t, 1, 1)
-            for h in range(NTOOLS):
-                b = Gtk.Button(label=f"{h + 1}" if narrow else f"Head {h + 1}")
-                b.set_size_request(-1, min(self.sz["btn_h"], 42))
-                b.connect("clicked", lambda _w, tt=t, hh=h: self._map(tt, hh))
-                grid.attach(b, 1 + h, t, 1, 1)
-                self.w["map_btns"][(t, h)] = b
-            sw = self._swatch(50, 30)
+        grid.set_column_homogeneous(False)
+        grid.attach(self._label(""), 0, 0, 1, 1)
+        for h in range(NTOOLS):
+            c = self._label(("%d" % (h + 1)) if narrow else ("Head %d" % (h + 1)), "zr_hint")
+            c.set_hexpand(True)
+            grid.attach(c, 1 + h, 0, 1, 1)
+        rowh = 50 if narrow else 58
+        self.w["mh"] = {}
+        for i, r in enumerate(rows):
+            t = r["tool"]
+            left = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            left.get_style_context().add_class("zr_card")
+            left.set_border_width(6)
+            left.set_size_request(104 if narrow else 190, rowh)
+            sw = self._swatch(24, 24)
             sw.set_valign(Gtk.Align.CENTER)
-            grid.attach(sw, 5, t, 1, 1)
-            self.w["map_sw"][t] = sw
-        self.root.pack_start(grid, False, False, 0)
+            self._set_swatch(sw, r["color"] if r["color"] is not None else 0x303030)
+            left.pack_start(sw, False, False, 0)
+            tb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            tb.set_valign(Gtk.Align.CENTER)
+            l1 = self._label()
+            title = ("T%d" % t) if narrow else (("Colour %d (T%d)" % (i + 1, t)) if file_mode else ("Slicer T%d" % t))
+            l1.set_markup("<b><span font='12'>%s</span></b>" % GLib.markup_escape_text(title))
+            l1.set_halign(Gtk.Align.START)
+            tb.pack_start(l1, False, False, 0)
+            if r["color"] is not None and not narrow:
+                l2 = self._label(" ".join(x for x in (r["mat"], _color_name(r["color"])) if x))
+                l2.set_markup("<span font='10'>%s</span>" % GLib.markup_escape_text(l2.get_text()))
+                l2.set_halign(Gtk.Align.START)
+                l2.set_line_wrap(True)
+                l2.set_max_width_chars(16)
+                tb.pack_start(l2, False, False, 0)
+            left.pack_start(tb, True, True, 0)
+            grid.attach(left, 0, 1 + i, 1, 1)
+            for h in range(NTOOLS):
+                b = Gtk.Button()
+                b.set_size_request(-1, rowh)
+                b.set_hexpand(True)
+                box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                box.set_halign(Gtk.Align.CENTER)
+                box.set_valign(Gtk.Align.CENTER)
+                hs = self._swatch(20, 20)
+                hs.set_halign(Gtk.Align.CENTER)
+                hl = self._label()
+                box.pack_start(hs, False, False, 0)
+                box.pack_start(hl, False, False, 0)
+                b.add(box)
+                b.connect("clicked", lambda _w, tt=t, hh=h: self._map_pick(tt, hh))
+                grid.attach(b, 1 + h, 1 + i, 1, 1)
+                self.w["mh"][(t, h)] = (b, hs, hl)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        body.pack_start(grid, False, False, 0)
+        self.w["map_note"] = self._label("", "zr_hint", wrap=True)
+        body.pack_start(self.w["map_note"], False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        bar.set_homogeneous(True)
         reset = self._button("refresh", "Reset 1:1", "color3", self._map_reset)
-        reset.set_size_request(-1, min(self.sz["btn_h"], 42))
-        self.root.pack_start(reset, False, False, 0)
+        bar.pack_start(reset, True, True, 0)
+        if file_mode:
+            cancel = self._button(None, "Cancel", "color3", self._map_cancel)
+            go = self._button(None, "Print", "color1", self._map_print)
+            go.get_style_context().add_class("zr_btn_primary")
+            bar.pack_start(cancel, True, True, 0)
+            bar.pack_start(go, True, True, 0)
+        else:
+            bar.pack_start(self._button(None, "Done", "color3", self.back), True, True, 0)
+        for b_ in bar.get_children():
+            b_.set_size_request(-1, 56)
+        self.root.pack_end(bar, False, False, 0)
         self.root.show_all()
-        self._refresh_view()
+        self._refresh_map_start()
 
-    def _map(self, t, h):
-        if self._require_idle():
-            self._gcode(f"_ZR_MAP_TOOL T={t} H={h}", f"Slicer T{t} -> toolhead {h + 1}")
+    def _map_pick(self, t, h):
+        file_mode = self.view == "map_start"
+        if not self._map_head(h)[1]:
+            return
+        if not file_mode and not self._require_idle():
+            return
+        sel = list(self.map_sel)
+        old = sel[t]
+        for r in self.map_rows:                     # a toolhead prints one colour: the colour that had it gets the old one
+            if r["tool"] != t and sel[r["tool"]] == h:
+                sel[r["tool"]] = old
+        sel[t] = h
+        self.map_sel = sel
+        self.map_restored = False
+        self.map_user = True
+        if not file_mode:
+            self.map_touch = time.time()
+            self._gcode("_ZR_MAP_SET MAP=" + ",".join(str(x) for x in sel))
+        self._refresh_map_start()
 
     def _map_reset(self):
-        if self._require_idle():
+        file_mode = self.view == "map_start"
+        if not file_mode and not self._require_idle():
+            return
+        self.map_sel = list(range(NTOOLS))
+        self.map_restored = False
+        self.map_user = True
+        if not file_mode:
+            self.map_touch = time.time()
             self._gcode("_ZR_MAP_RESET", "Mapping reset to 1:1")
+        self._refresh_map_start()
 
-    def _refresh_mapping(self):
-        mapping = self._mapping()
-        for (t, h), b in self.w.get("map_btns", {}).items():
+    def _map_cancel(self):
+        self.__dict__["map_file"] = None
+        self.__dict__["_hist"] = []
+        try:
+            self._screen._menu_go_back()
+        except Exception as e:
+            logging.error(f"ZR: could not leave the map page: {e}")
+            self.show_home()
+
+    def _map_print(self):
+        fn = self.__dict__.get("map_file")
+        if not fn or not self._require_idle():
+            return
+        sel = [int(x) for x in self.map_sel]
+        for r in self.map_rows:
+            if not self._map_head(sel[r["tool"]])[1]:
+                self._screen.show_popup_message("Head %d has no filament. Pick another head." % (sel[r["tool"]] + 1))
+                return
+        m = ",".join(str(x) for x in sel)
+        base = self._map_base(fn)
+        lines = ["_ZR_MAP_SET MAP=" + m]
+        if base:                                  # the same variable the Fluidd window writes, plus the last choice for the file (B-080)
+            lines.append("SAVE_VARIABLE VARIABLE=wm_map_file VALUE=\"'%s'\"" % base)
+            lines.append("SAVE_VARIABLE VARIABLE=wm_last_map_file VALUE=\"'%s'\"" % base)
+            lines.append("SAVE_VARIABLE VARIABLE=wm_last_map VALUE=\"'%s'\"" % m)
+        try:
+            self._screen._ws.api.gcode_script("\n".join(lines), self._map_set_cb)
+        except Exception as e:
+            logging.error(f"ZR: could not set the map: {e}")
+            self._screen.show_popup_message("Connection error. Check Klipper.")
+
+    def _map_set_cb(self, result, method, params):
+        if isinstance(result, dict) and "error" in result:
+            GLib.idle_add(self._screen.show_popup_message, "Could not set the toolhead map. The print was not started.")
+            return
+        GLib.idle_add(self._map_do_print)
+
+    def _map_do_print(self):
+        fn = self.__dict__.get("map_file")
+        self.__dict__["map_file"] = None
+        if fn:
+            logging.info(f"Starting print: {fn}")
+            self._screen._ws.api.print_start(fn)
+        return False
+
+    def _map_notes(self, file_mode):
+        out = []
+        sel = self.map_sel
+        for i, r in enumerate(self.map_rows):
+            h = sel[r["tool"]]
+            if not self._map_head(h)[1]:
+                out.append("%s is set to Head %d, which has no filament." % (("Colour %d" % (i + 1)) if file_mode else ("T%d" % r["tool"]), h + 1))
+        return "\n".join(out)
+
+    def _refresh_map_start(self):
+        rows = self.__dict__.get("map_rows")
+        if not rows:
+            return
+        file_mode = self.view == "map_start"
+        if file_mode and not self.__dict__.get("map_fresh") and not self.__dict__.get("map_user") \
+                and self.__dict__.get("_status_seq", 0) > self.__dict__.get("map_seq", 0):
+            self.map_fresh = True                 # fresh saved data arrived after the page opened: choose again, once
+            self.map_sel = None
+            self._map_page(True)
+            return
+        if not file_mode and time.time() - self.__dict__.get("map_touch", 0) > 3:
+            self.map_sel = list(self._mapping())
+        sel = self.map_sel
+        for (t, h), (b, hs, hl) in self.w.get("mh", {}).items():
+            info, has = self._map_head(h)
+            self._set_swatch(hs, info["color"] if has else 0x303030)
+            hl.set_markup("<span font='11'>%s</span>" % GLib.markup_escape_text((self._mat_name(h) or "Other") if has else "Empty"))
+            b.set_sensitive(has)
             ctx = b.get_style_context()
-            if mapping[t] == h:
+            if sel[t] == h:
                 ctx.add_class("zr_selected")
             else:
                 ctx.remove_class("zr_selected")
-        for t, sw in self.w.get("map_sw", {}).items():
-            info = self._tool_info(mapping[t]) if 0 <= mapping[t] < NTOOLS else None
-            self._set_swatch(sw, info["color"] if info and info["mat"] else 0x303030)
+        note = self.w.get("map_note")
+        if note is not None:
+            note.set_text(self._map_notes(file_mode))
 
     # ------------------------------------------------------------------
     # UTILITIES VIEW
     # ------------------------------------------------------------------
-    def show_utilities(self):
-        self.view = "utilities"
-        self._clear()
-        self.root.pack_start(self._header("Calibration"), False, False, 0)
+    # F-195: the Calibration & Tools page shows big category buttons; each opens a page with its macros
+    _CAL_CATS = [
+        ("settings", "First run & setup", ("WM_FIRST_RUN_CAL", "WM_EXTRUDER_SETUP")),
+        ("fine-tune", "Tool offsets", ("WM_OFFSETS_RAPID", "WM_SETTER_PROBE_POSITION", "WM_OFFSETS_ACCURATE", "WM_FULL_OFFSET_CAL", "WM_OFFSETS_Z_HOT", "WM_Z_TRIM_MENU", "WM_LIVE_Z_MENU")),
+        ("bed-level", "Bed", ("WM_BED_LEVELING", "WM_PROBE_CALIBRATE", "WM_SCREWS_CAL", "WM_BED_SOAK_MENU", "WM_BED_PID")),
+        ("heat-up", "Nozzle", ("WM_NOZZLE_FULL_PID", "WM_NOZZLE_GROWTH_CAL", "_WM_NOZZLE_TYPE", "WM_NOZZLE_CHANGE", "WIPE_NOZZLE")),
+        ("home", "Machine", ("G28", "PARK_CURRENT_TOOL", "M84", "WM_VIBRATION_COMP")),
+        ("lock", "Grippers", ("UNLOCK", "LOCK")),
+    ]
+
+    def _cal_items(self):
+        """{script name: (icon, label, script, confirm question or None)} for the macros this Pi has."""
         a = self._active_tool()
         at = a if a >= 0 else 0
         have = {str(x).strip().upper() for x in (self._sections() or [])}
@@ -1796,10 +2401,8 @@ class Panel(ViewsMixin, ScreenPanel):
         def wm(name):      # WonderMaker calibration macros (rpi-cfg/rpi_calibration.cfg, rpi_nozzle.cfg): hidden when the Pi lacks them
             return not have or ("GCODE_MACRO " + name) in have
 
-        # (icon, label, script, confirm question or None). The WM_* macros open their own Start / Cancel window
-        # (Fluidd and here), so they are sent straight away.
-        items = [("home", "Home all", "G28", "Home all axes?")]
-        items += [x for x in (
+        # The WM_* macros open their own Start / Cancel window (Fluidd and here), so they are sent straight away.
+        wmitems = (
             ("settings", "First run calibration", "WM_FIRST_RUN_CAL", None),
             ("bed-level", "Bed leveling", "WM_BED_LEVELING", None),
             ("z-farther", "Probe calibrate (Z height)", "WM_PROBE_CALIBRATE", None),
@@ -1815,30 +2418,66 @@ class Panel(ViewsMixin, ScreenPanel):
             ("bed-level", "Bed warp wait", "WM_BED_SOAK_MENU", None),
             ("speed+", "Vibration compensation", "WM_VIBRATION_COMP", None),
             ("heat-up", "Bed PID", "WM_BED_PID", None),
-            ("heat-up", f"Nozzle temperature T{at}", f"WM_NOZZLE_FULL_PID T={at}", None),
+            ("heat-up", "Nozzle temperature T%d" % at, "WM_NOZZLE_FULL_PID T=%d" % at, None),
             ("extruder", "Nozzle type", "_WM_NOZZLE_TYPE", None),
             ("extruder", "Nozzle change", "WM_NOZZLE_CHANGE", None),
             ("toolchanger", "Extruder setup", "WM_EXTRUDER_SETUP", None),
-        ) if wm(x[2].split()[0])]
-        items += [
-            ("fine-tune", "Wipe nozzle", "WIPE_NOZZLE", "Wipe the active nozzle?"),
-            ("extruder", "Park tool", "PARK_CURRENT_TOOL", "Return the active toolhead to its dock?"),
-            ("motor-off", "Motors off", "M84", "Disable all motors?"),
-            ("unlock", "Unlock gripper", "UNLOCK", "HOLD THE TOOL HEAD with your hand first. Opening the gripper lets go of it, and it falls onto the bed if nobody holds it. Open the toolhead gripper?"),
-            ("lock", "Lock gripper", "LOCK", "Close the toolhead gripper?"),
-        ]
+        )
+        out = {x[2].split()[0]: x for x in wmitems if wm(x[2].split()[0])}
+        for x in (("home", "Home all", "G28", "Home all axes?"),
+                  ("fine-tune", "Wipe nozzle", "WIPE_NOZZLE", "Wipe the active nozzle?"),
+                  ("extruder", "Park tool", "PARK_CURRENT_TOOL", "Return the active toolhead to its dock?"),
+                  ("motor-off", "Motors off", "M84", "Disable all motors?"),
+                  ("unlock", "Unlock gripper", "UNLOCK", "HOLD THE TOOL HEAD with your hand first. Opening the gripper lets go of it, and it falls onto the bed if nobody holds it. Open the toolhead gripper?"),
+                  ("lock", "Lock gripper", "LOCK", "Close the toolhead gripper?")):
+            out[x[2].split()[0]] = x
+        return out
+
+    def _cal_grid(self, buttons, tall):
+        cols = 2 if self.sz["util_cols"] <= 3 else 3
         grid = Gtk.Grid()
-        grid.set_row_spacing(6)
-        grid.set_column_spacing(6)
+        grid.set_row_spacing(10)
+        grid.set_column_spacing(10)
         grid.set_column_homogeneous(True)
-        for n, (icon, text, script, question) in enumerate(items):
+        grid.set_border_width(6)
+        for n, b in enumerate(buttons):
+            b.set_size_request(-1, tall)
+            ctx = b.get_style_context()
+            ctx.add_class("zr_btn_big")
+            grid.attach(b, n % cols, n // cols, 1, 1)
+        return grid
+
+    def show_utilities(self):
+        self.view = "utilities"
+        self._clear()
+        self.root.pack_start(self._header("Calibration &amp; Tools"), False, False, 0)
+        items = self._cal_items()
+        buttons = []
+        for n, (icon, name, scripts) in enumerate(self._CAL_CATS):
+            c = [x for x in scripts if x in items]
+            if not c:
+                continue
+            buttons.append(self._button(icon, "%s (%d)" % (name, len(c)), "color%d" % (1 + n % 4), self.show_cal_cat, n))
+        self.root.pack_start(self._scrolled(self._cal_grid(buttons, max(88, int(self.sz["tile_h"] * 2)))), True, True, 0)
+        self.root.show_all()
+
+    def show_cal_cat(self, n=None):
+        if n is not None:
+            self.cal_cat = n
+        n = getattr(self, "cal_cat", 0)
+        self.view = "cal_cat"
+        self._clear()
+        icon, name, scripts = self._CAL_CATS[n]
+        self.root.pack_start(self._header(name), False, False, 0)
+        items = self._cal_items()
+        buttons = []
+        for k, sc in enumerate([x for x in scripts if x in items]):
+            ic, text, script, question = items[sc]
             if script == "WM_NOZZLE_GROWTH_CAL":       # F-137: the page with the on/off switch; "Measure again" starts the measurement
-                b = self._button(icon, text, "color%d" % (1 + n % 4), self.show_growth)
+                buttons.append(self._button(ic, text, "color%d" % (1 + n % 4), self.show_growth))
             else:
-                b = self._button(icon, text, "color%d" % (1 + n % 4), self._utility, text, script, question)
-            b.set_size_request(-1, self.sz["tile_h"])
-            grid.attach(b, n % self.sz["util_cols"], n // self.sz["util_cols"], 1, 1)
-        self.root.pack_start(self._scrolled(grid), True, True, 0)
+                buttons.append(self._button(ic, text, "color%d" % (1 + n % 4), self._utility, text, script, question))
+        self.root.pack_start(self._scrolled(self._cal_grid(buttons, max(80, int(self.sz["tile_h"] * 1.8)))), True, True, 0)
         self.root.show_all()
 
     def _utility(self, title, script, question):
@@ -1882,14 +2521,14 @@ class Panel(ViewsMixin, ScreenPanel):
         off.set_size_request(-1, bh + 16)
         presets.attach(off, 0, 0, 2, 1)
         for n, t in enumerate((40, 50, 60)):
-            b = self._button(None, f"{t} C", "color2", self._chamber_set, t)
+            b = self._button(None, f"{t}\u00b0C", "color2", self._chamber_set, t)
             b.set_size_request(-1, bh + 16)
             presets.attach(b, 2 + n, 0, 1, 1)
         ch.pack_start(presets, False, False, 0)
 
         adj = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         adj.set_homogeneous(True)
-        for text, d in (("-5 C", -5), ("+5 C", 5)):
+        for text, d in (("-5\u00b0C", -5), ("+5\u00b0C", 5)):
             b = self._button(None, text, "color3", self._chamber_step, d)
             b.set_size_request(-1, bh)
             adj.pack_start(b, True, True, 0)
@@ -1909,11 +2548,14 @@ class Panel(ViewsMixin, ScreenPanel):
         ch.pack_start(self.w["ch_doors"], False, False, 0)
 
         cards = [ch]
-        if L.has_ace(self.st):
+        self._ch_dryer = bool(self._ace_connected())
+        if self._ch_dryer:       # F-197: no dryer card while the ACE is off
             dry = self._climate_card()
             self._build_dryer(dry)
             cards.append(dry)
-        if len(cards) == 2 and not self.portrait and not self.tiny:      # side by side on a wide screen
+        if len(cards) == 1 and not self.portrait:                       # F-197: chamber only: one big centred card, values left, buttons right
+            body = self._chamber_big_card()
+        elif len(cards) == 2 and not self.portrait and not self.tiny:      # side by side on a wide screen
             body = Gtk.Grid()
             body.set_column_spacing(10)
             body.set_column_homogeneous(True)
@@ -1926,6 +2568,81 @@ class Panel(ViewsMixin, ScreenPanel):
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
         self._refresh_view()
+
+    @staticmethod
+    def _center_banner(scr):
+        """F-197: KlipperScreen's message banner is a popover under the title bar, so it sat left of the screen centre."""
+        try:
+            pop = scr.popup_message
+            tb = scr.base_panel.titlebar
+            res = tb.translate_coordinates(scr, 0, 0)
+            if pop is None or res is None:
+                return
+            x, y = res
+            rect = Gdk.Rectangle()
+            rect.x = int(scr.width / 2 - x)
+            rect.y = 0
+            rect.width = 1
+            rect.height = 1
+            pop.set_pointing_to(rect)
+        except Exception as e:
+            logging.error(f"ZR: banner centring failed: {e}")
+
+    def _install_banner_fix(self):
+        scr = self._screen
+        if getattr(scr, "_zr_banner_fix", False):
+            return
+        orig = scr.show_popup_message
+
+        def wrapped(*a, **k):
+            r = orig(*a, **k)
+            Panel._center_banner(scr)
+            return r
+        scr.show_popup_message = wrapped
+        scr._zr_banner_fix = True
+
+    def _chamber_big_card(self):
+        """F-197: the chamber card alone and centred: big temperature on the left, large buttons on the right."""
+        bh = max(56, int(self.sz["tile_h"] * 1.3))
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(12)
+        card.set_halign(Gtk.Align.FILL)
+        card.set_valign(Gtk.Align.CENTER)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left.set_valign(Gtk.Align.CENTER)
+        left.set_halign(Gtk.Align.CENTER)
+        left.pack_start(self._label("CHAMBER", "zr_small"), False, False, 0)
+        self.w["ch_temp"] = self._label("", "zr_value_xl")
+        self.w["ch_target"] = self._label("", "zr_small", wrap=True)
+        self.w["ch_fan"] = self._label("", "zr_small")
+        self.w["ch_doors"] = self._label("", "zr_small", wrap=True)
+        for k in ("ch_temp", "ch_target", "ch_fan", "ch_doors"):
+            left.pack_start(self.w[k], False, False, 0)
+        card.pack_start(left, True, True, 0)
+        grid = Gtk.Grid()
+        grid.set_row_spacing(8)
+        grid.set_column_spacing(8)
+        grid.set_column_homogeneous(True)
+        grid.set_valign(Gtk.Align.CENTER)
+        cells = [("Heater off", "color3", "zr_btn_red", self._chamber_set, 0), ("40\u00b0C", "color2", "zr_btn_green", self._chamber_set, 40),
+                 ("50\u00b0C", "color2", "zr_btn_green", self._chamber_set, 50), ("60\u00b0C", "color2", "zr_btn_green", self._chamber_set, 60),
+                 ("-5\u00b0C", "color3", "", self._chamber_step, -5), ("+5\u00b0C", "color3", "", self._chamber_step, 5),
+                 ("Air filter ON", "color3", "zr_btn_purple", self._air_filter, 1), ("Air filter OFF", "color3", "", self._air_filter, 0)]
+        for n, (text, style, cls, cb, arg) in enumerate(cells):
+            b = self._button(None, text, style, cb, arg)
+            if cls:
+                b.get_style_context().add_class(cls)
+            b.set_size_request(-1, bh)
+            grid.attach(b, n % 2, n // 2, 1, 1)
+        card.pack_start(grid, True, True, 0)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.set_vexpand(True)
+        outer.set_valign(Gtk.Align.CENTER)
+        outer.set_margin_start(6)
+        outer.set_margin_end(6)
+        outer.pack_start(card, False, False, 0)
+        return outer
 
     def _chamber_target(self):
         return float((self.st.get("heater_generic chamber") or {}).get("target") or 0)
@@ -1971,10 +2688,13 @@ class Panel(ViewsMixin, ScreenPanel):
                 self._refresh_tool()
             elif self.view == "tool_edit":
                 pass
-            elif self.view == "mapping":
-                self._refresh_mapping()
+            elif self.view in ("mapping", "map_start"):
+                self._refresh_map_start()
             elif self.view == "chamber":
-                self._refresh_chamber()
+                if bool(self._ace_connected()) != getattr(self, "_ch_dryer", None):      # F-197: the ACE came back or went away: rebuild, the dryer card appears or goes
+                    self.show_chamber()
+                else:
+                    self._refresh_chamber()
             elif self.view == "growth":
                 self._refresh_growth()
             else:

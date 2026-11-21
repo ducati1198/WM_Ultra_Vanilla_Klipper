@@ -94,9 +94,9 @@ class ViewsMixin:
             items.append(("spool", "ACE Pro", self.show_ace))
         if not include_main and getattr(self, "tiny", False):     # the Calibrate tab is hidden on a tiny screen
             items.append(("settings", "Calibration", self.show_utilities))
-        items += [("shuffle", "Choose toolheads", self.show_mapping),
+        items += [("shuffle", "Tool map", self.show_mapping),
                   ("fan", "Fans", lambda: self._open_stock("fan", "Fan")),
-                  ("retract", "Pressure advance", lambda: self._open_stock("pressure_advance", "Pressure advance"))]
+                  ("retract", "Pressure", lambda: self._open_stock("pressure_advance", "Pressure advance"))]
         items.append(("filament", "Sensors", lambda: self._open_stock("wm_sensors", "Sensors")))   # all sensors, friendly label and real name
         have = {str(x).strip().upper() for x in (self._sections() or [])}
         if not have or "GCODE_MACRO WM_UNLOAD_MENU" in have:      # the unload window of the Pi (one tool or all tools), hidden when the Pi lacks it
@@ -108,12 +108,12 @@ class ViewsMixin:
         if L.collision_settings(self._collision_section()):
             items.append(("warning", "Collision", self.show_collision))
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),
-                  ("clock", "Timelapse / restart", self.show_extras)]
+                  ("clock", "Timelapse", self.show_extras)]
         if L.board_mode():          # KlipperScreen runs on the WonderMaker screen board: it can update itself from GitHub
             items.append(("refresh", "Update screen", self._sys_update))
         items.append(("refresh", "Update Pi", self._pi_update))     # the same update as Fluidd's Update button
         items += [("info", "System", self.show_system),
-                  ("settings", "Screen settings", self.show_settings)]
+                  ("settings", "Screen", self.show_settings)]
         return items
 
     def show_hub(self, title="ZR Tools", include_main=True):
