@@ -311,7 +311,7 @@ class ScreenPanel:
 ''')
     gi = types.ModuleType("gi"); gi.require_version = lambda *a, **k: None
     repo = types.ModuleType("gi.repository")
-    for n in ("Gtk", "Gdk", "GLib"):
+    for n in ("Gtk", "Gdk", "GLib", "Pango"):
         setattr(repo, n, mock.MagicMock(name=n))
     repo.GLib.timeout_add_seconds.return_value = 1
     repo.GLib.idle_add.side_effect = lambda f, *a: f(*a)
@@ -432,17 +432,21 @@ class Smoke(unittest.TestCase):
         labels = []
         p._button = lambda icon, text, style, cb, *a: labels.append((text, a[1] if len(a) > 1 else None)) or p._gtk.Button()
         p._sections = lambda: ["gcode_macro WM_FIRST_RUN_CAL", "gcode_macro WM_BED_PID", "gcode_macro WM_NOZZLE_FULL_PID"]
-        p.show_utilities()
-        names = [x[0] for x in labels]
+
+        def all_labels():       # F-195: the macros sit in category pages behind the big category buttons
+            del labels[:]
+            for n in range(len(p._CAL_CATS)):
+                p.show_cal_cat(n)
+            return list(labels)
+        names = [x[0] for x in all_labels()]
         self.assertIn("First run calibration", names); self.assertIn("Bed PID", names)
         self.assertNotIn("Bed leveling", names)                 # macro missing on the Pi: not offered
         for gone in ("Offsets: fine (all)", "Offsets: rapid (all)", "Bed mesh"):
             self.assertNotIn(gone, names)
         self.assertFalse(any(n.startswith(("Z offset", "XY offset")) for n in names))
         self.assertIn(("Nozzle temperature T0", "WM_NOZZLE_FULL_PID T=0"), [(x[0], x[1]) for x in labels])
-        del labels[:]
         p._sections = lambda: []                                # list unknown: show everything
-        p.show_utilities()
+        all_labels()
         self.assertEqual(sum(1 for n, _ in labels if n in ("First run calibration", "Bed leveling", "Probe calibrate (Z height)",
             "Offsets: rapid", "Offsets: accurate", "Vibration compensation", "Bed PID", "Nozzle type", "Nozzle change", "Extruder setup")), 10)
         hub = [x[1] for x in p._hub_items()]
@@ -486,7 +490,7 @@ class Smoke(unittest.TestCase):
                 self.assertEqual(p.density, "compact" if (min(w, h) <= 520 or max(w, h) <= 900) else "comfortable", (layout, w, h))
                 self.assertEqual(p.tiny, min(w, h) <= 400, (layout, w, h))
                 if layout == "tabs":
-                    self.assertEqual("Calibrate" in p.nav_btns, min(w, h) > 400, (w, h))
+                    self.assertEqual("Tools" in p.nav_btns, min(w, h) > 400, (w, h))     # F-195: the tab is called Tools
 
     def test_ace_views_and_actions(self):
         p, screen = self.make("tabs", ace=True)
