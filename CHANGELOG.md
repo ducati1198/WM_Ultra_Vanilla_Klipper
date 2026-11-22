@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.23.1
+
+- **B-081: a tool change to a head that another slicer tool also uses no longer waits for a cooldown.** With the tool map (Resume with T*, endless spool swap) two slicer tools can print with the same head. The slicer cools the tool it leaves (`M104 S140 Tx`), and that cooled the head the next tool change was about to use: it then waited for the head to cool and heated it again. The `M104` macro (`macros.cfg`, both models) now skips a standby temperature (1 to 169 C, below the target) while a print runs when more than one slicer tool maps to that head, and says "Cooldown of slicer tool Tx skipped: head y also prints another slicer tool". `M104 S0`, print temperatures, a paused print and a head used by one tool only work as before. `./installer.sh --update` adds it to an installed Pi (macro patch list: 1 entry for 2.23.1). Tested on a real print by the user.
+
 ## 2.23.0
 
 - **Start purge (F-190, F-206).** At the start of a print every toolhead the print uses draws its own purge line. New Fluidd switch `Purge_Line_Every_Toolhead` (ON = every used head, OFF = only the first tool). The old F-160 purge block is dropped; F-190 replaces it.

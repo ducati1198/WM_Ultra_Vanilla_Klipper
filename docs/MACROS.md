@@ -634,6 +634,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 ### M104
 - **File / lines**: macros.cfg L546-576 (gcode_macro) - renames the original to M99104
 - **What it does**: Set the tool temperature with tool remapping (box_modify).
+- **Change log**: 2.23.1 (2026-11-21): B-081, while a print runs a standby temperature (1 to 169 C, below the target) for a head that more than one slicer tool maps to (box_modify) is skipped with a message, so a tool change to that head does not wait for a cooldown and a reheat. Everything else unchanged.
 - **Calls**: -
 - **Called by**: G29, LOAD_FILAMENT, M191, NOZZLE_CALIBRATE_TOOL_OFFSET, NOZZLE_PREPARE, PAUSE, POP, RAPID_MODE, RESUME, START_PRINT, UNLOAD_FILAMENT, WM_SCREWS_CAL, _WM_HEAD_LOAD, _WM_NOZZLE_PREPARE
 - **Variables**: -
