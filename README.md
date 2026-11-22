@@ -151,6 +151,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 | Fluidd with a **Toolheads** panel | four toolheads, chamber, air filter, doors, print with colours, filament mapping |
 | Safe without the printer | Moonraker and Fluidd work right away. Without the main board Klipper starts but only reports "cannot connect" (nothing moves); `--no-start` leaves it off until `--first-start` |
 | ACE page on the touchscreen | Big spools, four large buttons (Load, Unload, Feed, Retract) and one page each for the dryer, the endless spool and Feed/Retract with a Stop button; a Load menu on the Filament page (2.22.0) |
+| Purge, filament colours and start purge (2.23.0) | Purge while a print is paused, a confirmation page before Resume with a new tool, the Filament page with spool colours, a purge after a spool swap and a purge line for every toolhead the print uses |
 | Optional touchscreen | KlipperScreen with a **ZR Tools** page, on the WonderMaker screen board or a screen connected to the Pi (tested on the WonderMaker screen board) |
 
 ![Before and after](docs/img/overview.svg)
@@ -512,6 +513,8 @@ Leave the Z offset in the slicer at 0, so only the printer adjusts Z. Saved in `
 
 - **`WM_UNLOAD_MENU`** (Fluidd and the touchscreen): pick one tool or all tools, confirm, and the filament is unloaded at the tool's saved temperature. With an ACE Pro it uses `ACE_WM_UNLOAD`, without one `ZR_RETRACT`. Tools go one after the other, a tool with nothing loaded is skipped, and it refuses while a print runs or is paused. `WM_UNLOAD_STOP` drops the rest of the list.
 - **Pause and resume guards:** a second `PAUSE` while the print is already paused does nothing and says so, `RESUME` outside a pause says "Nothing to resume", and the tool map of the print is kept for the resume.
+- **Purge while paused (2.23.0, F-203) and Resume with T* (F-204):** `WM_PURGE_MENU` purges the tool on the carriage while the print is paused. **Resume with T\*** (a different tool than the one that paused) first opens a confirmation page, so a stray tap cannot start a tool change. Macros `_WM_PURGE`, `_WM_PURGE_DONE`, `_WM_RTOOL_CONFIRM` in `rpi_base.cfg`.
+- **Start purge (2.23.0, F-190, F-206):** every toolhead the print uses draws its own purge line at the start. The Fluidd switch `Purge_Line_Every_Toolhead` (ON = every used head, OFF = only the first tool) chooses.
 - **Start-up safety check:** if an interrupted filament insert left the grip check off, it is switched on again 8 s after Klipper starts, with a message.
 - **Chamber light:** with a WonderMaker screen board the light is the Moonraker power device `chamber_light`. The Fluidd Toolheads card, the Light buttons on the touchscreen and `WM_CHAMBER_LIGHT STATE=on|off|toggle` all switch it and always show the same state. A print turns it on at its start. Set up by `./installer.sh --light` (an install and `--update` do it too). The screen board announces its light some minutes after an install, so the installer also adds `wm-light.path`: it watches `rpi_chamber_light.json` and runs `./installer.sh --light --yes` by itself when it appears (log `~/wm-light.log`). Since 2.21.1 that run restarts Klipper only when a config file changed, and never during a macro, a print or with a heater on (it then says so in the log and the macro starts with the next restart); before, it restarted Klipper every time and cut loads and unloads short.
 
@@ -684,6 +687,14 @@ Auto uses Compact when the short side is 520 px or less, or the long side is 900
 - A window shows every text line (not only the last one) and closes at once when a button or X is pressed (before, it waited until a busy Klipper had run the button's G-code).
 - The filament sensors are read again 8 s after the screen starts (they showed off after a Klipper restart).
 - **Since 2.21.1:** the Updating page (opened by Update in Fluidd) closes by itself about 5 s after the update is complete and Klipper is ready (3 minutes at the latest); before it stayed open until Finish was pressed. Patched by `zr_tools/patch_ks_update.py`.
+
+**Since 2.23.0:**
+
+- **Filament page and colours (F-197, F-198 to F-201):** the bottom tab is **Tools** (category buttons); the Filament page shows the spool colours of the tools, with the Climate page working when the ACE is off. The Fluidd panel shows the same colours.
+- **Swap purge (F-202):** after a spool swap (endless spool) the new filament is purged before the print goes on.
+- **Purge while paused and the Resume with T\* confirmation page (F-203, F-204):** buttons in the pause window (see 4.4).
+- **Hot Z offsets wait for the bed (F-205):** `WM_OFFSETS_Z_HOT` waits after the bed is hot, before touching it, with the same bed warp wait as a print start (switch `Bed_Warp_Stabilisation`, section 4.8).
+- **Choose toolheads page (F-208):** starting a print from the file list or the job page opens the toolhead choice first, with a remembered tool map.
 
 **Since 2.11.0** (screen board):
 
