@@ -1720,7 +1720,7 @@ step_shaketune() {
     if [ -f "$cfgd/moonraker.conf" ] && ! grep -q '\[update_manager[a-z ]* Klippain-ShakeTune\]' "$cfgd/moonraker.conf"; then
         printf '\n## Klippain Shake&Tune automatic update management\n[update_manager Klippain-ShakeTune]\ntype: git_repo\norigin: https://github.com/Frix-x/klippain-shaketune.git\npath: ~/klippain_shaketune\nvirtualenv: %s/klippy-env\nrequirements: requirements.txt\nsystem_dependencies: system-dependencies.json\nprimary_branch: main\nmanaged_services: klipper\n' "$HOME_DIR" >> "$cfgd/moonraker.conf"
     fi
-    grep -rqs '^\[resonance_tester\]' "$cfgd" || warn_later "Shake&Tune needs [resonance_tester] and an accelerometer (lis2dw or adxl345) in your Klipper config; none was found in ~/printer_data/config."
+    grep -rqs --exclude-dir=backup '^\[resonance_tester\]' "$cfgd" || warn_later "Shake&Tune needs [resonance_tester] and an accelerometer (lis2dw or adxl345) in your Klipper config; none was found in ~/printer_data/config."
     print_success "Shake&Tune installed. Restart Klipper from Fluidd (config reload) to load it, then run for example: AXES_SHAPER_CALIBRATION (see github.com/Frix-x/klippain-shaketune). Graphs go to ~/printer_data/config/ShakeTune_results."
 }
 
@@ -3714,7 +3714,7 @@ do_remove_addon_core() {
         shell-command)
             local ef="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" users
             [ -f "$ef" ] || { print_info "The shell command extension is not installed."; return 0; }
-            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v -e '/rpi_nozzle\.cfg$' | tr '\n' ' ')"   # rpi_nozzle.cfg is ours (it holds the speed test too): it is taken out below
+            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v -e '/rpi_nozzle\.cfg$' -e '/backup/' | tr '\n' ' ')"   # rpi_nozzle.cfg is ours (it holds the speed test too): it is taken out below
             if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
             ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
             local own what
@@ -3802,7 +3802,7 @@ do_remove_addon_core() {
             ask_yn "Remove Shake&Tune?" n || { echo "Nothing changed."; return 0; }
             # Shake&Tune has no uninstaller; these are the steps its README implies (remove [shaketune], the extras link, the folder, the update section)
             if grep -q 'include shaketune.cfg' "$cfgd/printer.cfg" 2>/dev/null; then cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-shaketune-removal-$STAMP"; sed -i '/include shaketune.cfg/d' "$cfgd/printer.cfg"; print_info "Removed the Shake&Tune include from printer.cfg (copy: printer.cfg.wm-before-shaketune-removal-$STAMP)"; fi
-            if grep -rqs '^\[shaketune\]' "$cfgd/printer.cfg" 2>/dev/null; then print_warning "printer.cfg still has its own [shaketune] section. Klipper will not start without the extension: delete that section too."; fi
+            if grep -rqs --exclude-dir=backup '^\[shaketune\]' "$cfgd/printer.cfg" 2>/dev/null; then print_warning "printer.cfg still has its own [shaketune] section. Klipper will not start without the extension: delete that section too."; fi
             rm_path "$cfgd/shaketune.cfg" "$HOME_DIR/klipper/klippy/extras/shaketune" "$HOME_DIR/klippain_shaketune"
             moonraker_drop_update_section Klippain-ShakeTune
             WANT_SHAKETUNE=0; save_answers
