@@ -1431,7 +1431,7 @@ OUTA="$(inst "$T/hqa" --dry-run --from-stage "$T/stage_hk" --model ultra-s --scr
 check "the install plan lists the ACE Pro as not chosen (default no) and the install asks about it" "grep -q 'Do you have an Anycubic ACE Pro to connect' $ROOT/installer.sh && echo \"\$OUTA\" | grep -E 'ace pro +no \\(add later'"
 OUTA="$(inst "$T/hqa2" --dry-run --from-stage "$T/stage_hk" --model ultra-s --screen off --acepro on)"
 check "the plan says yes with --acepro on, and the step would download the project" "echo \"\$OUTA\" | grep -E 'ace pro +yes'"
-check "the question is asked in the install and a yes answer is used" "printf 'y\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\n' | WM_TEST_NO_FETCH=1 WM_HOME=$T/hqa3 WM_INSTALLER_TEST=1 WM_TEST_PANEL_DIR=$T/stubpanel bash $ROOT/installer.sh --dry-run --from-stage $T/stage_hk --model ultra-s --screen off --cameras 1 --cam-resolution 720p --cam-fps 15 2>&1 | grep -E 'ace pro +yes'"
+check "the question is asked in the install and a yes answer is used" "printf 'y\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\n' | WM_TEST_NO_FETCH=1 WM_HOME=$T/hqa3 WM_INSTALLER_TEST=1 WM_TEST_PANEL_DIR=$T/stubpanel bash $ROOT/installer.sh --dry-run --from-stage $T/stage_hk --model ultra-s --screen off --cameras 1 --cam-resolution 720p --cam-fps 15 --cam-mode ustreamer 2>&1 | grep -E 'ace pro +yes'"
 check "without --acepro the ACE project is not touched" "[ ! -e $NS/wm-ultra-fluidd-acepro-panel ] && [ ! -e $NS/.ace-stub.log ]"
 check "ACE Pro is not installed to start with, shown in the add-on list" "M '3\n0\n0\n' $NS --menu | grep -q 'Anycubic ACE Pro.*not installed'"
 inst "$NS" --update --only-addon acepro --acepro on > "$T/ace1.out"
