@@ -37,6 +37,7 @@
 # ./installer.sh --undo [DIR]          put back the folders the installer moved aside (latest, or DIR)
 # ./installer.sh --backup [DIR]        save your config, calibration and database to a .tgz (only when you run it)
 # ./installer.sh --restore FILE        restore such a backup (a safety copy is made first)
+# ./installer.sh --rollback            go back to how your settings were before the last update (restores the newest backup that an update saved first; a safety copy is made first)
 # ./installer.sh --show-log            where the log of the last run is, and its last lines. Every run that changes something is logged to ~/wm-install-logs/ (passwords and tokens removed)
 # ./installer.sh --support-bundle      make a scrubbed .tgz of logs and config to share when asking for help
 # ./installer.sh --enable-klipper      same as --first-start
@@ -244,6 +245,7 @@ while [ $# -gt 0 ]; do
         --undo)         MODE=undo; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
+        --rollback)     MODE=rollback ;;
         --support-bundle) MODE=bundle ;;
         --show-log)     MODE=showlog ;;
         --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
@@ -2866,6 +2868,27 @@ auto_backup() {   # a quick safety copy of your settings before an update or an 
     fi
 }
 
+protect_py() { echo "$SCRIPT_DIR/scripts/wm_protect.py"; }
+protect_snapshot() {   # F-222: before any update step, remember what belongs to you (saved variables, rotation_distance, the SAVE_CONFIG block, crowsnest.conf)
+    PROTECT_SNAP=""
+    [ -f "$(protect_py)" ] && [ -d "$HOME_DIR/printer_data/config" ] || return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would remember your saved variables, rotation_distance lines and SAVE_CONFIG block, and check them again at the end${NC}"; return 0; fi
+    local snap="$ULTRA/protect/$STAMP"; mkdir -p "$snap" && python3 -I "$(protect_py)" snapshot "$HOME_DIR/printer_data/config" "$snap" >/dev/null && PROTECT_SNAP="$snap"
+    ls -1dt "$ULTRA"/protect/*/ 2>/dev/null | tail -n +4 | while read -r o; do rm -rf "$o"; done
+}
+protect_verify() {   # F-222: before Klipper restarts, put back anything of yours that an update step changed
+    [ -n "${PROTECT_SNAP:-}" ] && [ -d "$PROTECT_SNAP" ] || return 0
+    local out rc; out="$(python3 -I "$(protect_py)" verify "$HOME_DIR/printer_data/config" "$PROTECT_SNAP" 2>&1)"; rc=$?
+    if [ "$rc" = 0 ]; then print_success "Your settings: untouched (saved variables, rotation_distance, SAVE_CONFIG block)"
+    elif [ "$rc" = 10 ]; then print_warning "The update changed some of your own values; they were put back:"; echo "$out" | sed 's/^/    /'; warn_later "The update changed some of your own values and put them back (see above). Nothing is lost; tell the maker if this repeats."
+    else warn_later "Could not check your own values after the update: $out"; fi
+}
+do_rollback() {   # F-222: undo the last update's settings: restore the newest backup that was saved before an update
+    local f; f="$(ls -1t "$WMB"/wm-backup-*-before-update-*.tgz 2>/dev/null | head -n1)"
+    [ -n "$f" ] || die_with_fix "there is no backup from before an update in $WMB." "an update saves one first; nothing to roll back to."
+    echo "The newest backup from before an update: $f"
+    ARG1="$f"; do_restore
+}
 do_update() {
     print_header "Update"
     load_answers || die_with_fix "nothing is installed by this installer yet, so there is nothing to update ($CONF is missing)." "run ./installer.sh and choose 1 (Install or reinstall). To get the newest installer files only: ./installer.sh --get-latest"
@@ -2878,6 +2901,7 @@ do_update() {
     local UT=8
     progress_bar 0 100 "Update step 1 of $UT: backup"
     auto_backup
+    protect_snapshot
     rpi_names_migrate
     progress_bar 5 100 "Update step 2 of $UT: packages and Python"
     if [ -z "$ONLY_ADDON" ]; then step_packages; step_groups; step_python; fi
@@ -2917,6 +2941,7 @@ do_update() {
     save_answers
     step_cfgindex
     [ -n "$ONLY_ADDON" ] || step_ultrabackup   # last, after the panel and the add-ons: they write backups of their own (acepro-backup, fluidd_backup_*), and those are swept too
+    protect_verify
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     restart_klipper_after
@@ -4285,7 +4310,7 @@ start_logging() {
     [ "${WM_LOGGING:-0}" = 1 ] && { LOG_FILE="${WM_LOG_FILE:-}"; return 0; }
     [ "$DRY" = 1 ] && return 0
     [ "$TESTING" = 1 ] && [ "${WM_FORCE_LOG:-0}" != 1 ] && return 0
-    case " install update repair remove restore undo uninstall firststart startklipper disable doctor hwtest backup screenlayout screenremove settz sethost " in *" $MODE "*) ;; *) return 0 ;; esac
+    case " install update repair remove restore rollback undo uninstall firststart startklipper disable doctor hwtest backup screenlayout screenremove settz sethost " in *" $MODE "*) ;; *) return 0 ;; esac
     [ "$MODE" = install ] && [ "$ORIG_ARGC" = 0 ] && [ -t 0 ] && [ -t 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ] && return 0   # that opens the menu
     mkdir -p "$LOG_DIR" 2>/dev/null && chmod 700 "$LOG_DIR" 2>/dev/null || return 0
     LOG_FILE="$LOG_DIR/installer-$MODE-$STAMP.log"
@@ -4338,6 +4363,7 @@ case "$MODE" in
     undo)       do_undo; exit 0 ;;
     backup)     do_backup; exit 0 ;;
     restore)    do_restore; exit 0 ;;
+    rollback)   do_rollback; exit 0 ;;
     bundle)     do_support_bundle; exit 0 ;;
     showlog)    do_show_log; exit 0 ;;
     disable)    do_disable; exit 0 ;;

@@ -86,6 +86,7 @@ Run these in `~/WM_Ultra_Vanilla_Klipper` on the Pi.
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
 | **Back up** my settings | `./installer.sh --backup` | Saved to `~/ultra-backup/settings/` as a private `.tgz`. Copy it off the Pi. |
 | **Restore** a backup | `./installer.sh --restore FILE` | A safety copy is made first |
+| **Roll back** the last update | `./installer.sh --rollback` | Restores the newest backup an update saved before it started (safety copy first) |
 | **Undo** the last install | `./installer.sh --undo` | Folders the installer moved aside come back (`~/wm-rpi-backup/`) |
 | **Uninstall** | `./installer.sh --uninstall` | Removes the services, nginx files and can0 rule it added. Your folders in `~` stay. |
 | **Preview** any of the above | add `--dry-run` | Nothing changes |
@@ -327,6 +328,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --undo [DIR]` | puts back the folders the installer moved aside (latest by default) |
 | `./installer.sh --backup [DIR]` | saves config, calibration and database to a private `.tgz` (only when you run it) |
 | `./installer.sh --restore FILE` | restores such a backup after making a safety copy |
+| `./installer.sh --rollback` | goes back to how your settings were before the last update (restores the newest "before-update" backup, after a safety copy) |
 | `./installer.sh --support-bundle` | scrubbed logs and config in one `.tgz` for asking for help (passwords, tokens, Wi-Fi, private IPs removed). Holds the system report, config files, the new troubleshooting logs, the real klippy lines (without the config copy), the last 300 console lines, the Klipper and ACE state and a list of config files with date and checksum |
 | `./installer.sh --no-start` / `--force` | do not start Klipper at the end / ignore an active print |
 | `./installer.sh --disable-klipper` | stop Klipper and disable it |
@@ -336,6 +338,10 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `bash scripts/screen_board.sh --fix-clock` | on the screen board: turns on automatic time sync (NTP) and fixes apt's date check |
 | `bash scripts/screen_board.sh --set-tz America/Toronto` | on the screen board: sets its time zone (the board comes with China time) |
 | `scripts/board_check.sh` | read-only: main board on USB, can0, CAN devices, services, Moonraker |
+
+### Your own values during an update (2.25.0)
+
+Before the first update step the installer remembers what belongs to you: every value in `saved_variables.cfg` (calibration, trims, probe position), every `rotation_distance` line and the SAVE_CONFIG block in `printer.cfg`, and `crowsnest.conf`. After the last step, before Klipper restarts, it checks them again. If an update step changed one, it is put back and listed; otherwise the update says "Your settings: untouched". Values that the update or Klipper adds are left alone. The helper is `scripts/wm_protect.py` (its copy of your values is in `~/ultra-backup/protect/`, the newest 3 are kept). If anything else goes wrong, `./installer.sh --rollback` restores the backup the update saved first.
 
 ### 3.5 Open Fluidd
 

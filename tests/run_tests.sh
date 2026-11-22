@@ -743,6 +743,12 @@ printf 'y\n' | WM_HOME="$G2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --res
 check "restore brings the config back" "! grep -q '^# changed' $G2/printer_data/config/printer.cfg"
 check "restore made a safety copy" "ls $G2/ultra-backup/settings/wm-backup-*.tgz"
 check "restore refuses a wrong file" "! WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --restore $T/ans"
+mkdir -p "$G2/ultra-backup/settings"; cp "$BK" "$G2/ultra-backup/settings/wm-backup-test-before-update-20990101-000000.tgz"
+echo "# changed after the update" >> "$G2/printer_data/config/printer.cfg"
+check "2.25.0 (F-222): --rollback restores the newest backup from before an update" "printf 'y\\n' | WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --rollback 2>&1 | grep -q 'Restored from' && ! grep -q 'changed after the update' $G2/printer_data/config/printer.cfg"
+check "2.25.0 (F-222): --rollback with no backup from before an update stops with a fix" "! WM_HOME=$T/norb WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --rollback 2>&1 | grep -q 'Restored from' && WM_HOME=$T/norb WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --rollback 2>&1 | grep -q 'no backup from before an update'"
+check "2.25.0 (F-222): an update checks your own values and says they are untouched" "inst $HR --update | grep -q 'Your settings: untouched'"
+check "2.25.0 (F-222): wm_protect.py puts back a changed saved variable, rotation_distance and SAVE_CONFIG block, and leaves new values alone" "python3 -I $ROOT/tests/test_protect.py 2>&1 | tail -1 | grep -q '^0 failed'"
 
 echo "== repair, update, undo"
 rm -f "$G2/.sudo.log"

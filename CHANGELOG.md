@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.25.0
+
+- **Your own values are protected during an update (F-222).** The update remembers your saved variables, `rotation_distance` lines, the SAVE_CONFIG block and `crowsnest.conf` before it starts and checks them again before Klipper restarts. A value an update step changed is put back and listed; otherwise it prints "Your settings: untouched". New helper `scripts/wm_protect.py`, test `tests/test_protect.py`.
+- **`--rollback`:** goes back to how your settings were before the last update (restores the newest "before-update" backup, safety copy first).
+
 ## 2.24.0
 
 - **New: `WM_ESTEP_CAL`, e-step (rotation_distance) calibration of one tool (F-221).** Windows in Fluidd and KlipperScreen: pick the tool, heat, insert 100 mm (head sensor checked), mark at 120 mm, slow 100 mm extrusion, measure with step buttons, save into `printer.cfg` (old value kept as a comment, backup first) and restart. New: macros at the end of `rpi-cfg/rpi_nozzle.cfg`, helper `scripts/wm_estep.py` (installed to `~/printer_data/wm-tools/`, checked by `--doctor`), four pictures `zr_tools/wm_images/estep-*.png`, an "E-step calibration" button under Tool offsets in the KlipperScreen Calibration panel, tests `tests/test_wm_estep.py` and `tests/estep_render.py`. Fluidd pictures and the Fluidd notes are in `docs/estep/`.
