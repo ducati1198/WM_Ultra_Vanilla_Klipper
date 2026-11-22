@@ -444,7 +444,7 @@ class Smoke(unittest.TestCase):
         for gone in ("Offsets: fine (all)", "Offsets: rapid (all)", "Bed mesh"):
             self.assertNotIn(gone, names)
         self.assertFalse(any(n.startswith(("Z offset", "XY offset")) for n in names))
-        self.assertIn(("Nozzle temperature T0", "WM_NOZZLE_FULL_PID T=0"), [(x[0], x[1]) for x in labels])
+        self.assertIn(("Nozzle PID", "WM_NOZZLE_FULL_PID T=0"), [(x[0], x[1]) for x in labels])
         p._sections = lambda: []                                # list unknown: show everything
         all_labels()
         self.assertEqual(sum(1 for n, _ in labels if n in ("First run calibration", "Bed leveling", "Probe calibrate (Z height)",

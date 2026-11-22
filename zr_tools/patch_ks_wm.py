@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WonderMaker changes to KlipperScreen's own files (2.9.0). The changes are listed in ks_wm_patches.json next to this script.
 
-  patch_ks_wm.py KEY FILE        KEY = extrude | job_status | gcodes | fine_tune | prompts | screen | main_menu | temperature
+  patch_ks_wm.py KEY FILE        KEY = extrude | job_status | gcodes | fine_tune | prompts | prompts2 | screen | main_menu | temperature
 
   extrude     panels/extrude.py           the sensor strip shows T<n> head, T<n> hub and Tool lock of the tool on the carriage,
                                           and a button "All sensors" opens the Sensors page (panels/wm_sensors.py)
@@ -19,6 +19,8 @@
                                           KlipperScreen/wm_images/<name>.png)
                                           the adjust window of the tool setter position helper and the Z trim windows
                                           open as their own page (2.15.0, panels/wm_setter.py and panels/wm_ztrim.py)
+  prompts2    ks_includes/widgets/prompts.py   (2.23.2, F-220 and F-212: every popup window has ONE writing, Large and bold; the Nozzle clean window has its own
+                                          colours and bigger buttons. Applied after "prompts".)
   screen      screen.py                   (2.19.0: the ZR Tools page opens on top of the main menu at every start and after every Klipper
                                           restart, and the message banner sits at the very top of the screen)
                                           the filament sensors are read again 8 s after the start (they showed off after a
@@ -50,6 +52,9 @@ def main():
     if any(h.get("done") and h["done"] in text for h in data[key]):   # a later change (2.19.0) rewrote lines of an earlier one: its mark says the file is patched
         return 0
     for h in data[key]:
+        if "from" in h:                  # 2.23.2: a rename in a board that was patched by an earlier version (the Fine Tuning zero button calls _WM_LIVE_Z_ZERO)
+            new = new.replace(h["from"], h["to"])
+            continue
         if "old" not in h:
             continue
         if new.count(h["old"]) == 1:

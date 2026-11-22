@@ -2385,9 +2385,9 @@ class Panel(ViewsMixin, ScreenPanel):
     # F-195: the Calibration & Tools page shows big category buttons; each opens a page with its macros
     _CAL_CATS = [
         ("settings", "First run & setup", ("WM_FIRST_RUN_CAL", "WM_EXTRUDER_SETUP")),
-        ("fine-tune", "Tool offsets", ("WM_OFFSETS_RAPID", "WM_SETTER_PROBE_POSITION", "WM_OFFSETS_ACCURATE", "WM_FULL_OFFSET_CAL", "WM_OFFSETS_Z_HOT", "WM_Z_TRIM_MENU", "WM_LIVE_Z_MENU")),
+        ("fine-tune", "Tool offsets", ("WM_OFFSETS_RAPID", "WM_SETTER_PROBE_POSITION", "WM_OFFSETS_ACCURATE", "WM_FULL_OFFSET_CAL", "WM_OFFSETS_Z_HOT", "WM_Z_TRIM_MENU", "WM_LIVE_Z_MENU", "WM_NOZZLE_GROWTH_CAL")),
         ("bed-level", "Bed", ("WM_BED_LEVELING", "WM_PROBE_CALIBRATE", "WM_SCREWS_CAL", "WM_BED_SOAK_MENU", "WM_BED_PID")),
-        ("heat-up", "Nozzle", ("WM_NOZZLE_FULL_PID", "WM_NOZZLE_GROWTH_CAL", "_WM_NOZZLE_TYPE", "WM_NOZZLE_CHANGE", "WIPE_NOZZLE")),
+        ("heat-up", "Nozzle", ("WM_NOZZLE_FULL_PID", "_WM_NOZZLE_TYPE", "WM_NOZZLE_CHANGE", "WIPE_NOZZLE", "WM_NOZZLE_CLEAN")),
         ("home", "Machine", ("G28", "PARK_CURRENT_TOOL", "M84", "WM_VIBRATION_COMP")),
         ("lock", "Grippers", ("UNLOCK", "LOCK")),
     ]
@@ -2418,10 +2418,11 @@ class Panel(ViewsMixin, ScreenPanel):
             ("bed-level", "Bed warp wait", "WM_BED_SOAK_MENU", None),
             ("speed+", "Vibration compensation", "WM_VIBRATION_COMP", None),
             ("heat-up", "Bed PID", "WM_BED_PID", None),
-            ("heat-up", "Nozzle temperature T%d" % at, "WM_NOZZLE_FULL_PID T=%d" % at, None),
+            ("heat-up", "Nozzle PID", "WM_NOZZLE_FULL_PID T=%d" % at, None),
             ("extruder", "Nozzle type", "_WM_NOZZLE_TYPE", None),
             ("extruder", "Nozzle change", "WM_NOZZLE_CHANGE", None),
             ("toolchanger", "Extruder setup", "WM_EXTRUDER_SETUP", None),
+            ("heat-up", "Nozzle clean", "WM_NOZZLE_CLEAN", None),     # F-212: opens its own Start / Cancel window
         )
         out = {x[2].split()[0]: x for x in wmitems if wm(x[2].split()[0])}
         for x in (("home", "Home all", "G28", "Home all axes?"),

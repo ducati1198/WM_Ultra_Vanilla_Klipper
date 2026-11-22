@@ -15,6 +15,10 @@
  ],
  "fine_tune": [
   {
+   "from": "script = \"WM_LIVE_Z_ZERO\" if self.wm_live_on()",
+   "to": "script = \"_WM_LIVE_Z_ZERO\" if self.wm_live_on()"
+  },
+  {
    "new": "import json\nimport logging\nimport re\nimport threading\nimport urllib.request\n\nimport gi\n\ngi.require_version(\"Gtk\", \"3.0\")\nfrom gi.repository import GLib, Gtk\n",
    "old": "import logging\nimport re\n\nimport gi\n\ngi.require_version(\"Gtk\", \"3.0\")\nfrom gi.repository import Gtk\n"
   },
@@ -27,7 +31,7 @@
    "old": "            if \"homing_origin\" in data[\"gcode_move\"]:\n                self.labels[\"zoffset\"].set_label(\n                    f\"  {data['gcode_move']['homing_origin'][2]:.3f}mm\"\n                )\n                self.z_offset = float(data[\"gcode_move\"][\"homing_origin\"][2])\n            if \"extrude_factor\" in data[\"gcode_move\"]:"
   },
   {
-   "new": "            self.labels[\"zoffset\"].set_label(\"  0.00mm\")\n            self.z_offset = 0.0\n            # WonderMaker: SET_GCODE_OFFSET Z=0 would also remove tool offset, trim and heat growth of the tool on the carriage\n            script = \"WM_LIVE_Z_ZERO\" if self.wm_live_on() else \"SET_GCODE_OFFSET Z=0 MOVE=1\"\n            self._screen._send_action(widget, \"printer.gcode.script\", {\"script\": script})\n            return",
+   "new": "            self.labels[\"zoffset\"].set_label(\"  0.00mm\")\n            self.z_offset = 0.0\n            # WonderMaker: SET_GCODE_OFFSET Z=0 would also remove tool offset, trim and heat growth of the tool on the carriage\n            script = \"_WM_LIVE_Z_ZERO\" if self.wm_live_on() else \"SET_GCODE_OFFSET Z=0 MOVE=1\"\n            self._screen._send_action(widget, \"printer.gcode.script\", {\"script\": script})\n            return",
    "old": "            self.labels[\"zoffset\"].set_label(\"  0.00mm\")\n            self._screen._send_action(\n                widget, \"printer.gcode.script\", {\"script\": \"SET_GCODE_OFFSET Z=0 MOVE=1\"}\n            )\n            return"
   }
  ],
@@ -171,6 +175,27 @@
   {
    "old": "        elif response_id == Gtk.ResponseType.OK:\n            logging.info(f\"Starting print: {filename}\")\n",
    "new": "        elif response_id == Gtk.ResponseType.OK:\n            try:                                              # F-208: choose the toolheads first; the page starts the print\n                import os as _os\n                if _os.path.exists(_os.path.join(_os.path.dirname(__file__), \"zr_tools.py\")):\n                    self._screen.zr_pending_print = filename\n                    self._screen.show_panel(\"zr_tools\", \"ZR Tools\")\n                    return\n            except Exception as e:\n                logging.error(f\"ZR: Choose toolheads page failed: {e}\")\n            logging.info(f\"Starting print: {filename}\")\n"
+  }
+ ],
+ "prompts2": [
+  {
+   "old": "\ngi.require_version(\"Gtk\", \"3.0\")\nfrom gi.repository import GLib, Gdk, Gtk, Pango\n\n\nclass Prompt:\n",
+   "new": "\ngi.require_version(\"Gtk\", \"3.0\")\nfrom gi.repository import GLib, Gdk, Gtk, Pango\n\n\ntry:      # F-212: bigger button writing of the Nozzle clean window (class wm_big, set in zr_style)\n    _wm_css = Gtk.CssProvider()\n    _wm_css.load_from_data(b\".wm_big label { font-size: 1.35em; font-weight: bold; } button.wm_yellow { background-image: none; background-color: #f0b400; } button.wm_yellow label { color: #222222; }\")\n    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), _wm_css, Gtk.STYLE_PROVIDER_PRIORITY_USER)\nexcept Exception:\n    pass\n\n\nclass Prompt:\n"
+  },
+  {
+   "old": "        ctx = button.get_style_context()\n        ctx.add_class(\"zr_btn\")\n        low = str(name).strip().lower()\n        if low in (\"discard\", \"do not save\"):        # dark like Cancel\n            pass\n        elif style in (\"primary\", \"error\", \"warning\") or low.startswith(\"yes\"):     # blue like Start in the Bed PID window (no pink buttons)\n            ctx.add_class(\"zr_btn_primary\")\n",
+   "new": "        ctx = button.get_style_context()\n        ctx.add_class(\"zr_btn\")\n        low = str(name).strip().lower()\n        if self.header.strip() == \"Nozzle clean\":      # F-212: own colours and bigger writing: success green, error red, primary blue, the rest dark\n            if style == \"success\":\n                ctx.add_class(\"zr_btn_green\")\n            elif style == \"error\":\n                ctx.add_class(\"zr_btn_red\")\n            elif style == \"primary\":\n                ctx.add_class(\"zr_btn_primary\")\n            elif style == \"warning\":\n                ctx.add_class(\"wm_yellow\")\n            ctx.add_class(\"wm_big\")\n        elif low in (\"discard\", \"do not save\"):        # dark like Cancel\n            pass\n        elif style in (\"primary\", \"error\", \"warning\") or low.startswith(\"yes\"):     # blue like Start in the Bed PID window (no pink buttons)\n            ctx.add_class(\"zr_btn_primary\")\n"
+  },
+  {
+   "old": "            self.groups[-1].add(button)\n            # Workaround to expand the buttons horizontally\n            max_childs = len(self.groups[-1].get_children())\n            self.groups[-1].set_max_children_per_line(min(4, max_childs))\n            self.groups[-1].set_min_children_per_line(min(4, max_childs))\n        else:\n            self.scroll_box.add(button)\n\n",
+   "new": "            self.groups[-1].add(button)\n            # Workaround to expand the buttons horizontally\n            max_childs = len(self.groups[-1].get_children())\n            self.groups[-1].set_max_children_per_line(min(5 if self.header.strip() == \"Nozzle clean\" else 4, max_childs))\n            self.groups[-1].set_min_children_per_line(min(5 if self.header.strip() == \"Nozzle clean\" else 4, max_childs))\n        else:\n            self.scroll_box.add(button)\n\n"
+  },
+  {
+   "old": "                lbl = Gtk.Label(wrap=True, xalign=0, hexpand=True)\n                lbl.set_justify(Gtk.Justification.LEFT)\n                lbl.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)\n                if len(lines) >= 3:      # WonderMaker: three lines or more: smaller text, so the buttons stay near\n                    lbl.set_markup(\"<small>\" + GLib.markup_escape_text(line) + \"</small>\")\n                else:\n                    lbl.set_text(line)\n                card.pack_start(lbl, False, False, 0)\n            self.scroll_box.add(card)\n            self.scroll_box.reorder_child(card, 0)\n",
+   "new": "                lbl = Gtk.Label(wrap=True, xalign=0, hexpand=True)\n                lbl.set_justify(Gtk.Justification.LEFT)\n                lbl.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)\n                # F-219: ONE standard writing for every popup window: Large, bold (the user chose it on the Offsets window); warnings yellow\n                _col = \" foreground=\\\"#ffd54a\\\"\" if (line.startswith(\"WARNING\") or \"nozzle is HOT\" in line) else \"\"\n                lbl.set_markup(\"<span size=\\\"large\\\" weight=\\\"bold\\\"\" + _col + \">\" + GLib.markup_escape_text(line) + \"</span>\")\n                card.pack_start(lbl, False, False, 0)\n            self.scroll_box.add(card)\n            self.scroll_box.reorder_child(card, 0)\n"
+  },
+  {
+   "done": "# F-219: ONE standard writing for every popup window"
   }
  ]
 }

@@ -49,7 +49,7 @@
 # ./installer.sh --install             the normal install (skips the menu)
 # ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
-# ./installer.sh --cameras N --cam-resolution 480p|720p|1080p|WxH --cam-fps N   webcam answers given on the command line (otherwise asked)
+# ./installer.sh --cameras N --cam-resolution 480p|720p|1080p|WxH --cam-fps N --cam-mode ustreamer|camera-streamer|spyglass   webcam answers given on the command line (otherwise asked; the streamer defaults to ustreamer)
 # ./installer.sh --screen-camera yes|no   the factory camera is plugged into the factory screen board (yes: it is Camera in Fluidd, the Pi's own cameras are Camera 2 ...)
 # ./installer.sh --webcam-setup        ask the camera questions again and rewrite crowsnest.conf (a copy of the old one is kept)
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
@@ -95,7 +95,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 MOONRAKER_CHANGED=0; IMPORT_HOST=""; SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT=""; CAM_RES=""; CAM_FPS=""; SCREEN_CAM=""; CLI_SCREEN_CAM=""; CLI_CAM_COUNT=""; CLI_CAM_RES=""; CLI_CAM_FPS=""; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT=""; CAM_RES=""; CAM_FPS=""; CAM_MODE=""; SCREEN_CAM=""; CLI_SCREEN_CAM=""; CLI_CAM_COUNT=""; CLI_CAM_RES=""; CLI_CAM_FPS=""; CLI_CAM_MODE=""; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -211,6 +211,7 @@ while [ $# -gt 0 ]; do
         --cameras)      CAM_COUNT="${2:-}"; CLI_CAM_COUNT="$CAM_COUNT"; shift ;;
         --cam-resolution) CAM_RES="${2:-}"; CLI_CAM_RES="$CAM_RES"; shift ;;
         --cam-fps)      CAM_FPS="${2:-}"; CLI_CAM_FPS="$CAM_FPS"; shift ;;
+        --cam-mode)     CAM_MODE="${2:-}"; CLI_CAM_MODE="$CAM_MODE"; shift ;;
         --screen-camera) case "${2:-}" in yes|on|1) CLI_SCREEN_CAM=yes ;; no|off|0) CLI_SCREEN_CAM=no ;; *) print_error "--screen-camera needs yes or no"; exit 1 ;; esac; SCREEN_CAM="$CLI_SCREEN_CAM"; shift ;;
         --webcam-setup) MODE=webcamsetup ;;
         --timelapse)    case "${2:-}" in on|yes|1) WANT_TIMELAPSE=1 ;; off|no|0) WANT_TIMELAPSE=0 ;; *) print_error "--timelapse needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE timelapse"; CLI_TIMELAPSE="$WANT_TIMELAPSE"; shift ;;
@@ -1398,11 +1399,20 @@ ultrabackup_ok() {   # 0 when the helper is in place and no backup is lying arou
     cmp -s "$SCRIPT_DIR/scripts/wm_ultra_backup.py" "$(ultrabackup_dst)" || return 1
     python3 -I "$(ultrabackup_dst)" sweep --dry-run --home "$HOME_DIR" >/dev/null 2>&1; [ "$?" != 10 ]
 }
+step_cfgindex() {   # every install and update (F-158): the header index of the rpi_*.cfg files and zr_tools.cfg, comments only
+    [ -f "$SCRIPT_DIR/scripts/wm_cfg_index.py" ] || return 0
+    local cd="$HOME_DIR/printer_data/config"; [ -d "$cd" ] || return 0
+    why "Each config file of this project gets a list of its macros after its header (visible and hidden, with what each does), so the files are easy to read. Only comment lines are added; a file that changes is copied to printer_data/config/backup first."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add or refresh the macro index in the rpi_*.cfg files${NC}"; return 0; fi
+    local out; out="$(python3 -I "$SCRIPT_DIR/scripts/wm_cfg_index.py" write "$cd" 2>&1)"
+    [ -n "$out" ] && print_success "Macro index refreshed: $(echo "$out" | sed 's/^indexed //' | tr '\n' ' ')"
+    return 0
+}
 step_ultrabackup() {   # every install and update, and ./installer.sh --ultra-backup
     [ -f "$SCRIPT_DIR/scripts/wm_ultra_backup.py" ] || { print_warning "scripts/wm_ultra_backup.py is missing from this repository: the backup folder helper was not installed."; return 0; }
     ultrabackup_ok && { print_success "Backups: all in ~/ultra-backup ($(python3 -I "$(ultrabackup_dst)" status --home "$HOME_DIR" | awk '/total/{print $(NF-4), "MB of", $(NF-1)}' | head -1) MB)"; return 0; }
     print_header "Backup folder (ultra-backup)"
-    why "Backups were spread over many folders (config copies next to the config, wm-backups, acepro-backup, fluidd_backup_*). They now live in one folder, ~/ultra-backup, sorted by type. The newest copy of each config file stays next to it. The newest undo folder of each installer stays where it is: --undo restores from it. The folder is limited to 400 MB: the oldest go first, and nothing is written when the Pi has less than 2 GB free."
+    why "Backups were spread over many folders (config copies next to the config, wm-backups, acepro-backup, fluidd_backup_*). They now live in one folder, ~/ultra-backup, sorted by type. Every copy of a config file (also the newest) goes into printer_data/config/backup, so the config folder only holds the live files (the safeguard copies saved_variables.cfg.wm-good and *.wm-model-bak stay). The newest undo folder of each installer stays where it is: --undo restores from it. The folder is limited to 400 MB: the oldest go first, and nothing is written when the Pi has less than 2 GB free."
     if [ "$DRY" = 1 ]; then python3 -I "$SCRIPT_DIR/scripts/wm_ultra_backup.py" sweep --dry-run --home "$HOME_DIR" | sed 's/^/    /' | tail -8; return 0; fi
     mkdir -p "$(dirname "$(ultrabackup_dst)")"; install -m 755 "$SCRIPT_DIR/scripts/wm_ultra_backup.py" "$(ultrabackup_dst)"; record "FILE $(ultrabackup_dst)"
     local out rc; out="$(python3 -I "$(ultrabackup_dst)" sweep --home "$HOME_DIR" 2>&1)"; rc=$?
@@ -2059,13 +2069,18 @@ camera_questions() {   # how many cameras, picture size, speed. An existing crow
     [ -z "$CAM_COUNT" ] || CAM_COUNT="$(python3 -I "$py" count "$CAM_COUNT" --min $cmin --max $cmax 2>&1)" || die_with_fix "--cameras: ${CAM_COUNT#wm_crowsnest: }" "use a number from $cmin to $cmax."
     [ -z "$CAM_RES" ] || CAM_RES="$(python3 -I "$py" resolution "$CAM_RES" 2>&1)" || die_with_fix "--cam-resolution: ${CAM_RES#wm_crowsnest: }" "use 480p, 720p, 1080p or WIDTHxHEIGHT."
     [ -z "$CAM_FPS" ] || CAM_FPS="$(python3 -I "$py" fps "$CAM_FPS" 2>&1)" || die_with_fix "--cam-fps: ${CAM_FPS#wm_crowsnest: }" "use a number from 1 to 60."
-    [ -n "$CAM_COUNT" ] && [ -n "$CAM_RES" ] && [ -n "$CAM_FPS" ] && return 0
+    [ -z "$CAM_MODE" ] || CAM_MODE="$(python3 -I "$py" streamer "$CAM_MODE" 2>&1)" || die_with_fix "--cam-mode: ${CAM_MODE#wm_crowsnest: }" "use ustreamer, camera-streamer or spyglass."
+    [ -n "$CAM_COUNT" ] && [ -n "$CAM_RES" ] && [ -n "$CAM_FPS" ] && [ -n "$CAM_MODE" ] && return 0
     print_header "Webcams (crowsnest)"
-    why "Camera-streamer is used on a Pi 4 / CM4, ustreamer on the other models (a ribbon camera needs camera-streamer, or spyglass on a Pi 5). Every option stays editable in crowsnest.conf, which explains each one."
+    why "ustreamer is the default streamer. camera-streamer uses the Pi hardware (USB and the ribbon camera, not on a Pi 5), spyglass is for the ribbon camera on a Pi 5. A ribbon camera always gets camera-streamer or spyglass. Every option stays editable in crowsnest.conf, which explains each one."
     found="$(python3 -I "$py" detect)"; echo "  Cameras found:"; echo "$found" | sed 's/^/    /'
     def="$(python3 -I "$py" detect --count)"; [ "${def:-0}" -ge "$cmin" ] 2>/dev/null || def=$cmin; [ "$def" -le "$cmax" ] || def=$cmax
     if screen_cam_on; then echo "  The screen board camera is Camera. The cameras plugged into this Pi come after it."; fi
     if [ -z "$CAM_COUNT" ]; then CAM_CHK_EXTRA="--min $cmin --max $cmax" cam_ask "How many cameras do you want to set up on this Pi ($cmin to $cmax)?" "$def" count; CAM_COUNT="$CAM_ANSWER"; fi
+    if [ -z "$CAM_MODE" ]; then
+        if [ "${WM_ASSUME_YES:-0}" != 1 ]; then echo "  Streamer (mode):  1) ustreamer (default, USB cameras)   2) camera-streamer (Pi hardware, USB and ribbon camera)   3) spyglass (ribbon camera on a Pi 5)"; fi
+        cam_ask "Which streamer (1, 2, 3 or the name)?" ustreamer streamer; CAM_MODE="$CAM_ANSWER"
+    fi
     if [ -z "$CAM_RES" ]; then
         if [ "${WM_ASSUME_YES:-0}" != 1 ]; then echo "  Picture size:  1) 480p (640x480, lightest)   2) 720p (1280x720)   3) 1080p (1920x1080, heaviest)   or type WIDTHxHEIGHT"; fi
         cam_ask "Picture size (1, 2, 3 or WIDTHxHEIGHT)?" 2 resolution; CAM_RES="$CAM_ANSWER"
@@ -2079,10 +2094,10 @@ crowsnest_conf_make() {   # a fresh crowsnest.conf with every option explained; 
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would write crowsnest.conf (explained; an existing one is kept, the new copy goes next to it as crowsnest.conf.new)${NC}"; return 0; fi
     if [ ! -f "$py" ]; then [ -f "$conf" ] || cp "$SCRIPT_DIR/config/crowsnest.conf" "$conf"; return 0; fi
     model="$(pi_model)"; n="${CAM_COUNT:-1}"
-    local args=(--model "$model" --count "$n" --resolution "${CAM_RES:-720p}" --fps "${CAM_FPS:-15}" --first "$(screen_cam_first)")
+    local args=(--model "$model" --count "$n" --resolution "${CAM_RES:-720p}" --fps "${CAM_FPS:-15}" --mode "${CAM_MODE:-ustreamer}" --first "$(screen_cam_first)")
     if [ ! -f "$conf" ]; then
         python3 -I "$py" conf "${args[@]}" --out "$conf" >/dev/null; rc=$?
-        [ "$rc" = 10 ] && print_success "crowsnest.conf written: $n camera(s), ${CAM_RES:-720p}, ${CAM_FPS:-15} fps. Every option is explained at the top of the file." || warn_later "crowsnest.conf could not be written."
+        [ "$rc" = 10 ] && print_success "crowsnest.conf written: $n camera(s), ${CAM_MODE:-ustreamer}, ${CAM_RES:-720p}, ${CAM_FPS:-15} fps. Every option is explained at the top of the file." || warn_later "crowsnest.conf could not be written."
     elif ! grep -q 'Written by the WM_Ultra_Vanilla_Klipper installer' "$conf" && [ ! -f "$conf.new" ]; then
         python3 -I "$py" conf "${args[@]}" --out "$conf" --keep >/dev/null
         print_info "Your crowsnest.conf is kept as it is. A new copy that explains every option is next to it: crowsnest.conf.new"
@@ -2114,7 +2129,7 @@ do_webcam_setup() {   # ./installer.sh --webcam-setup
     [ -d "$HOME_DIR/crowsnest" ] || die_with_fix "the webcam service is not installed." "install it first: ./installer.sh --update --only-addon webcam --webcam on"
     local conf="$HOME_DIR/printer_data/config/crowsnest.conf"
     camera_questions
-    if screen_cam_on; then CAM_COUNT="${CAM_COUNT:-0}"; else CAM_COUNT="${CAM_COUNT:-1}"; fi; CAM_RES="${CAM_RES:-720p}"; CAM_FPS="${CAM_FPS:-15}"
+    if screen_cam_on; then CAM_COUNT="${CAM_COUNT:-0}"; else CAM_COUNT="${CAM_COUNT:-1}"; fi; CAM_RES="${CAM_RES:-720p}"; CAM_FPS="${CAM_FPS:-15}"; CAM_MODE="${CAM_MODE:-ustreamer}"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rewrite crowsnest.conf ($CAM_COUNT camera(s), $CAM_RES, $CAM_FPS fps; a copy of the old one is kept)${NC}"; return 0; fi
     if [ -f "$conf" ]; then
         ask_yn "Replace crowsnest.conf with these settings? A copy of the old one is kept." y || { echo "Nothing changed."; return 0; }
@@ -2384,6 +2399,7 @@ WANT_CROWSNEST=$WANT_CROWSNEST
 CAM_COUNT=$CAM_COUNT
 CAM_RES=$CAM_RES
 CAM_FPS=$CAM_FPS
+CAM_MODE=$CAM_MODE
 SCREEN_CAM=$SCREEN_CAM
 WANT_SHELLCMD=$WANT_SHELLCMD
 WANT_OBICO=$WANT_OBICO
@@ -2407,7 +2423,7 @@ load_answers() {
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
             WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|WANT_SPOOLMAN|WANT_ACEPRO|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
             SCREEN_CAM) [ -n "${CLI_SCREEN_CAM:-}" ] || SCREEN_CAM="$v" ;;
-            CAM_COUNT) [ -n "${CLI_CAM_COUNT:-}" ] || CAM_COUNT="$v" ;; CAM_RES) [ -n "${CLI_CAM_RES:-}" ] || CAM_RES="$v" ;; CAM_FPS) [ -n "${CLI_CAM_FPS:-}" ] || CAM_FPS="$v" ;;
+            CAM_COUNT) [ -n "${CLI_CAM_COUNT:-}" ] || CAM_COUNT="$v" ;; CAM_RES) [ -n "${CLI_CAM_RES:-}" ] || CAM_RES="$v" ;; CAM_FPS) [ -n "${CLI_CAM_FPS:-}" ] || CAM_FPS="$v" ;; CAM_MODE) [ -n "${CLI_CAM_MODE:-}" ] || CAM_MODE="$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
@@ -2897,6 +2913,7 @@ do_update() {
     step_pi_updater
     step_panel_updater
     save_answers
+    step_cfgindex
     [ -n "$ONLY_ADDON" ] || step_ultrabackup   # last, after the panel and the add-ons: they write backups of their own (acepro-backup, fluidd_backup_*), and those are swept too
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
@@ -4346,6 +4363,7 @@ PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
 step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
+step_cfgindex
 step_ultrabackup   # after the panel and the add-ons, which write backups of their own
 restart_klipper_after
 self_test

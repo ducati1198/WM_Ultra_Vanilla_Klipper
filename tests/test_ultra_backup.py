@@ -53,13 +53,25 @@ class Home(unittest.TestCase):
         put(os.path.join(self.c, "saved_variables.cfg.wm-good"))
         put(os.path.join(self.c, "crowsnest.conf.new"))
         put(os.path.join(self.c, "printer.cfg"))
-        self.assertEqual(self.run_cli("sweep"), 10)
+        put(os.path.join(self.c, "printer-20261118_172301.cfg")); put(os.path.join(self.c, "crowsnest.conf.2026-11-18-1616")); put(os.path.join(self.c, "printer.cfg.zrbak_20261119_092137"))
+        self.run_cli("sweep")
         f = self.files()
-        self.assertIn("printer_data/config/rpi_base.cfg.wm-before-c-20261112-100000", f)
-        self.assertIn("ultra-backup/config/2026-11-10/rpi_base.cfg.wm-before-a-20261110-100000", f)
-        self.assertIn("ultra-backup/config/2026-11-11/rpi_base.cfg.wm-before-b-20261111-100000", f)
+        for n in ("rpi_base.cfg.wm-before-a-20261110-100000", "rpi_base.cfg.wm-before-b-20261111-100000", "rpi_base.cfg.wm-before-c-20261112-100000",
+                  "printer-20261118_172301.cfg", "crowsnest.conf.2026-11-18-1616", "printer.cfg.zrbak_20261119_092137"):
+            self.assertIn("printer_data/config/backup/" + n, f)      # F-157: every copy, also the newest, goes to config/backup
+            self.assertNotIn("printer_data/config/" + n, f)
         for keep in ("saved_variables.cfg.wm-good", "crowsnest.conf.new", "printer.cfg"):
             self.assertIn("printer_data/config/" + keep, f)
+
+    def test_config_backup_keeps_8_copies_per_file(self):
+        for i in range(11):
+            put(os.path.join(self.c, "backup", "rpi_base.cfg.wm-before-x-202611%02d-100000" % (i + 1)), when=1700000000 + i * 100)
+        put(os.path.join(self.c, "backup", "printer.cfg.wm-before-x-20261101-100000"), when=1700000000)
+        self.run_cli("prune")
+        left = [n for n in self.files() if "backup/rpi_base" in n]
+        self.assertEqual(len(left), 8)
+        self.assertIn("printer_data/config/backup/rpi_base.cfg.wm-before-x-20261111-100000", left)
+        self.assertTrue(any("backup/printer.cfg" in n for n in self.files()))
 
     def test_second_run_changes_nothing_and_dry_run_changes_nothing(self):
         put(os.path.join(self.h, "wm-backups", "a.tgz")); put(os.path.join(self.h, "fluidd_backup_x", "config.json"))
@@ -90,11 +102,11 @@ class Home(unittest.TestCase):
         f = " ".join(self.files())
         for want in ("ultra-backup/settings/wm-backup-x.tgz", "ultra-backup/fluidd-macros/", "ultra-backup/config/2026-11-13/rename-20261113-130537/a.cfg",
                      "ultra-backup/installer/2026-11-12/wm-20261112_000001", "ultra-backup/drivers/", "ultra-backup/fluidd-page/2026-11-12/fluidd_backup_20261112_081041/config.json",
-                     "ultra-backup/installer/2026-11-12/old-20261112-000001", "ultra-backup/INDEX.txt", "ultra-backup/config/2026-11-10/printer.cfg.wm-before-a-20261110-100000"):
+                     "ultra-backup/installer/2026-11-12/old-20261112-000001", "ultra-backup/INDEX.txt", "printer_data/config/backup/printer.cfg.wm-before-a-20261110-100000"):
             self.assertIn(want, f, want)
         for stay in ("wm-rpi-backup/install.conf", "wm-rpi-backup/installed.manifest", "wm-rpi-backup/old-20261114-000002/printer_data/config/mine.cfg",
                      "acepro-backup/wm-20261114_000002/manifest.txt", "fluidd_backup_ui_20261114_112536/config.json", "repo/.git/HEAD", "fluidd_backup_in_repo/.git/HEAD",
-                     "printer_data/config/printer.cfg.wm-model-bak", "printer_data/config/printer.cfg.wm-before-b-20261111-100000"):
+                     "printer_data/config/printer.cfg.wm-model-bak", "printer_data/config/backup/printer.cfg.wm-before-b-20261111-100000"):
             self.assertIn(stay, f, stay)
         self.assertFalse(os.path.exists(os.path.join(self.h, "wm-backups")))
         self.assertEqual(self.run_cli("sweep"), 0)

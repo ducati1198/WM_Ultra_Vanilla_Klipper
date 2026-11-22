@@ -7,7 +7,9 @@
   wm_ultra_backup.py status  [--home DIR]               sizes per type and the limits
 
 Folders under ~/ultra-backup (by type, the date inside):
-  config/        older copies of cfg files (*.wm-before-*, *.wm-*, .bak, .orig); the newest copy of each file stays next to it
+  printer_data/config/backup/   F-157: EVERY copy of a config file (*.wm-before-*, *.wm-*, .bak, .orig, Klipper's printer-<date>_<time>.cfg,
+                 crowsnest.conf.<date>) goes here, flat, so the config folder only holds the live files; newest 8 per file, 60 MB
+  config/        copies that older versions of the installer moved here (kept; no new ones are added)
   fluidd-page/   copies of the Fluidd web page
   fluidd-macros/ Fluidd macro lists (.json)
   settings/      "Back up my settings" archives (.tgz)
@@ -32,6 +34,28 @@ LIMITS = {   # category: (max bytes, max copies per name or 0 for no count limit
 MIN_FREE = 2048 * MB
 INDEX_MAX = 1 * MB
 COPY_RE = re.compile(r"^(?P<base>.+?)\.(?:wm-[A-Za-z0-9_-]*|bak|orig)(?:[-.]?\d{8}[-_]\d{6})?$")
+KLIPPER_COPY_RE = re.compile(r"^printer-\d{8}_\d{6}\.cfg$")               # Klipper's own copy before SAVE_CONFIG
+DATED_COPY_RE = re.compile(r"^(?P<base>.+?)\.20\d\d-\d\d-\d\d-\d{4}$")   # e.g. crowsnest.conf.2026-11-18-1616
+ZRBAK_RE = re.compile(r"^(?P<base>.+?)\.zrbak[-_]?(?:\d{8}[-_]\d{6})?$")          # e.g. printer.cfg.zrbak_20261119_092137 (copy made by the factory/ZR tools)
+CONFIG_BACKUP_DIR = "backup"                                                 # printer_data/config/backup (F-157)
+CONFIG_BACKUP_COPIES = 8
+CONFIG_BACKUP_CAP = 60 * MB
+
+
+def copy_base(name):
+    """The file a backup copy belongs to (rpi_base.cfg for rpi_base.cfg.wm-before-x-2026...), or None when it is not a copy."""
+    if name.endswith(".new"):
+        return None
+    m = COPY_RE.match(name)
+    if m:
+        return m.group("base")
+    if KLIPPER_COPY_RE.match(name):
+        return "printer.cfg"
+    m = DATED_COPY_RE.match(name)
+    if m:
+        return m.group("base")
+    m = ZRBAK_RE.match(name)
+    return m.group("base") if m else None
 KEEP_NAMES = {"saved_variables.cfg.wm-good"}
 MANAGED = {"acepro-panel"}   # folders under installer/ that the panel installer manages itself (undo folders + the original Fluidd, never pruned here)
 KEEP_SUFFIX = (".wm-good", ".wm-model-bak", ".wm-keep")   # files the installer reads again: never moved
@@ -121,26 +145,58 @@ def move(src, ult, cat, home, dry, note=""):
 
 
 def sweep_config(home, ult, dry):
-    """printer_data/config: the newest copy of each file stays, the older ones move."""
+    """printer_data/config: every backup copy moves to printer_data/config/backup (F-157), so the config folder holds the live files only.
+    Never moved: saved_variables.cfg.wm-good and the other files the installer reads again (KEEP_NAMES, KEEP_SUFFIX), *.new."""
     cdir = os.path.join(home, "printer_data", "config")
     if not os.path.isdir(cdir):
         return 0
-    groups = {}
-    for name in os.listdir(cdir):
-        p = os.path.join(cdir, name)
-        if not os.path.isfile(p) or name in KEEP_NAMES or name.endswith(KEEP_SUFFIX):
-            continue
-        m = COPY_RE.match(name)
-        if not m or name.endswith(".new"):
-            continue
-        groups.setdefault(m.group("base"), []).append((os.path.getmtime(p), name))
+    bdir = os.path.join(cdir, CONFIG_BACKUP_DIR)
     n = 0
-    for base, items in groups.items():
-        items.sort(reverse=True)
-        for _t, name in items[1:]:
-            if move(os.path.join(cdir, name), ult, "config", home, dry):
-                n += 1
+    for name in sorted(os.listdir(cdir)):
+        p = os.path.join(cdir, name)
+        if not os.path.isfile(p) or name in KEEP_NAMES or name.endswith(KEEP_SUFFIX) or copy_base(name) is None:
+            continue
+        dst = unique(os.path.join(bdir, name))
+        if dry:
+            print("would move  %s  ->  %s" % (p, dst)); n += 1; continue
+        os.makedirs(bdir, exist_ok=True)
+        shutil.move(p, dst)
+        log_index(ult, "moved %s -> %s" % (p.replace(home, "~"), dst.replace(home, "~")))
+        n += 1
     return n
+
+
+def prune_config_backup(home, ult, dry):
+    """printer_data/config/backup: the newest CONFIG_BACKUP_COPIES of each file stay, and the folder stays under CONFIG_BACKUP_CAP (oldest go first)."""
+    bdir = os.path.join(home, "printer_data", "config", CONFIG_BACKUP_DIR)
+    if not os.path.isdir(bdir):
+        return 0
+    items = []
+    for name in os.listdir(bdir):
+        p = os.path.join(bdir, name)
+        if os.path.isfile(p):
+            items.append((os.path.getmtime(p), p, size_of(p), copy_base(name) or name))
+    items.sort()   # oldest first
+    removed = 0
+    by_base = {}
+    for it in items:
+        by_base.setdefault(it[3], []).append(it)
+    for lst in by_base.values():
+        for it in lst[:-CONFIG_BACKUP_COPIES]:
+            if dry:
+                print("would delete (more than %d copies)  %s" % (CONFIG_BACKUP_COPIES, it[1]))
+            else:
+                remove(it[1]); log_index(ult, "deleted %s (more than %d copies)" % (it[1].replace(home, "~"), CONFIG_BACKUP_COPIES))
+            items = [x for x in items if x[1] != it[1]]; removed += 1
+    total = sum(i[2] for i in items)
+    while total > CONFIG_BACKUP_CAP and len(items) > 1:
+        it = items.pop(0)
+        if dry:
+            print("would delete (config/backup over %d MB)  %s" % (CONFIG_BACKUP_CAP // MB, it[1]))
+        else:
+            remove(it[1]); log_index(ult, "deleted %s (config/backup over %d MB)" % (it[1].replace(home, "~"), CONFIG_BACKUP_CAP // MB))
+        total -= it[2]; removed += 1
+    return removed
 
 
 def flatten_settings(ult, dry):
@@ -309,6 +365,7 @@ def prune(home, ult, dry):
                 remove(it[1]); log_index(ult, "deleted %s (%s over %d MB)" % (it[1].replace(home, "~"), cat, cap // MB))
             total -= it[2]; removed += 1
         allitems += items
+    removed += prune_config_backup(home, ult, dry)
     allitems.sort()
     total = sum(i[2] for i in allitems)
     while total > TOTAL_LIMIT and len(allitems) > 1:
@@ -327,6 +384,9 @@ def status(home, ult):
     for cat, (cap, copies) in LIMITS.items():
         items = entries(os.path.join(ult, cat)); s = sum(i[2] for i in items); tot += s
         print("  %-14s %4d items  %7.1f MB  (limit %d MB%s)" % (cat, len(items), s / MB, cap // MB, (", %d copies per file" % copies) if copies else ""))
+    bd = os.path.join(home, "printer_data", "config", CONFIG_BACKUP_DIR)
+    bi = [f for f in os.listdir(bd) if os.path.isfile(os.path.join(bd, f))] if os.path.isdir(bd) else []
+    print("  %-14s %4d items  %7.1f MB  (printer_data/config/backup, limit %d MB, %d copies per file)" % ("config/backup", len(bi), sum(size_of(os.path.join(bd, f)) for f in bi) / MB, CONFIG_BACKUP_CAP // MB, CONFIG_BACKUP_COPIES))
     print("  %-14s %4s        %7.1f MB  (limit %d MB)" % ("total", "", tot / MB, TOTAL_LIMIT // MB))
     print("  free disk: %.1f GB" % (free_bytes(home) / 1024 / MB))
     return tot

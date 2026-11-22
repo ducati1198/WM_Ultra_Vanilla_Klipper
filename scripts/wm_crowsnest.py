@@ -3,7 +3,8 @@
 
   wm_crowsnest.py detect [--json]                      list the cameras that are plugged in (USB by-id paths, CSI libcamera paths)
   wm_crowsnest.py modes --model "<Pi model text>"      which streamer is used for a USB and for a CSI camera on this Pi
-  wm_crowsnest.py conf  --model M --count N --resolution 480p|720p|1080p|WxH --fps F [--out FILE] [--keep]
+  wm_crowsnest.py streamer "<ustreamer|camera-streamer|spyglass|1|2|3>"   check the streamer answer
+  wm_crowsnest.py conf  --model M --count N --resolution 480p|720p|1080p|WxH --fps F [--mode STREAMER] [--out FILE] [--keep]
                                                        the full crowsnest.conf (every option explained at the top). Without --out it prints.
                                                        --keep: an existing FILE is never touched, the new text goes to FILE.new
   wm_crowsnest.py moonraker FILE --count N [--write]   add [webcam Camera], [webcam Camera 2] ... to moonraker.conf so Fluidd lists the cameras
@@ -82,14 +83,35 @@ def pi_kind(model):
     return "other"
 
 
-def mode_for(model, kind):
+STREAMERS = ("ustreamer", "camera-streamer", "spyglass")
+DEFAULT_STREAMER = "ustreamer"
+
+
+def parse_streamer(text):
+    """The streamer the user asked for: its name or 1, 2, 3 (ustreamer, camera-streamer, spyglass). Empty text: the default (ustreamer)."""
+    t = (text or "").strip().lower()
+    if not t:
+        return DEFAULT_STREAMER
+    if t in ("1", "2", "3"):
+        return STREAMERS[int(t) - 1]
+    if t in STREAMERS:
+        return t
+    die("%r is not a streamer: use ustreamer, camera-streamer or spyglass (or 1, 2, 3)." % text)
+
+
+def mode_for(model, kind, streamer=None):
     """The streamer for a camera of kind 'usb' or 'csi'.
-    Pi 4 / CM4: camera-streamer. Every other Pi (Pi 5, Pi 3, Zero 2): ustreamer.
+    streamer given (the installer asks for it, default ustreamer): used for every USB camera.
+    Without it: Pi 4 / CM4: camera-streamer. Every other Pi (Pi 5, Pi 3, Zero 2): ustreamer.
     A CSI ribbon camera needs libcamera, which ustreamer cannot use, so a CSI camera gets camera-streamer
-    (not available on a Pi 5) or spyglass (Pi 5)."""
+    (not available on a Pi 5) or spyglass (Pi 5), whatever was asked, unless camera-streamer or spyglass was asked."""
     p = pi_kind(model)
     if kind == "csi":
+        if streamer in ("camera-streamer", "spyglass"):
+            return streamer
         return "spyglass" if p == "pi5" else "camera-streamer"
+    if streamer:
+        return streamer
     return "camera-streamer" if p == "pi4" else "ustreamer"
 
 
@@ -184,7 +206,7 @@ HEADER = """#### crowsnest.conf  -  webcam streaming (Crowsnest)
 """ % {"readme": README}
 
 
-def conf_text(model, cams, resolution, fps, first=1):
+def conf_text(model, cams, resolution, fps, first=1, streamer=None):
     """The whole crowsnest.conf. cams: list of {'kind','path','name'} (may be shorter than the number wanted: see conf_for)."""
     w, h = parse_resolution(resolution)
     parts = [HEADER, "\n[crowsnest]\nlog_level: verbose\nrollover_on_start: false\nno_proxy: false\n"]
@@ -196,18 +218,18 @@ def conf_text(model, cams, resolution, fps, first=1):
         elif c.get("name"):
             parts.append("# %s\n" % c["name"])
         parts.append("mode: %s\nport: %d\ndevice: %s\nresolution: %dx%d\nmax_fps: %d\n#custom_flags:\n#v4l2ctl:\n"
-                     % (mode_for(model, kind), BASE_PORT + i - 1, c["path"], w, h, fps))
+                     % (mode_for(model, kind, streamer), BASE_PORT + i - 1, c["path"], w, h, fps))
     return "".join(parts)
 
 
-def conf_for(model, found, count, resolution, fps, first=1):
+def conf_for(model, found, count, resolution, fps, first=1, streamer=None):
     """Fill up to `count` cameras: the ones found first, then placeholders (/dev/video0, /dev/video2 ...) for those not plugged in."""
     cams = [dict(c) for c in found[:count]]
     n = 0
     while len(cams) < count:
         cams.append({"kind": "usb", "path": "/dev/video%d" % n, "name": "", "placeholder": True})
         n += 2
-    return conf_text(model, cams, resolution, fps, first)
+    return conf_text(model, cams, resolution, fps, first, streamer)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -335,6 +357,9 @@ def main(argv):
                     f.write(new)
             print("changed")
             return 10
+        if cmd == "streamer":
+            print(parse_streamer(argv[2] if len(argv) > 2 else ""))
+            return 0
         if cmd == "fps":
             print(parse_fps(argv[2] if len(argv) > 2 else ""))
             return 0
@@ -349,7 +374,8 @@ def main(argv):
             model = arg(argv, "--model", "")
             first = int(arg(argv, "--first", "1"))
             count = parse_count(arg(argv, "--count", "1"), MAX_CAMS - first + 1, 0 if first > 1 else 1)
-            text = conf_for(model, detect(), count, arg(argv, "--resolution", DEFAULT_RES), parse_fps(arg(argv, "--fps", DEFAULT_FPS)), first)
+            streamer = parse_streamer(arg(argv, "--mode")) if arg(argv, "--mode") else None
+            text = conf_for(model, detect(), count, arg(argv, "--resolution", DEFAULT_RES), parse_fps(arg(argv, "--fps", DEFAULT_FPS)), first, streamer)
             out = arg(argv, "--out")
             if not out:
                 sys.stdout.write(text)

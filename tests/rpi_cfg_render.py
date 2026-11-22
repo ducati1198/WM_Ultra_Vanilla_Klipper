@@ -26,7 +26,7 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     if shell: cs['gcode_shell_command wm_nozzle'] = {}
     if canids: cs['gcode_shell_command wm_canids'] = {}
     for i in range(4): cs['mcu t%d' % i] = {'canbus_uuid': (ids or ['ac8b57e80210', 'ac80ddd6ebe5', 'ac4068351d2c', 'ac6290884b96'])[i]}
-    for mm in [m_ for m_ in re.finditer(r'^\[gcode_macro (\S+)\]\n((?:(?!\[).*\n)*)', text, re.M) if m_.group(1) == name]:   # only the macro that runs: other macros must stay absent from the printer object
+    for mm in [m_ for m_ in re.finditer(r'^\[gcode_macro (\S+)\]\n((?:(?!\[).*\n)*)', text, re.M) if m_.group(1) in (name, '_WM_XYSTOP')]:   # only the macro that runs: other macros must stay absent from the printer object
         #\n((?:(?!\[).*\n)*)', text, re.M):   # the variable_ lines of every macro (the real macros keep their settings there)
         vs = {}
         for vl in re.finditer(r'^variable_(\w+):\s*([^#\n]*?)\s*(?:#.*)?$', mm.group(2), re.M):
@@ -53,7 +53,7 @@ def want(label, lines, *must, none=()):
     for m in none:
         if m in j: bad.append("%s: unexpected %r in\n%s" % (label, m, j))
 for n in macros: env.from_string(macros[n])
-want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_SCREWS_CAL", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_FULL_PID", "_WM_CAL_STOP", "_WM_CAL_HELP", "WM_BED_PID", "WM_FIRST_RUN_CAL", "_WM_FIRST_RUN_CAL", "_WM_FIRST_RUN_CAL_DONE", "_WM_NOZZLE_TYPE", "_WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
+want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_SCREWS_CAL", "WM_PROBE_CALIBRATE", "_WM_PROBE_DONE", "WM_OFFSETS_RAPID", "_WM_OFFSETS_ACCURATE", "WM_VIBRATION_COMP", "WM_NOZZLE_FULL_PID", "_WM_CAL_STOP", "_WM_CAL_HELP", "WM_BED_PID", "WM_FIRST_RUN_CAL", "_WM_FIRST_RUN_CAL", "_WM_FIRST_RUN_CAL_DONE", "_WM_NOZZLE_TYPE", "_WM_NOZZLE_CHANGE_END", "WM_EXTRUDER_SETUP", "WM_NOZZLE_CHANGE"])
 want("level asks first", run("WM_BED_LEVELING"), "_WM_CAL_ASK STAGE=level", none=("G29",))
 want("level runs", run("WM_BED_LEVELING", {"CONFIRM": "1"}, homed=""), "G28", "G29", "TURN_OFF_HEATERS", "SAVE_CONFIG")
 want("level runs when already homed: no second homing", run("WM_BED_LEVELING", {"CONFIRM": "1"}, homed="xyz"), "G29", "TURN_OFF_HEATERS", none=("G28", "homing all axes"))
@@ -68,18 +68,18 @@ want("precheck: bed on", run("_WM_CAL_PRECHECK", target={"heater_bed": 60.0}), '
 want("precheck: bed allowed", run("_WM_CAL_PRECHECK", {"ALLOW_BED": "1"}, target={"heater_bed": 60.0}), none=("RAISE",))
 want("probe warms bed then PROBE_CALIBRATE", run("WM_PROBE_CALIBRATE", {"CONFIRM": "1"}), "M190 S60", "PROBE_CALIBRATE", none=("SAVE_CONFIG",))
 want("probe refuses a bed above 100", run("WM_PROBE_CALIBRATE", {"CONFIRM": "1", "BED": "120"}), "RAISE")
-want("rapid: G28, every tool, park, heaters off", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, homed=""), "G28", "RAPID_MODE T=0", "RAPID_MODE T=3", "PARK_CURRENT_TOOL", "TURN_OFF_HEATERS", none=("NOZZLE_PREPARE",))
-want("rapid: two tools only", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, sv={"thr_number": 2}), "RAPID_MODE T=1", none=("RAPID_MODE T=2",))
+want("rapid: G28, every tool, park, heaters off", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}, homed=""), "G28", "RAPID_MODE T=0", "RAPID_MODE T=3", "PARK_CURRENT_TOOL", "TURN_OFF_HEATERS", none=("NOZZLE_PREPARE",))
+want("rapid: two tools only", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}, sv={"thr_number": 2}), "RAPID_MODE T=1", none=("RAPID_MODE T=2",))
 want("rapid asks first", run("WM_OFFSETS_RAPID"), "_WM_CAL_ASK STAGE=offsets MODE=rapid", none=("G28", "RAPID_MODE"))
-want("accurate asks first", run("WM_OFFSETS_ACCURATE"), "_WM_CAL_ASK STAGE=offsets MODE=accurate", none=("G28", "NOZZLE_PREPARE"))
-want("accurate start: G28, prepare T0, debris window", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, homed=""), "G28", "NOZZLE_PREPARE S=220 T=0", "purged debris has been manually removed", "WM_OFFSETS_ACCURATE STEP=clean N=0 TEMP=220", none=("NOZZLE_CALIBRATE_TOOL_OFFSET", "RAPID_MODE"))
-want("accurate TEMP", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "240"}), "NOZZLE_PREPARE S=240 T=0", "TEMP=240")
-want("accurate TEMP out of range", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "400"}), '_WM_FAIL MSG="TEMP=400 is outside')
-want("accurate clean T1: wipe, then prepare T2", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "1", "TEMP": "230"}), "NOZZLE_CALIBRATE_TOOL_OFFSET T=1", "NOZZLE_PREPARE S=230 T=2", "STEP=clean N=2 TEMP=230", none=("RAPID_MODE", "G28"))
-want("accurate clean last tool: rapid for all, park", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}), "NOZZLE_CALIBRATE_TOOL_OFFSET T=3", "RAPID_MODE T=0", "RAPID_MODE T=3", "PARK_CURRENT_TOOL", "TURN_OFF_HEATERS", none=("NOZZLE_PREPARE",))
-want("accurate clean last tool (2 tools)", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "1"}, sv={"thr_number": 2}), "RAPID_MODE T=1", none=("RAPID_MODE T=2", "NOZZLE_PREPARE"))
-want("accurate clean while printing", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "0"}, printing="printing"), '_WM_FAIL MSG="A print is running')
-want("accurate bad step", run("WM_OFFSETS_ACCURATE", {"STEP": "x"}), '_WM_FAIL MSG="STEP must be')
+want("accurate asks first", run("_WM_OFFSETS_ACCURATE"), "_WM_CAL_ASK STAGE=offsets MODE=accurate", none=("G28", "NOZZLE_PREPARE"))
+want("accurate start: G28, prepare T0, debris window", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, homed=""), "G28", "NOZZLE_PREPARE S=220 T=0", "purged debris has been manually removed", "_WM_OFFSETS_ACCURATE STEP=clean N=0 TEMP=220", none=("NOZZLE_CALIBRATE_TOOL_OFFSET", "RAPID_MODE"))
+want("accurate TEMP", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "240"}), "NOZZLE_PREPARE S=240 T=0", "TEMP=240")
+want("accurate TEMP out of range", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "400"}), '_WM_FAIL MSG="TEMP=400 is outside')
+want("accurate clean T1: wipe, then prepare T2", run("_WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "1", "TEMP": "230"}), "NOZZLE_CALIBRATE_TOOL_OFFSET T=1", "NOZZLE_PREPARE S=230 T=2", "STEP=clean N=2 TEMP=230", none=("RAPID_MODE", "G28"))
+want("accurate clean last tool: rapid for all, park", run("_WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}), "NOZZLE_CALIBRATE_TOOL_OFFSET T=3", "RAPID_MODE T=0", "RAPID_MODE T=3", "PARK_CURRENT_TOOL", "TURN_OFF_HEATERS", none=("NOZZLE_PREPARE",))
+want("accurate clean last tool (2 tools)", run("_WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "1"}, sv={"thr_number": 2}), "RAPID_MODE T=1", none=("RAPID_MODE T=2", "NOZZLE_PREPARE"))
+want("accurate clean while printing", run("_WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "0"}, printing="printing"), '_WM_FAIL MSG="A print is running')
+want("accurate bad step", run("_WM_OFFSETS_ACCURATE", {"STEP": "x"}), '_WM_FAIL MSG="STEP must be')
 want("shaper", run("WM_VIBRATION_COMP", {"CONFIRM": "1"}, homed=""), "G28", "SHAPER_CALIBRATE", "SAVE_CONFIG")
 want("shaper when already homed: no second homing", run("WM_VIBRATION_COMP", {"CONFIRM": "1"}, homed="xyz"), "SHAPER_CALIBRATE", none=("G28", "homing all axes"))
 want("pid tool 1", run("WM_NOZZLE_FULL_PID", {"CONFIRM": "1", "T": "1"}), "_WM_PID_HEAD T=1 TARGET=220 FAN=100", "M106 S0", "TURN_OFF_HEATERS")
@@ -124,10 +124,10 @@ want("bed pid refuses odd target", run("WM_BED_PID", {"TARGET": "200"}), "RAISE"
 want("full calibration: window, nothing runs", run("WM_FIRST_RUN_CAL"), "prompt_begin First Run Calibration", "_WM_FIRST_RUN_CAL", "Nozzle PID: tunes", none=("G29", "SAVE_CONFIG\n", "PID_CALIBRATE"))
 want("full calibration: watermark says skipped", run("WM_FIRST_RUN_CAL", control="watermark"), "Nozzle PID: skipped")
 want("full calibration: checks first", run("WM_FIRST_RUN_CAL")[:1], "_WM_CAL_PRECHECK")
-want("full calibration (F-143): seven stages, setter position first, no extruder setup", run("_WM_FIRST_RUN_CAL"), "_WM_CAL_PRECHECK", "First run calibration - 1 of 8: tool setter position (saved)", "_WM_SETTER_AUTO", none=("_WM_MATCH", "VARIABLE=full", "extruder setup", "FIRMWARE_RESTART", "SAVE_CONFIG\n"))
+want("full calibration (F-143): seven stages, setter position first, no extruder setup", run("_WM_FIRST_RUN_CAL", {"CLEANED": "1"}), "_WM_CAL_PRECHECK", "First run calibration - 1 of 8: tool setter position (saved)", "_WM_SETTER_AUTO", none=("_WM_MATCH", "VARIABLE=full", "extruder setup", "FIRMWARE_RESTART", "SAVE_CONFIG\n"))
 want("full calibration: the precheck comes first", run("_WM_FIRST_RUN_CAL")[:2], "_WM_CAL_PRECHECK")
-want("full calibration stages in your order: setter, offsets, shaper (SAVE=0), bed PID (SAVE=0), bed leveling after the bed PID, nozzle PID, one window at the end", run("_WM_FIRST_RUN_CAL"), "_WM_SETTER_AUTO\nRESPOND MSG=\"First run calibration - 2 of 8: tool offsets (rapid, saved)\"\nWM_OFFSETS_RAPID CONFIRM=1 XYLIMIT=3", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0\nRESPOND MSG=\"First run calibration - 6 of 8: bed PID (saved at the end)\"\nWM_BED_PID CONFIRM=1 SAVE=0\nRESPOND MSG=\"First run calibration - 7 of 8: bed leveling (saved at the end)\"\nWM_BED_LEVELING CONFIRM=1 SAVE=0\nRESPOND MSG=\"First run calibration - 8 of 8: nozzle PID (saved at the end)\"\nWM_NOZZLE_FULL_PID TARGET=220 T=all CONFIRM=1 SAVE=0", "_WM_FIRST_RUN_CAL_DONE", "3 of 8: hot Z offsets skipped", none=("SAVE_CONFIG\n", "_WM_MATCH_RUN"))
-want("full calibration skips PID on watermark", run("_WM_FIRST_RUN_CAL", control="watermark"), "skipped")
+want("full calibration stages in your order: setter, offsets, shaper (SAVE=0), bed PID (SAVE=0), bed leveling after the bed PID, nozzle PID, one window at the end", run("_WM_FIRST_RUN_CAL", {"CLEANED": "1"}), "_WM_SETTER_AUTO\nRESPOND MSG=\"First run calibration - 2 of 8: tool offsets (rapid, saved)\"\nWM_OFFSETS_RAPID CONFIRM=1 XYLIMIT=3", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0\nRESPOND MSG=\"First run calibration - 6 of 8: bed PID (saved at the end)\"\nWM_BED_PID CONFIRM=1 SAVE=0\nRESPOND MSG=\"First run calibration - 7 of 8: bed leveling (saved at the end)\"\nWM_BED_LEVELING CONFIRM=1 SAVE=0\nRESPOND MSG=\"First run calibration - 8 of 8: nozzle PID (saved at the end)\"\nWM_NOZZLE_FULL_PID TARGET=220 T=all CONFIRM=1 SAVE=0", "_WM_FIRST_RUN_CAL_DONE", "3 of 8: hot Z offsets skipped", none=("SAVE_CONFIG\n", "_WM_MATCH_RUN"))
+want("full calibration skips PID on watermark", run("_WM_FIRST_RUN_CAL", {"CLEANED": "1"}, control="watermark"), "skipped")
 want("full calibration window: seven stages, setter position first, says where the CAN ids are checked", run("WM_FIRST_RUN_CAL"), "1) Tool setter position", "3) Hot Z offsets", "7) Bed leveling", "8) Nozzle PID", "hang the extruders on the rear support", "WM_EXTRUDER_SETUP", "saved as each one finishes", none=("1) Extruder setup", "9)", "apply the new CAN ids"))
 want("matching: no first-run mode any more (no flag, no jump into the calibration)", run("_WM_MATCH_FINISH"), "nothing was changed", "prompt_show", none=("_WM_FIRST_RUN_CAL", "VARIABLE=full"))
 want("matching: other ids offer Apply and restart, nothing about a calibration", run("_WM_MATCH_FINISH", actual=[1, 0, 2, 3]), "_WM_MATCH_APPLY", none=("_WM_FIRST_RUN_CAL", "start WM_FIRST_RUN_CAL again", "VARIABLE=full"))
@@ -160,7 +160,7 @@ def zrun(name, params=None, temp=25.0, warmup=1, extra=None, homed=""):
     out = env.from_string(ZO[name]).render(printer=printer, params=params or {})
     return [l.strip() for l in out.splitlines() if l.strip() and not l.strip().startswith("#")]
 want("first run calibration: hot Z stage right after the rapid offsets when rpi_zoffset.cfg is installed",
-     [l.strip() for l in env.from_string(macros["_WM_FIRST_RUN_CAL"]).render(printer={"gcode_macro WM_OFFSETS_Z_HOT": {}, "configfile": {"settings": {"heater_bed": {"control": "pid"}}}}, params={}).splitlines() if l.strip() and not l.strip().startswith("#")],
+     [l.strip() for l in env.from_string(macros["_WM_FIRST_RUN_CAL"]).render(printer={"gcode_macro WM_OFFSETS_Z_HOT": {}, "configfile": {"settings": {"heater_bed": {"control": "pid"}}}}, params={"CLEANED": "1"}).splitlines() if l.strip() and not l.strip().startswith("#")],
      "WM_OFFSETS_RAPID CONFIRM=1 XYLIMIT=3\nRESPOND MSG=\"First run calibration - 3 of 8: hot Z offsets (saved)\"\nWM_OFFSETS_Z_HOT CONFIRM=1\nRESPOND MSG=\"First run calibration - 4 of 8")
 t = zrun("_WM_Z_TOUCH", {"T": "0", "TEMP": "140", "SLOT": "0"})
 want("Z touch: one touch that is not counted, lift, then the counted touches", t, "PROBE SAMPLES=1\nM400\nG90\nG1 Z5 F600\nM400\nPROBE SAMPLES=5", "_WM_WAIT_TEMP SENSOR=extruder MINIMUM=138 MAXIMUM=142 NAME=T0 TARGET=140")
@@ -246,8 +246,8 @@ def closes_first(label, lines):   # the window must close BEFORE the error line 
     fi = next((i for i, l in enumerate(lines) if "_WM_FAIL" in l), None); ci = next((i for i, l in enumerate(lines) if "action:prompt_end" in l), None)
     if fi is None or ci is None or ci > fi: bad.append("%s: prompt_end must come before _WM_FAIL in\n%s" % (label, "\n".join(lines)))
 closes_first("precheck closes the window before it fails", run("_WM_CAL_PRECHECK", printing="printing"))
-closes_first("accurate: bad temp closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "400"}))
-closes_first("accurate: clean while printing closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "0"}, printing="printing"))
+closes_first("accurate: bad temp closes the window before it fails", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1", "TEMP": "400"}))
+closes_first("accurate: clean while printing closes the window before it fails", run("_WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "0"}, printing="printing"))
 want("_WM_FAIL raises the message", run("_WM_FAIL", {"MSG": "No filament in T1."}), "RAISE: No filament in T1.")
 want("accurate popup tells to load filament in every tool", run("_WM_CAL_ASK", {"STAGE": "offsets", "MODE": "accurate"}), "Filament must be loaded in every tool head")
 want("rapid popup has no filament sentence", run("_WM_CAL_ASK", {"STAGE": "offsets", "MODE": "rapid"}), "Calibrates every tool head", none=("Filament must be loaded",))
@@ -257,10 +257,10 @@ def fails_before(label, lines, *later):   # the render prints every line, but Kl
     for w in later:
         li = next((i for i, l in enumerate(lines) if l.startswith(w)), None)
         if li is not None and li < fi: bad.append("%s: %r runs before _WM_FAIL in\n%s" % (label, w, "\n".join(lines)))
-want("accurate: an empty tool is named in the error", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), '_WM_FAIL MSG="No filament in T3')
-fails_before("accurate: an empty tool stops it before G28", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), "G28", "_WM_NOZZLE_PREPARE", "RESPOND MSG=\"Accurate tool offset calibration started")
-closes_first("accurate: missing filament closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={1: False}))
-want("accurate: only the tools in use are checked", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, sv={"thr_number": 2}, fil={3: False}, homed=""), "G28", none=("_WM_FAIL",))
+want("accurate: an empty tool is named in the error", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), '_WM_FAIL MSG="No filament in T3')
+fails_before("accurate: an empty tool stops it before G28", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), "G28", "_WM_NOZZLE_PREPARE", "RESPOND MSG=\"Accurate tool offset calibration started")
+closes_first("accurate: missing filament closes the window before it fails", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={1: False}))
+want("accurate: only the tools in use are checked", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, sv={"thr_number": 2}, fil={3: False}, homed=""), "G28", none=("_WM_FAIL",))
 want("prepare: no filament", run("_WM_NOZZLE_PREPARE", {"S": "220", "T": "1"}, fil={1: False}), '_WM_FAIL MSG="No filament in T1')
 fails_before("prepare: no filament stops before it moves or heats", run("_WM_NOZZLE_PREPARE", {"S": "220", "T": "1"}, fil={1: False}), "T1", "G28", "M109", "G1")
 
@@ -312,16 +312,16 @@ want("_ZR_LOAD refuses while printing", run_other(zms, "_ZR_LOAD", {"T": "1"}, F
 # every macro the file calls that is not defined here must be a WonderMaker or Klipper command that exists in the repo's factory files
 
 # F-116 / F-117: homing only when needed, all extruders to 140 C, hot Z kept, X and Y limit (items 39 and 40, idea 2 of item 41)
-want("rapid: homed already, no G28", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}), "RAPID_MODE T=0", none=("G28",))
-want("rapid: not homed, G28", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, homed="x"), "G28")
-want("rapid: all four extruders to 140 C at the start", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}), "SET_HEATER_TEMPERATURE HEATER=extruder TARGET=140", "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=140", "SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=140", "SET_HEATER_TEMPERATURE HEATER=extruder3 TARGET=140")
-want("rapid: two tools, only two extruders preheated", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, sv={"thr_number": 2}), "HEATER=extruder1 TARGET=140", none=("HEATER=extruder2 TARGET=140",))
-want("rapid: hot Z done, the check keeps Z and the limit is 0.2", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}, sv={"wm_hot_z_done": 1}), "the saved hot Z offsets are kept", "_WM_OFFSET_CHECK T=1 OX=0.28 OY=0.34 OZ=-0.026 KEEPZ=1 LIMIT=0.2", "_WM_OFFSET_CHECK T=3 OX=0.3 OY=0.09 OZ=0.136 KEEPZ=1 LIMIT=0.2", none=("_WM_OFFSET_CHECK T=0",))
-want("rapid: hot Z never done, the Z of the run is saved", run("WM_OFFSETS_RAPID", {"CONFIRM": "1"}), "hot Z was never done", "KEEPZ=0")
-want("rapid: XYLIMIT overrides the limit", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "XYLIMIT": "0.01"}), "LIMIT=0.01")
-want("accurate start: all extruders to 140 C, no G28 when homed", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}), "HEATER=extruder3 TARGET=140", "NOZZLE_PREPARE S=220 T=0", none=("G28",))
-want("accurate last tool: the check after every tool, hot Z kept", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}, sv={"wm_hot_z_done": 1}), "RAPID_MODE T=1", "_WM_OFFSET_CHECK T=1 OX=0.28 OY=0.34 OZ=-0.026 KEEPZ=1 LIMIT=0.2", "_WM_OFFSET_CHECK T=3", none=("_WM_OFFSET_CHECK T=0",))
-want("accurate last tool, flag missing: the Z of the run is saved", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}), "KEEPZ=0")
+want("rapid: homed already, no G28", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}), "RAPID_MODE T=0", none=("G28",))
+want("rapid: not homed, G28", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}, homed="x"), "G28")
+want("rapid (F-218): no heating, all four nozzles wait until under 80 C", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}), "waiting until all nozzles are under 80 C", "TEMPERATURE_WAIT SENSOR=extruder MAXIMUM=80", "TEMPERATURE_WAIT SENSOR=extruder1 MAXIMUM=80", "TEMPERATURE_WAIT SENSOR=extruder2 MAXIMUM=80", "TEMPERATURE_WAIT SENSOR=extruder3 MAXIMUM=80", none=("TARGET=140",))
+want("rapid (F-218): two tools, only two nozzles wait", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}, sv={"thr_number": 2}), "SENSOR=extruder1 MAXIMUM=80", none=("SENSOR=extruder2 MAXIMUM=80",))
+want("rapid: hot Z done, the check keeps Z and the limit is 0.2", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}, sv={"wm_hot_z_done": 1}), "the saved hot Z offsets are kept", "_WM_OFFSET_CHECK T=1 OX=0.28 OY=0.34 OZ=-0.026 KEEPZ=1 LIMIT=0.2", "_WM_OFFSET_CHECK T=3 OX=0.3 OY=0.09 OZ=0.136 KEEPZ=1 LIMIT=0.2", none=("_WM_OFFSET_CHECK T=0",))
+want("rapid: hot Z never done, the Z of the run is saved", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1"}), "hot Z was never done", "KEEPZ=0")
+want("rapid: XYLIMIT overrides the limit", run("WM_OFFSETS_RAPID", {"CONFIRM": "1", "CLEANED": "1", "XYLIMIT": "0.01"}), "LIMIT=0.01")
+want("accurate start: all extruders to 140 C, no G28 when homed", run("_WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}), "HEATER=extruder3 TARGET=140", "NOZZLE_PREPARE S=220 T=0", none=("G28",))
+want("accurate last tool: the check after every tool, hot Z kept", run("_WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}, sv={"wm_hot_z_done": 1}), "RAPID_MODE T=1", "_WM_OFFSET_CHECK T=1 OX=0.28 OY=0.34 OZ=-0.026 KEEPZ=1 LIMIT=0.2", "_WM_OFFSET_CHECK T=3", none=("_WM_OFFSET_CHECK T=0",))
+want("accurate last tool, flag missing: the Z of the run is saved", run("_WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "3"}), "KEEPZ=0")
 want("check: inside the limit keeps Z and reports", run("_WM_OFFSET_CHECK", {"T": "1", "OX": "0.28", "OY": "0.34", "OZ": "-0.026", "KEEPZ": "1", "LIMIT": "0.2"}), "SAVE_T_OFFSET T=1 Z=-0.026", "Z kept at the hot Z value -0.0260", none=("_WM_FAIL", "TURN_OFF_HEATERS"))
 want("check: no flag, Z of the run stays", run("_WM_OFFSET_CHECK", {"T": "1", "OX": "0.28", "OY": "0.34", "OZ": "-0.026", "KEEPZ": "0", "LIMIT": "0.2"}), "Z of this run saved", none=("SAVE_T_OFFSET", "_WM_FAIL"))
 want("check: X moved over the limit puts the old values back and stops", run("_WM_OFFSET_CHECK", {"T": "1", "OX": "0.0", "OY": "0.34", "OZ": "-0.026", "KEEPZ": "1", "LIMIT": "0.2"}), "SAVE_T_OFFSET T=1 X=0.0 Y=0.34 Z=-0.026", "TURN_OFF_HEATERS", "M106 S0", "_WM_FAIL MSG=", "T1 moved X +0.280", none=("Z kept",))

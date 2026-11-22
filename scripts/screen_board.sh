@@ -106,7 +106,7 @@ patch_ks_job_status_light() {   # the Chamber light button on the print screen
 patch_ks_wm() {   # 2.9.0 (graphs off 2.11.0): sensor strip and Sensors page, live Z adjust on the print and Fine Tuning screens, windows show every line and close at once, sensors read again after the start (zr_tools/patch_ks_wm.py, list ks_wm_patches.json)
     local d="${REPO_DIR:-.}/zr_tools" key f rc
     [ -f "$d/patch_ks_wm.py" ] && [ -f "$d/ks_wm_patches.json" ] || return 0
-    for key in extrude:panels/extrude.py job_status:panels/job_status.py gcodes:panels/gcodes.py fine_tune:panels/fine_tune.py prompts:ks_includes/widgets/prompts.py screen:screen.py main_menu:panels/main_menu.py temperature:panels/temperature.py; do
+    for key in extrude:panels/extrude.py job_status:panels/job_status.py gcodes:panels/gcodes.py fine_tune:panels/fine_tune.py prompts:ks_includes/widgets/prompts.py prompts2:ks_includes/widgets/prompts.py screen:screen.py main_menu:panels/main_menu.py temperature:panels/temperature.py; do
         f="$KS_DIR/${key#*:}"
         [ -f "$f" ] || continue
         [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"

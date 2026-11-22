@@ -68,9 +68,18 @@ def write_parts(cd, parts):
     for k in ORDER:
         if parts.get(k, "").strip():
             out += ["", "# ===== part %s" % k, parts[k].strip("\n"), "# ===== end %s" % k]
+    text = "\n".join(out) + "\n"
+    try:                                              # the index of the macros (F-158); without the helper the file is written as before
+        import importlib.util
+        sp = importlib.util.spec_from_file_location("wm_cfg_index", os.path.join(os.path.dirname(os.path.abspath(__file__)), "wm_cfg_index.py"))
+        mod = importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(mod)
+        text = mod.index_text(text, NAME)
+    except (OSError, ImportError, AttributeError):
+        pass
     tmp = path(cd) + ".wm-tmp"
     with open(tmp, "w") as f:
-        f.write("\n".join(out) + "\n")
+        f.write(text)
     os.replace(tmp, path(cd))
 
 
