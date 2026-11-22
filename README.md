@@ -454,7 +454,7 @@ Tested on a ZR Ultra-S: quick search, wide search at 10 mm, block middles, both 
 | 2. Z offsets, hot | Z Offsets Hot | Hot Z offsets | `WM_OFFSETS_Z_HOT` |
 | 3. Nozzle heat growth | Nozzle Growth Calibration | Nozzle heat growth | `WM_NOZZLE_GROWTH_CAL` |
 | Fine adjustment per tool | Z Trim Menu | Z trim | `WM_Z_TRIM_MENU` |
-| Live Z of the tool on the carriage | Live Z Menu / Live Z Zero | Live Z adjust | `WM_LIVE_Z_MENU` / `WM_LIVE_Z_ZERO` |
+| Live Z of the tool on the carriage | Live Z Menu / Live Z Zero | Live Z adjust | `WM_LIVE_Z_MENU` / `_WM_LIVE_Z_ZERO` (hidden) |
 
 **How it works, in short:** step 1 measures every nozzle on the nozzle gauge at the back of the bed (X and Y). Step 2 touches the bed centre with every nozzle while it is hot, T0 first and last as a check, and keeps only the Z difference to T0. Step 3 measures, once, how much a nozzle grows longer when it heats up, so a print at another temperature still starts at the right height. After that you print the first layer test and correct each tool with its trim. All values are saved on the printer (`saved_variables.cfg`) and used at every tool change.
 
@@ -492,7 +492,7 @@ Tested on a ZR Ultra-S: quick search, wide search at 10 mm, block middles, both 
 **Live Z adjust during a print (per tool)**
 
 - The Z+ / Z- buttons of Fluidd and the touchscreen's Fine Tuning page change only the tool on the carriage. Each tool keeps its own live adjust: when the print changes back to that tool, its adjust comes back with it (before 2.9.0 a tool change reset it).
-- The touchscreen's print page and Fine Tuning page show the live adjust of the tool on the carriage, not the whole Z offset. The zero button sets only that live adjust to 0 (`WM_LIVE_Z_ZERO`); tool offset, trim and heat growth stay.
+- The touchscreen's print page and Fine Tuning page show the live adjust of the tool on the carriage, not the whole Z offset. The zero button sets only that live adjust to 0 (`_WM_LIVE_Z_ZERO`); tool offset, trim and heat growth stay.
 - Every print starts with all live adjusts at 0.
 - After the print (also after a cancel), when a tool has a live adjust, a window `WM_LIVE_Z_MENU` lists them: **Save all** adds each one to the Z trim of its tool, **Do not save** drops them. On the touchscreen the button is **Save Z Trim** on the print page.
 - Klipper's own "save Z offset to probe / endstop" (`Z_OFFSET_APPLY_PROBE`, `Z_OFFSET_APPLY_ENDSTOP`, used by Fluidd and the touchscreen) would put the tool offset, trim and heat growth into the probe calibration. On this printer they open the same Save all / Do not save window instead.
@@ -1083,7 +1083,7 @@ The install asks these (or take them from the command line, then nothing is aske
 | Is the factory camera plugged into the factory screen board? (only asked when the board announced a camera) | `--screen-camera yes\|no` | yes |
 
 - **The camera ports are found automatically.** USB cameras are listed by their stable `/dev/v4l/by-id/...-video-index0` name (it does not change when you move the plug), a ribbon (CSI) camera by its libcamera path. See what is found: `python3 scripts/wm_crowsnest.py detect`. A camera that is not plugged in yet gets a placeholder `device:` line to fill in.
-- **The streamer** is chosen by Pi model: Pi 4 and Compute Module 4 use `camera-streamer`; every other model (Pi 3, Zero 2, Pi 5) uses `ustreamer`. A ribbon camera needs libcamera, so it gets `camera-streamer` (or `spyglass` on a Pi 5, where camera-streamer does not run). Change `mode:` in `crowsnest.conf` any time, per camera.
+- **The streamer** is chosen by Pi model: Pi 4 and Compute Module 4 use `camera-streamer`; every other model (Pi 3, Zero 2, Pi 5) uses `ustreamer`. A ribbon camera needs libcamera, so it gets `camera-streamer` (or `spyglass` on a Pi 5, where camera-streamer does not run). The install asks which streamer to use (default: the one for your Pi); give the answer on the command line with `--cam-mode ustreamer|camera-streamer|spyglass`. Change `mode:` in `crowsnest.conf` any time, per camera.
 - **`crowsnest.conf`** starts with a long comment that explains every option of `[crowsnest]` and `[cam ...]` and links to the full manual: https://github.com/mainsail-crew/crowsnest/blob/master/README.md . Cameras are `[cam 1]` to `[cam 4]` on ports 8080 to 8083 (`/webcam/`, `/webcam2/`, `/webcam3/`, `/webcam4/`).
 - **Fluidd** lists the cameras as `Camera`, `Camera 2`, `Camera 3` (and `Camera 4`): the installer adds the `[webcam ...]` sections to `moonraker.conf`. Moonraker is restarted right after, because it reads `moonraker.conf` only at start; if Fluidd still shows fewer cameras, run `sudo systemctl restart moonraker`. Webcam sections you made yourself are left alone.
 - **An existing `crowsnest.conf` is never overwritten.** The explained copy is saved next to it as `crowsnest.conf.new`, and the questions are skipped.

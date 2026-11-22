@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.23.2
+
+- **One standard writing for every KlipperScreen popup (F-219, F-220).** Every popup text is Large and bold (warnings yellow). It is a stock-KlipperScreen patch (`prompts2` in `zr_tools/ks_wm_patches.json`) applied by the Pi install and by the screen board installer, so the Pi and the screen board match.
+- **Offsets "stopped again" window (F-219).** When the same wrong result comes twice at a tool, the window shows old, new and moved values and the buttons "Use the new value" (recommended: run Offsets rapid again), "Keep the old value" and Cancel (`rpi_calibration.cfg`, `rpi_nozzle.cfg`).
+- **Rapid offsets (F-211, F-217, F-218):** manual nozzle clean first, no nozzle heating, every nozzle waits until it is under 80 C before it is measured; the first-run and Z-calibration flows clean first (F-212, F-213); purge without an extra swap (F-216); Nozzle PID screen button moved to the nozzle page (F-214).
+- **`WM_LIVE_Z_ZERO` is now the hidden macro `_WM_LIVE_Z_ZERO`.** The KlipperScreen fine tune patch renames it on a board that has the old name (`from`/`to` entries in the patch list).
+- **Backup folder (F-157, F-158, F-159):** the installer and `wm_ultra_backup.py` keep config backups in `printer_data/config/backup`.
+- **Streamer question (F-191):** new option `--cam-mode` (and a question at install) to choose camera-streamer or ustreamer for the Pi webcam (`wm_crowsnest.py`).
+- Tests: new `tests/test_f220.py`, `tests/test_cfg_index.py`; calibration render tests follow the new rapid flow; the popup text of "no longer valid" no longer holds a `;`.
+
 ## 2.23.1
 
 - **B-081: a tool change to a head that another slicer tool also uses no longer waits for a cooldown.** With the tool map (Resume with T*, endless spool swap) two slicer tools can print with the same head. The slicer cools the tool it leaves (`M104 S140 Tx`), and that cooled the head the next tool change was about to use: it then waited for the head to cool and heated it again. The `M104` macro (`macros.cfg`, both models) now skips a standby temperature (1 to 169 C, below the target) while a print runs when more than one slicer tool maps to that head, and says "Cooldown of slicer tool Tx skipped: head y also prints another slicer tool". `M104 S0`, print temperatures, a paused print and a head used by one tool only work as before. `./installer.sh --update` adds it to an installed Pi (macro patch list: 1 entry for 2.23.1). Tested on a real print by the user.
