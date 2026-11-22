@@ -8,6 +8,7 @@ if [ -z "${WM_TESTS_IN_COPY:-}" ]; then   # always test a throwaway copy of the 
 fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/fstmp"; export WM_TEST_TMP="$T/fstmp"   # the free-space helper must never see (and erase) the real /tmp, which holds this very copy of the tests
 PASS=0; FAIL=0
 check() { if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; [ -z "${WM_FAIL_LOG:-}" ] || echo "$1" >> "$WM_FAIL_LOG"; fi; }
 
