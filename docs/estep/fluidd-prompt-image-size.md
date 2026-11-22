@@ -34,7 +34,7 @@ because it only uses percentages and vh.
 Pictures: copy `images/svg/*.svg` to `public/img/wm/` (names estep-prepare, estep-ruler, estep-zero, estep-measure). The SVG files
 hold the picture as an embedded image (JPEG or PNG), so they show the same on every screen. Rebuild Fluidd as for the other patches.
 
-## Applied on the printer 10.11.88.35 (built Fluidd, no rebuild) - 2026-11-22
+## Applied on the main RPi4 (built Fluidd, no rebuild) - 2026-11-22
 Pure CSS, no JS template change (a one-picture window is found with `:has`):
 
     .prompt-images[data-v-89e1219d]:has(>.prompt-image:only-child) .prompt-image[data-v-89e1219d]{max-width:100%;max-height:72vh;object-fit:contain}
