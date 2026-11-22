@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.24.0
+
+- **New: `WM_ESTEP_CAL`, e-step (rotation_distance) calibration of one tool (F-221).** Windows in Fluidd and KlipperScreen: pick the tool, heat, insert 100 mm (head sensor checked), mark at 120 mm, slow 100 mm extrusion, measure with step buttons, save into `printer.cfg` (old value kept as a comment, backup first) and restart. New: macros at the end of `rpi-cfg/rpi_nozzle.cfg`, helper `scripts/wm_estep.py` (installed to `~/printer_data/wm-tools/`, checked by `--doctor`), four pictures `zr_tools/wm_images/estep-*.png`, an "E-step calibration" button under Tool offsets in the KlipperScreen Calibration panel, tests `tests/test_wm_estep.py` and `tests/estep_render.py`. Fluidd pictures and the Fluidd notes are in `docs/estep/`.
+- **KlipperScreen shows one picture big.** A popup with exactly one picture shows it as wide as the screen allows (at most 60 percent of the screen height); two to four pictures stay small as before (the three setter pictures do not change).
+- **Head sensor watcher stays out of the e-step calibration** (`WM_HEAD_SENSOR_WATCH` in `rpi_base.cfg` counts it as busy), so pushing filament in by hand does not start the automatic load.
+
 ## 2.23.2
 
 - **One standard writing for every KlipperScreen popup (F-219, F-220).** Every popup text is Large and bold (warnings yellow). It is a stock-KlipperScreen patch (`prompts2` in `zr_tools/ks_wm_patches.json`) applied by the Pi install and by the screen board installer, so the Pi and the screen board match.

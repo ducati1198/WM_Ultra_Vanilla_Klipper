@@ -554,6 +554,18 @@ When the bed heats, the plate keeps bending for a while after the thermistor rea
 - **Settings:** `_WM_BED_SOAK_PARAMS` at the top of its part in `rpi_base.cfg` (multiplier, warm-bed fraction, message interval, ...), like `_START_END_PARAMS` on the Creality K1.
 - **Update from 2.10.0:** the file comes with the update; the two `START_PRINT` lines are added to WonderMaker's `macros.cfg` by the macro patch list (only while those lines are still the factory text). Without the wait macros (an old Pi without `rpi_base.cfg`) the lines do nothing.
 
+### 4.9 E-step calibration, `WM_ESTEP_CAL` (2.24.0)
+
+Checks and corrects the `rotation_distance` (the e-step) of one tool. In Fluidd or KlipperScreen (Calibration, Tool offsets, "E-step calibration") press `WM_ESTEP_CAL`, pick tool 1 to 4 and follow the windows:
+
+1. The printer picks the tool up if none is on the carriage, homes what is not homed and goes to X150 Y10 Z150. Take the tube off, put loose filament in the inlet, feed assist off.
+2. Heat the nozzle to 220 C (a live "Heating..." page opens the next page by itself). Insert filament feeds 100 mm fast and checks the head filament sensor.
+3. Mark the filament 120 mm above the inlet, press Extrude 100 mm. It runs slowly (1 mm/s, about 100 s).
+4. Enter how many mm the mark is above the inlet with the step buttons (-5 to +5). Console: `_WM_ESTEP_SET MEAS=17.3`. "Run again" repeats the extrusion.
+5. Save: new = old x (120 - measured) / 100. Refused if the moved length is outside 60 to 140 mm or the new value is more than 30 percent away from the old one. The helper `wm_estep.py` writes the line in `printer.cfg` (the old value stays as a comment, a backup is made first, the SAVE_CONFIG block is not touched), pulls the filament back 150 mm, asks you to take it out, wipes, parks and restarts Klipper.
+
+Every page has Park tool and Cancel (nothing saved, nozzle off, tool parked, motors off); an abandoned run ends after 15 minutes. It refuses to start during a print. While it runs, the head sensor watcher counts it as busy, so pushing filament in by hand does not start the automatic load. The macros live at the end of `rpi-cfg/rpi_nozzle.cfg` (it needs the shell command extension), the helper is `scripts/wm_estep.py` (installed to `~/printer_data/wm-tools/`). The pictures are in `zr_tools/wm_images/` for KlipperScreen; the Fluidd pictures and the two Fluidd changes (one big picture, macro category) are in `docs/estep/`.
+
 ## 5. Fluidd (web panel and ZR Tools)
 
 Fluidd is the web page you use to control the printer from a phone or computer: open `http://<pi address>/` (see 3.5). The installer puts WonderMaker's Fluidd on the Pi, and adds the **Toolheads** panel (and the ACE Pro parts, if you add one). Update it later with `./installer.sh --update`.

@@ -434,6 +434,7 @@ step_unpack() {
 
 nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
+estep_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_estep.py"; }
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
 rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
     local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_base.cfg ] && continue; echo "$b"; done
@@ -562,6 +563,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         if [ "$f" = rpi_nozzle.cfg ]; then   # its shell command runs this script; it is kept outside the config folder, which WonderMaker updates merge
             mkdir -p "$(dirname "$(nozzle_script_dst)")" && cp "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" && chmod +x "$(nozzle_script_dst)"
             cp "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" && chmod +x "$(canids_script_dst)"   # behind WM_EXTRUDER_SETUP (Set Up)
+            cp "$SCRIPT_DIR/scripts/wm_estep.py" "$(estep_script_dst)" && chmod +x "$(estep_script_dst)"   # behind WM_ESTEP_CAL (E-step calibration)
         fi
         if rpicfg_included "$f"; then print_success "$f is installed (printer.cfg already includes it)"
         else
@@ -3331,6 +3333,8 @@ do_doctor() {
         if [ "$rf" = rpi_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
             if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind _WM_NOZZLE_TYPE) is in place"
             else doc_bad "wm_nozzle.py is missing or different in ~/printer_data/wm-tools" "_WM_NOZZLE_TYPE could not write the nozzle diameter."; offer_fix "copy wm_nozzle.py again" step_rpicfg; fi
+            if cmp -s "$SCRIPT_DIR/scripts/wm_estep.py" "$(estep_script_dst)" 2>/dev/null; then doc_ok "wm_estep.py (the helper behind WM_ESTEP_CAL) is in place"
+            else doc_bad "wm_estep.py is missing or different in ~/printer_data/wm-tools" "WM_ESTEP_CAL could not save the new rotation_distance."; offer_fix "copy wm_estep.py again" step_rpicfg; fi
             if cmp -s "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" 2>/dev/null; then doc_ok "wm_canids.py (the helper behind WM_EXTRUDER_SETUP) is in place"
             else doc_bad "wm_canids.py is missing or different in ~/printer_data/wm-tools" "WM_EXTRUDER_SETUP could not write the CAN ids."; offer_fix "copy wm_canids.py again" step_rpicfg; fi
         fi
