@@ -31,7 +31,7 @@ def mk(d):
     return Dot({k: (mk(v) if isinstance(v, dict) else v) for k, v in d.items()})
 
 
-def printer(state="standby", count=4, ext_temp=220.0, t=1, entry="", prev="extruder", cur=99, homed="xyz", fil=True):
+def printer(state="standby", count=4, ext_temp=220.0, t=1, entry="", prev="extruder", cur=99, homed="xyz", fil=True, old=21.018):
     p = {
         "print_stats": {"state": state},
         "save_variables": {"variables": {"thr_number": count, "current_extruder": cur}},
@@ -40,7 +40,7 @@ def printer(state="standby", count=4, ext_temp=220.0, t=1, entry="", prev="extru
             "gcode_shell_command wm_estep": {},
             "extruder": {"rotation_distance": 21.018}, "extruder1": {"rotation_distance": 21.018},
             "extruder2": {"rotation_distance": 21.018}, "extruder3": {"rotation_distance": 21.5}}},
-        "gcode_macro _WM_ESTEP": {"t": t, "ext": "extruder%d" % t if t else "extruder", "prev": prev, "old": 21.018,
+        "gcode_macro _WM_ESTEP": {"t": t, "ext": "extruder%d" % t if t else "extruder", "prev": prev, "old": old,
                                   "entry": entry, "mark": 120, "len": 100, "temp": 220},
         "extruder": {"temperature": ext_temp}, "extruder1": {"temperature": ext_temp},
         "filament_switch_sensor filament0": {"filament_detected": False}, "filament_switch_sensor filament1": {"filament_detected": fil},
@@ -80,7 +80,7 @@ def main():
         ("_WM_ESTEP_POS", {}, {"cur": 2, "homed": "xy"}),
         ("_WM_ESTEP_POS2", {}, {"homed": "xyz"}), ("_WM_ESTEP_POS2", {}, {"homed": "xy"}), ("_WM_ESTEP_POS2", {}, {"homed": ""}),
         ("_WM_ESTEP_PARK", {}, {"cur": 1}), ("_WM_ESTEP_PARK", {}, {"cur": 99}), ("_WM_ESTEP_PARK", {}, {"cur": 1, "state": "printing"}),
-        ("_WM_ESTEP_MEASPIC", {}, {}), ("_WM_ESTEP_S3", {}, {"entry": "20.0"}), ("_WM_ESTEP_S3", {}, {"entry": "17.0"}), ("_WM_ESTEP_S3", {}, {"entry": "3.0"}), ("_WM_ESTEP_S3", {}, {"entry": "0.0"}), ("_WM_ESTEP_S3", {}, {"entry": "24.5"}),
+        ("_WM_ESTEP_MEASPIC", {}, {}), ("_WM_ESTEP_S3", {}, {"entry": "20.0"}), ("_WM_ESTEP_S3", {}, {"entry": "17.0", "old": 0.0}), ("_WM_ESTEP_S3", {}, {"entry": "", "old": 0.0}), ("_WM_ESTEP_S3", {}, {"entry": "17.0"}), ("_WM_ESTEP_S3", {}, {"entry": "3.0"}), ("_WM_ESTEP_S3", {}, {"entry": "0.0"}), ("_WM_ESTEP_S3", {}, {"entry": "24.5"}),
         ("_WM_ESTEP_STEP", {"D": -1}, {"entry": "20.0"}), ("_WM_ESTEP_STEP", {"D": -0.1}, {"entry": "17.0"}), ("_WM_ESTEP_STEP", {"D": 5}, {"entry": "58.0"}),
         ("_WM_ESTEP_STEP", {"D": -5}, {"entry": "2.0"}), ("_WM_ESTEP_SET", {"MEAS": "17.3"}, {}), ("_WM_ESTEP_SET", {"MEAS": "99"}, {}), ("_WM_ESTEP_SET", {}, {}),
         ("_WM_ESTEP_CONFIRM", {}, {"entry": "17.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "17.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "0.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "62"}),

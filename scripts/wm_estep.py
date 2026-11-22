@@ -111,7 +111,9 @@ def main():
     nl = m.group(6) or "\n"
     lines[i] = "%s%s%s # old value %s%s" % (m.group(1), m.group(2), "%.3f" % new, old_text, nl)
     target = path
-    bak = target + ".wm-before-estep-" + time.strftime("%Y%m%d-%H%M%S")
+    bakdir = os.path.join(os.path.dirname(target), "backup")   # F-157: backups go in the backup folder, not next to printer.cfg
+    os.makedirs(bakdir, exist_ok=True)
+    bak = os.path.join(bakdir, os.path.basename(target) + ".wm-before-estep-" + time.strftime("%Y%m%d-%H%M%S"))
     shutil.copy2(target, bak)
     tmp = target + ".wm-tmp"
     with open(tmp, "w", newline="") as f:
@@ -122,7 +124,7 @@ def main():
     if m.group(5).strip():
         extra = " The comment that was on that line (%s) was replaced." % m.group(5).strip()
     out("saved [%s] rotation_distance %s (was %s) in %s.%s Backup %s. Restart Klipper to use it."
-        % (section, "%.3f" % new, old_text, os.path.basename(target), extra, os.path.basename(bak)))
+        % (section, "%.3f" % new, old_text, os.path.basename(target), extra, "backup/" + os.path.basename(bak)))
     return 0
 
 

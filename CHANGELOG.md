@@ -3,6 +3,7 @@
 ## 2.25.0
 
 - **Your own values are protected during an update (F-222).** The update remembers your saved variables, `rotation_distance` lines, the SAVE_CONFIG block and `crowsnest.conf` before it starts and checks them again before Klipper restarts. A value an update step changed is put back and listed; otherwise it prints "Your settings: untouched". New helper `scripts/wm_protect.py`, test `tests/test_protect.py`.
+- **E-step fixes (F-222b):** `_WM_ESTEP_S3` no longer divides by zero when it is opened outside a calibration (it shows "does not fit"); `wm_estep.py` keeps its `printer.cfg` backups in `config/backup/`, not next to `printer.cfg`.
 - **`--rollback`:** goes back to how your settings were before the last update (restores the newest "before-update" backup, safety copy first).
 
 ## 2.24.0

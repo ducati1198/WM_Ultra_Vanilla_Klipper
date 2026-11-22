@@ -57,7 +57,7 @@ def main():
         check("T0 old comment was replaced and reported", "earlier test" not in txt and "replaced" in o)
         check("nothing else changed in printer.cfg",
               txt.replace("rotation_distance: 22.127 # old value 21.018", "rotation_distance: 21.018    # old value 22.127 (comment of an earlier test)") == PRINTER)
-        check("a backup exists", any(f.startswith("printer.cfg.wm-before-estep-") for f in os.listdir(d)))
+        check("a backup exists, in the backup folder and not next to printer.cfg", os.path.isdir(os.path.join(d, "backup")) and any(f.startswith("printer.cfg.wm-before-estep-") for f in os.listdir(os.path.join(d, "backup"))) and not any(f.startswith("printer.cfg.wm-before-estep-") for f in os.listdir(d)))
 
         rc, o = run(cfg, 1, 20.5, 21.018)
         t1 = open(os.path.join(d, "extruder1.cfg"), newline="").read()
