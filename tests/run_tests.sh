@@ -10,7 +10,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/fstmp"; export WM_TEST_TMP="$T/fstmp"   # the free-space helper must never see (and erase) the real /tmp, which holds this very copy of the tests
 PASS=0; FAIL=0
-check() { if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; [ -z "${WM_FAIL_LOG:-}" ] || echo "$1" >> "$WM_FAIL_LOG"; fi; }
+check() { [ -z "${WM_ONLY:-}" ] || echo "$1" | grep -Eq -- "$WM_ONLY" || return 0   # WM_ONLY=regex runs only the checks whose name matches (to rerun failures)
+    if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; [ -z "${WM_FAIL_LOG:-}" ] || echo "$1" >> "$WM_FAIL_LOG"; fi; }
 
 mkstage() {  # make a fake WonderMaker tree and stage folder
     local s="$1" h="$T/src_home"; rm -rf "$h"
