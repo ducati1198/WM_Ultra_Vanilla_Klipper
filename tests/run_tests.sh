@@ -786,7 +786,7 @@ check "Fix everything adds the include line back (once)" "[ \$(grep -c 'include 
 echo '# my edit' >> "$G2/printer_data/config/rpi_calibration.cfg"
 check "doctor notices an edited rpi_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'rpi_calibration.cfg differs from the one in rpi-cfg'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
-check "the fix keeps the edited copy and restores the repository one" "grep -q 'my edit' $G2/printer_data/config/rpi_calibration.cfg.wm-before-rpicfg-* && cmp $ROOT/rpi-cfg/rpi_calibration.cfg $G2/printer_data/config/rpi_calibration.cfg"
+check "the fix keeps the edited copy and restores the repository one" "grep -q 'my edit' $G2/printer_data/config/backup/rpi_calibration.cfg.wm-before-rpicfg-* 2>/dev/null && cmp $ROOT/rpi-cfg/rpi_calibration.cfg $G2/printer_data/config/rpi_calibration.cfg"
 NB1=$(ls "$G2/printer_data/config" | grep -c "rpi_calibration.cfg.wm-before")
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/rc.out" 2>&1 </dev/null
 check "--rpi-cfg runs, is idempotent, adds no second include" "grep -q 'rpi_calibration.cfg is installed (printer.cfg already includes it)' $T/rc.out && [ \$(grep -c 'include rpi_calibration.cfg' $G2/printer_data/config/printer.cfg) = 1 ]"
