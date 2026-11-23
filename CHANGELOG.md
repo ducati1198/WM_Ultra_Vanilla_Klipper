@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.25.2
+
+- **E-step (F-221):** `_WM_ESTEP_CONFIRM` (the Save and restart question) no longer divides by zero when it is opened outside a calibration (same guard as `_WM_ESTEP_S3`).
+
 ## 2.25.1
 
 - **Fix (B-2.25.0 E-step window did not load):** the 2.25.0 guard in `_WM_ESTEP_S3` carried a Jinja comment `{# ... #}`; Klipper cuts a config line at the first `#`, so Klipper stopped with "Error loading template _WM_ESTEP_S3". The comment is gone from `rpi_nozzle.cfg`, and a suite check now refuses any `{#` in `rpi-cfg/`. If your Klipper shows that error after the 2.25.0 Update, run the Update again.
