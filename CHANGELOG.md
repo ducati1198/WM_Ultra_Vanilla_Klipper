@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.25.1
+
+- **Fix (B-2.25.0 E-step window did not load):** the 2.25.0 guard in `_WM_ESTEP_S3` carried a Jinja comment `{# ... #}`; Klipper cuts a config line at the first `#`, so Klipper stopped with "Error loading template _WM_ESTEP_S3". The comment is gone from `rpi_nozzle.cfg`, and a suite check now refuses any `{#` in `rpi-cfg/`. If your Klipper shows that error after the 2.25.0 Update, run the Update again.
+
 ## 2.25.0
 
 - **Your own values are protected during an update (F-222).** The update remembers your saved variables, `rotation_distance` lines, the SAVE_CONFIG block and `crowsnest.conf` before it starts and checks them again before Klipper restarts. A value an update step changed is put back and listed; otherwise it prints "Your settings: untouched". New helper `scripts/wm_protect.py`, test `tests/test_protect.py`.
