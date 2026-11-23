@@ -61,6 +61,17 @@ check("a missing crowsnest.conf is put back", rc == 10 and os.path.isfile(os.pat
 open(os.path.join(c, "crowsnest.conf"), "w").write("changed\n")
 rc, out = run("verify", c, s)
 check("a changed crowsnest.conf is put back", rc == 10 and rd(c, "crowsnest.conf").startswith("[crowsnest]"))
+# a stray include below the marker that the installer moves above it is not undone
+c2, s2 = mk()
+open(os.path.join(c2, "printer.cfg"), "w").write(PRINTER.replace("#*# DO NOT EDIT", "[include stray.cfg]\n#*# DO NOT EDIT"))
+run("snapshot", c2, s2)
+moved = "[include stray.cfg]\n" + PRINTER
+open(os.path.join(c2, "printer.cfg"), "w").write(moved)
+rc, out = run("verify", c2, s2)
+check("an include the installer moved from below the marker to above it stays moved", rc == 0 and rd(c2, "printer.cfg") == moved)
+open(os.path.join(c2, "printer.cfg"), "w").write(moved.replace("#*# rotation_distance = 21.5", "#*# rotation_distance = 7"))
+rc, out = run("verify", c2, s2)
+check("a changed SAVE_CONFIG line is put back and the moved include stays", rc == 10 and "rotation_distance = 21.5" in rd(c2, "printer.cfg") and rd(c2, "printer.cfg").startswith("[include stray.cfg]"))
 check("show lists what is protected", run("show", c)[0] == 0)
 check("a wrong call is refused", run("verify")[0] == 2)
 print("%d failed" % fails)

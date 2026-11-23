@@ -68,7 +68,11 @@ def rot_values(text):
 
 
 def save_block(text):
-    return text.split(MARK, 1)[1] if MARK in text else None
+    """The auto-generated lines below the marker ("#*#" lines). Other lines below the marker (for example a stray include that
+    the installer moves above it) are not part of it."""
+    if MARK not in text:
+        return None
+    return [l for l in text.split(MARK, 1)[1].split("\n") if l.startswith("#*#")]
 
 
 def snapshot(cfg, snap):
@@ -123,8 +127,12 @@ def verify(cfg, snap):
                     put_back.append("printer.cfg: rotation_distance of [%s] was %s, put back to %s" % (k[0], cv[k][0], v))
             ob, cb = save_block(old), save_block(cur)
             if ob is not None and ob != cb:
-                head = cur.split(MARK)[0]
-                cur = head + MARK + ob
+                head, tail = cur.split(MARK, 1)
+                parts = tail.split("\n")
+                keep = [l for l in parts[1:] if not l.startswith("#*#")]
+                while keep and keep[-1] == "":
+                    keep.pop()
+                cur = head + MARK + parts[0] + "\n" + "\n".join(ob + keep) + "\n"
                 changed = True
                 put_back.append("printer.cfg: the SAVE_CONFIG block was different, put back")
             if changed:
