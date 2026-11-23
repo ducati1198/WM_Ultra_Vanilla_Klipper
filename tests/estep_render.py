@@ -12,7 +12,7 @@ CFG = os.path.join(HERE, "..", "rpi-cfg", "rpi_nozzle.cfg")
 
 
 def load():
-    cp = configparser.RawConfigParser(strict=False, inline_comment_prefixes=None)
+    cp = configparser.RawConfigParser(strict=False, inline_comment_prefixes=("#", ";"))  # as Klipper reads it: a line is cut at the first # or ;
     cp.optionxform = str
     cp.read(CFG)
     return cp
@@ -83,7 +83,7 @@ def main():
         ("_WM_ESTEP_MEASPIC", {}, {}), ("_WM_ESTEP_S3", {}, {"entry": "20.0"}), ("_WM_ESTEP_S3", {}, {"entry": "17.0", "old": 0.0}), ("_WM_ESTEP_S3", {}, {"entry": "", "old": 0.0}), ("_WM_ESTEP_S3", {}, {"entry": "17.0"}), ("_WM_ESTEP_S3", {}, {"entry": "3.0"}), ("_WM_ESTEP_S3", {}, {"entry": "0.0"}), ("_WM_ESTEP_S3", {}, {"entry": "24.5"}),
         ("_WM_ESTEP_STEP", {"D": -1}, {"entry": "20.0"}), ("_WM_ESTEP_STEP", {"D": -0.1}, {"entry": "17.0"}), ("_WM_ESTEP_STEP", {"D": 5}, {"entry": "58.0"}),
         ("_WM_ESTEP_STEP", {"D": -5}, {"entry": "2.0"}), ("_WM_ESTEP_SET", {"MEAS": "17.3"}, {}), ("_WM_ESTEP_SET", {"MEAS": "99"}, {}), ("_WM_ESTEP_SET", {}, {}),
-        ("_WM_ESTEP_CONFIRM", {}, {"entry": "17.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "17.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "0.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "62"}),
+        ("_WM_ESTEP_CONFIRM", {}, {"entry": "17.0"}), ("_WM_ESTEP_CONFIRM", {}, {"entry": "20.0", "old": 0.0}), ("_WM_ESTEP_CONFIRM", {}, {"entry": "", "old": 0.0, "t": -1}), ("_WM_ESTEP_STEP", {"D": 1}, {"entry": "20.0", "old": 0.0, "t": -1}), ("_WM_ESTEP_SET", {"MEAS": "17.3"}, {"old": 0.0, "t": -1}), ("_WM_ESTEP_SAVE", {}, {"entry": "17.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "0.0"}), ("_WM_ESTEP_SAVE", {}, {"entry": "62"}),
         ("_WM_ESTEP_WIPEPARK", {}, {"cur": 0}), ("_WM_ESTEP_WIPEPARK", {}, {"cur": 99}), ("_WM_ESTEP_WIPEPARK", {}, {"cur": 0, "state": "printing"}),
         ("_WM_ESTEP_BACK", {}, {}), ("_WM_ESTEP_FINISH", {}, {}),
     ]
