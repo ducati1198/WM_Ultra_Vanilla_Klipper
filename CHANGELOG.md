@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.27.0
+
+- **KlipperScreen only on the screen board (F-215, installer: KlipperScreen only on the screen board).** The Pi installer no longer installs KlipperScreen on the Pi. The install asks "Set up the touchscreen board now?" (board address and user; the board password is used once to put this Pi's ssh key on the board and is never stored), and `./installer.sh --screen-board user@host` does the same later: the board downloads the small screen-board bundle and installs KlipperScreen with the ZR Tools, the board user gets sudo without a password, the board restarts. If the board is off or not reachable the printer works without a screen. `--screen on` now installs the ZR Tools macros (same as `--screen macros`) and says so. The Update removes a KlipperScreen that is still on the Pi by itself, without a question, after copying its settings file to `wm-rpi-backup/`.
+
 ## 2.26.0
 
 - **Check of the ZR changes inside KlipperScreen (screen board doctor).** `scripts/screen_board.sh --doctor` now checks every change the installer makes in KlipperScreen's own files (`zr_tools/ks_wm_patches.json`: sensor strip, live Z adjust, popup windows and pictures, the Choose toolheads page, and so on). It says "all ZR changes inside KlipperScreen are in", or names the file and key that is missing (a KlipperScreen update removed it) or different (another KlipperScreen version or your own edit), and offers to put the missing ones back and restart KlipperScreen. It only looks; nothing changes unless you accept the fix. New `patch_ks_wm.py --check KEY FILE` (exit 0 in, 10 missing, 11 different).
