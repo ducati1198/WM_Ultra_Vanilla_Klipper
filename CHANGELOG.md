@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.26.0
+
+- **Check of the ZR changes inside KlipperScreen (screen board doctor).** `scripts/screen_board.sh --doctor` now checks every change the installer makes in KlipperScreen's own files (`zr_tools/ks_wm_patches.json`: sensor strip, live Z adjust, popup windows and pictures, the Choose toolheads page, and so on). It says "all ZR changes inside KlipperScreen are in", or names the file and key that is missing (a KlipperScreen update removed it) or different (another KlipperScreen version or your own edit), and offers to put the missing ones back and restart KlipperScreen. It only looks; nothing changes unless you accept the fix. New `patch_ks_wm.py --check KEY FILE` (exit 0 in, 10 missing, 11 different).
+- **Tests:** the E-step render test now reads the config the way Klipper does (a line is cut at the first `#`), has old=0 cases for CONFIRM, STEP and SET, and the suite check fails on any render error. New `tests/test_ks_patch_check.py`.
+
 ## 2.25.2
 
 - **E-step (F-221):** `_WM_ESTEP_CONFIRM` (the Save and restart question) no longer divides by zero when it is opened outside a calibration (same guard as `_WM_ESTEP_S3`).

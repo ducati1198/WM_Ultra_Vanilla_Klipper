@@ -103,10 +103,12 @@ patch_ks_job_status_light() {   # the Chamber light button on the print screen
     python3 "$py" "$f" || { cp "$f.wm-orig" "$f"; warn_later "Could not add the Chamber light button to KlipperScreen's print screen."; }
 }
 
+KS_WM_KEYS="extrude:panels/extrude.py job_status:panels/job_status.py gcodes:panels/gcodes.py fine_tune:panels/fine_tune.py prompts:ks_includes/widgets/prompts.py prompts2:ks_includes/widgets/prompts.py screen:screen.py main_menu:panels/main_menu.py temperature:panels/temperature.py"   # key:file of every change in zr_tools/ks_wm_patches.json (used by the update and by the doctor check, 2.26.0)
+
 patch_ks_wm() {   # 2.9.0 (graphs off 2.11.0): sensor strip and Sensors page, live Z adjust on the print and Fine Tuning screens, windows show every line and close at once, sensors read again after the start (zr_tools/patch_ks_wm.py, list ks_wm_patches.json)
     local d="${REPO_DIR:-.}/zr_tools" key f rc
     [ -f "$d/patch_ks_wm.py" ] && [ -f "$d/ks_wm_patches.json" ] || return 0
-    for key in extrude:panels/extrude.py job_status:panels/job_status.py gcodes:panels/gcodes.py fine_tune:panels/fine_tune.py prompts:ks_includes/widgets/prompts.py prompts2:ks_includes/widgets/prompts.py screen:screen.py main_menu:panels/main_menu.py temperature:panels/temperature.py; do
+    for key in $KS_WM_KEYS; do
         f="$KS_DIR/${key#*:}"
         [ -f "$f" ] || continue
         [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
@@ -1224,6 +1226,21 @@ do_doctor_board() {
             pb "ZR Tools file missing: $f" "a KlipperScreen update may have removed it."
             fixit "copy the ZR Tools files again" bash -c "mkdir -p '$KS_DIR/panels' && cp '$REPO_DIR'/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py,wm_setter.py,wm_ztrim.py} '$KS_DIR/panels/'"; break
         done
+        put_ks_wm() { patch_ks_wm; ks_restart; }
+        local k kf krc kbad=0 kn=0   # 2.26.0: the ZR changes inside KlipperScreen's own files (a KlipperScreen update can remove them)
+        if [ -f "${REPO_DIR:-.}/zr_tools/patch_ks_wm.py" ] && [ -d "$KS_DIR" ]; then
+            for k in $KS_WM_KEYS; do
+                kf="$KS_DIR/${k#*:}"; [ -f "$kf" ] || continue
+                kn=$((kn+1)); python3 "$REPO_DIR/zr_tools/patch_ks_wm.py" --check "${k%%:*}" "$kf" >/dev/null 2>&1; krc=$?
+                case "$krc" in
+                    0) ;;
+                    10) kbad=$((kbad+1)); pb "ZR change missing in KlipperScreen's ${k#*:} (${k%%:*})" "a KlipperScreen update may have removed it." ;;
+                    11) kbad=$((kbad+1)); pb "KlipperScreen's ${k#*:} is different from what the installer knows (${k%%:*})" "another KlipperScreen version or an own edit; the ZR change cannot be added by itself." ;;
+                esac
+            done
+            [ "$kbad" = 0 ] && [ "$kn" -gt 0 ] && ok "all ZR changes inside KlipperScreen are in ($kn files)"
+            [ "$kbad" -gt 0 ] && fixit "put the missing ZR changes back and restart KlipperScreen" put_ks_wm
+        fi
         [ -f "$CFG_DIR/KlipperScreen.conf" ] && ok "KlipperScreen.conf exists" || pb "KlipperScreen.conf is missing" "restore a backup (menu: Backup and restore)."
         for u in "${SERVICES[@]}"; do svc_exists "$u" && svc_enabled "$u" && { pb "factory service $u is still enabled" "it would start at the next boot and fight with KlipperScreen."; fixit "disable $u" SUDO systemctl disable "$u"; }; done
         if [ "$TESTING" != 1 ]; then

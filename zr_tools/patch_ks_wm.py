@@ -32,13 +32,47 @@
 
 Each change is "old lines -> new lines" (an entry {"done": "text"} means: when that text is in the file, every change of the key is already in, 2.19.0): old lines found once -> replaced; new lines already there -> nothing to do; else the
 file is left as it was (KlipperScreen of another version, or your own edit) and the exit code is 11.
-Exit codes: 0 nothing to do, 10 changed, 11 not changed (lines different), 2 usage."""
+Exit codes: 0 nothing to do, 10 changed, 11 not changed (lines different), 2 usage.
+
+  patch_ks_wm.py --check KEY FILE   (2.26.0) changes nothing: says whether the changes of KEY are in FILE.
+                                    Exit 0 = all in, 10 = missing (a KlipperScreen update may have removed them), 11 = the lines are different."""
 import json
 import os
 import sys
 
 
+def check(key, path):
+    """Read only: are the changes of KEY in the file? 0 = in, 10 = missing, 11 = lines different (own edit or another KlipperScreen)."""
+    data = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ks_wm_patches.json")))
+    if key not in data or not os.path.isfile(path):
+        return 2
+    text = open(path).read()
+    if any(h.get("done") and h["done"] in text for h in data[key]):
+        print("present %s (%s)" % (path, key))
+        return 0
+    missing = different = 0
+    for h in data[key]:
+        if "old" not in h:
+            continue
+        if h["new"] in text:
+            continue
+        if text.count(h["old"]) == 1:
+            missing += 1
+        else:
+            different += 1
+    if different:
+        print("different %s (%s): lines are not the ones the installer knows" % (path, key))
+        return 11
+    if missing:
+        print("missing %s (%s): %d change(s) not in" % (path, key, missing))
+        return 10
+    print("present %s (%s)" % (path, key))
+    return 0
+
+
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == "--check":
+        return check(sys.argv[2], sys.argv[3])
     if len(sys.argv) != 3:
         print(__doc__)
         return 2
