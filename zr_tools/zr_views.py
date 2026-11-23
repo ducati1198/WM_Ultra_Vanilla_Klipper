@@ -565,28 +565,50 @@ class ViewsMixin:
     def _refresh_system(self):
         if "sys" not in self.w:
             return
-        temp = L.read_pi_temp()
-        flags = self._read_flags()
+        base = self._http_base() if L.board_mode() else None
+        if base:
+            self._fetch_pi_system(base)         # in a thread: the Pi's values arrive a moment later
+            h = getattr(self, "_sys_pi", None) or {}
+            temp, power = h.get("temp"), h.get("power", "unknown")
+        else:
+            temp = L.read_pi_temp()
+            flags = self._read_flags()
+            power = L.throttled_text(flags) if flags else "unknown"
         try:
             host = socket.gethostname()
             ip = socket.gethostbyname(host)
         except OSError:
             host, ip = "", ""
-        can = "down or missing"
-        try:
-            with open("/sys/class/net/can0/operstate") as f:
-                can = "up" if f.read().strip() in ("up", "unknown") else "down"
-        except OSError:
-            pass
         try:
             kstate = self._screen.printer.state
         except Exception:
             kstate = "unknown"
+        v = getattr(self, "_sys_ver", None) or {}
         lines = ["Pi temperature: %s" % ("%.0f C" % temp if temp is not None else "unknown"),
-                 "Power: %s" % (L.throttled_text(flags) if flags else "unknown"),
-                 "can0: %s" % can, "Klipper: %s" % kstate,
-                 "Fluidd: %s" % (L.fluidd_url(host, ip) or "unknown")]
+                 "Power: %s" % power,
+                 "Klipper: %s" % kstate,
+                 "Fluidd: %s" % (L.fluidd_url(host, ip) or "unknown"),
+                 L.versions_line(v.get("pi", ""), L.installed_version() if L.board_mode() else v.get("screen", ""), v.get("panel", ""))]
         self.w["sys"].set_text("\n".join(lines))
+
+    def _fetch_pi_system(self, base):
+        """Asks Moonraker for the Pi's temperature, power state and the saved versions, at most every 5 seconds, in a thread."""
+        import time
+        if getattr(self, "_sys_busy", False) or time.time() - getattr(self, "_sys_at", 0) < 5:
+            return
+        self._sys_busy, self._sys_at = True, time.time()
+
+        def work():
+            try:
+                h = L.pi_health(base)
+                if h is not None:
+                    self._sys_pi = h
+                ver = L.pi_versions(base)
+                if ver:
+                    self._sys_ver = ver
+            finally:
+                self._sys_busy = False
+        threading.Thread(target=work, daemon=True).start()
 
     def _install_dir(self):
         try:

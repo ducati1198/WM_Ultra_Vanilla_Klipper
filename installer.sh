@@ -2995,7 +2995,10 @@ do_update() {
     restart_klipper_after
     pi_sensors_in_flow
     self_test
+    publish_versions
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi   # the update used to hide these
+    # The screen boards you added: only a board whose SCREEN version is behind is updated (a Pi-only release leaves them alone). Not in the middle of a print.
+    if [ -z "$ONLY_ADDON" ] && [ -n "$(boards_list)" ]; then do_update_boards || print_warning "A screen board was not updated (see above). Later: ./installer.sh --update-boards"; fi
     progress_bar 100 100 "Update finished"
     print_success "Update finished (installer $VERSION)."
 }
@@ -3016,9 +3019,24 @@ panel_remote_version() {   # newest panel version on GitHub (after a fetch); '' 
     local d; d="$(ace_dir)"; [ -d "$d/.git" ] || return 0
     git -C "$d" show "origin/main:VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 }
-board_version() {   # the screen files' version on a board
-    wm_ssh "$1" 'for f in ~/wm-screen-backup/version ~/WM_Ultra_Vanilla_Klipper/VERSION; do [ -f "$f" ] && { head -n1 "$f"; exit 0; }; done' 2>/dev/null | head -n1 | tr -d '[:space:]'
+board_version() {   # the screen files' version on a board: its own S version (wm-screen-backup/screen_version); a board from before S1.0.0 reports its old number (2.x)
+    wm_ssh "$1" 'for f in ~/wm-screen-backup/screen_version ~/wm-screen-backup/version ~/WM_Ultra_Vanilla_Klipper/VERSION; do [ -f "$f" ] && { head -n1 "$f"; exit 0; }; done' 2>/dev/null | head -n1 | tr -d '[:space:]'
 }
+screen_version_new() {   # the newest screen version: SCREEN_VERSION on GitHub (origin/main) after a fetch, else the file of this copy; '' for a copy from before S1.0.0
+    local v=""
+    if [ -d "$REPO_DIR/.git" ]; then v="$(git -C "$REPO_DIR" show origin/main:SCREEN_VERSION 2>/dev/null | head -n1 | tr -d '[:space:]')"; fi
+    [ -n "$v" ] || v="$(head -n1 "$REPO_DIR/SCREEN_VERSION" 2>/dev/null | tr -d '[:space:]')"
+    printf '%s' "$v"
+}
+screen_needs_pi() { if [ -n "${WM_TEST_SCREEN_NEEDS_PI:-}" ]; then printf '%s' "$WM_TEST_SCREEN_NEEDS_PI"; return 0; fi; head -n1 "$REPO_DIR/SCREEN_NEEDS_PI" 2>/dev/null | tr -d '[:space:]'; }   # the lowest Pi installer version this screen version works with
+screen_ver_newer() {   # $1 (a screen version, S1.2.3) is higher than $2 (the board's). A board that still reports an old Pi-style number (2.x, before S1.0.0) is always behind.
+    local a="${1#S}" b="$2"
+    [ -n "$1" ] || return 1
+    case "$b" in S*) b="${b#S}" ;; *) return 0 ;; esac
+    ver_newer "$a" "$b"
+}
+screen_show() { case "$1" in S*) printf "%s" "$1" ;; "") printf "unknown" ;; *) printf "%s (before S1.0.0)" "$1" ;; esac; }
+pi_installed_version() { local v; v="$(sed -n 's/^VERSION=//p' "$CONF" 2>/dev/null | head -n1 | tr -d '[:space:]')"; printf '%s' "${v:-$VERSION}"; }
 updates_summary() {   # prints the state of the panel and the boards; sets UPD_PANEL_NEW / UPD_BOARDS_NEW (counts of things that are behind). $1 = newest installer version
     UPD_PANEL_NEW=0; UPD_BOARDS_NEW=0
     local d pv rv t bv
@@ -3032,7 +3050,10 @@ updates_summary() {   # prints the state of the panel and the boards; sets UPD_P
         [ -n "$t" ] || continue
         bv="$(board_version "$t")"
         if [ -z "$bv" ]; then echo "  Screen board $t: cannot be reached (is it on, and was the key set up with ./installer.sh --board add $t ?)"; continue; fi
-        if ver_newer "${1:-}" "$bv"; then UPD_BOARDS_NEW=$((UPD_BOARDS_NEW+1)); echo "  Screen board $t: installed $bv, latest ${1:-?}  (newer)"; else echo "  Screen board $t: installed $bv, latest ${1:-unknown}"; fi
+        local sv; sv="$(screen_version_new)"
+        if [ -n "$sv" ]; then
+            if screen_ver_newer "$sv" "$bv"; then UPD_BOARDS_NEW=$((UPD_BOARDS_NEW+1)); echo "  Screen board $t: installed screen $(screen_show "$bv"), latest screen $sv  (newer)"; else echo "  Screen board $t: installed screen $(screen_show "$bv"), latest screen $sv"; fi
+        elif ver_newer "${1:-}" "$bv"; then UPD_BOARDS_NEW=$((UPD_BOARDS_NEW+1)); echo "  Screen board $t: installed $bv, latest ${1:-?}  (newer)"; else echo "  Screen board $t: installed $bv, latest ${1:-unknown}"; fi
     done < <(boards_list)
 }
 
@@ -3098,22 +3119,28 @@ do_board() {   # --board add|remove|list [user@host]
         *) die_with_fix "--board needs add, remove or list." "./installer.sh --board list" ;;
     esac
 }
-do_update_boards() {   # runs the board's own Update (the same root copy the Update button on its screen runs)
+do_update_boards() {   # runs the board's own Update (the same root copy the Update button on its screen runs), only for boards whose SCREEN version is behind
     print_header "Update the screen boards"
     local t n=0 bad=0
+    [ "${WM_TEST_NO_BOARD_UPDATE:-0}" = 1 ] && { echo "  Test: the boards are not updated now."; return 0; }   # test hook: update the Pi first, the board by hand with a local bundle
     [ -n "$(boards_list)" ] || { echo "  No screen board added (./installer.sh --board add user@host). Nothing to do."; return 0; }
     if print_active; then print_warning "A print is running or paused: the boards are not updated now (their update restarts Klipper)."; return 1; fi
-    local newv="$VERSION"
-    if [ -d "$REPO_DIR/.git" ]; then newv="$(git -C "$REPO_DIR" show origin/main:VERSION 2>/dev/null | head -n1 | tr -d '[:space:]')"; [ -n "$newv" ] || newv="$VERSION"; fi
+    local newv; newv="$(screen_version_new)"
+    if [ -z "$newv" ]; then   # a copy of this repository from before S1.0.0: the old rule, the whole installer version
+        newv="$VERSION"
+        if [ -d "$REPO_DIR/.git" ]; then newv="$(git -C "$REPO_DIR" show origin/main:VERSION 2>/dev/null | head -n1 | tr -d '[:space:]')"; [ -n "$newv" ] || newv="$VERSION"; fi
+    fi
+    local need pi; need="$(screen_needs_pi)"; pi="$(pi_installed_version)"
     while read -r t; do
         [ -n "$t" ] || continue
         local bv; bv="$(board_version "$t")"
         if [ -z "$bv" ]; then print_warning "Board $t cannot be reached over ssh: skipped."; bad=$((bad+1)); continue; fi
         board_sync_tz "$t"
-        if ! ver_newer "$newv" "$bv"; then print_success "Board $t is up to date ($bv)."; continue; fi
-        if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from $bv to $newv${NC}"; continue; fi
+        if ! screen_ver_newer "$newv" "$bv"; then print_success "Board $t is up to date (screen $(screen_show "$bv"))."; continue; fi
+        if [ -n "$need" ] && ver_newer "$need" "$pi"; then print_warning "Board $t: screen $newv needs this Pi on installer $need or newer (it is on $pi): the board is NOT updated. Run ./installer.sh --update first."; bad=$((bad+1)); continue; fi
+        if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from screen $(screen_show "$bv") to $newv${NC}"; continue; fi
         if wm_ssh "$t" 'sudo -n /usr/local/sbin/wm-factory-restore --update --yes --detach' 2>&1 | tail -n 3; [ "${PIPESTATUS[0]}" = 0 ]; then
-            print_success "Board $t: update started ($bv -> $newv). Its screen restarts by itself in about a minute."; n=$((n+1))
+            print_success "Board $t: update started (screen $(screen_show "$bv") -> $newv). Its screen restarts by itself in about a minute."; n=$((n+1))
         else print_warning "Board $t: the update did not start. On the board run once: bash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --post-update"; bad=$((bad+1)); fi
     done < <(boards_list)
     [ "$bad" = 0 ]
@@ -3130,7 +3157,7 @@ do_update_all() {   # download everything newer, apply it, then update the board
     local rc=0
     bash "$REPO_DIR/installer.sh" --update --yes || rc=$?
     [ "$rc" = 0 ] || { print_error "The update stopped (exit $rc). The boards were not touched."; return "$rc"; }
-    bash "$REPO_DIR/installer.sh" --update-boards || rc=$?
+    # the screen boards were already looked at at the end of --update (only the ones that are behind): nothing more to do here
     return "$rc"
 }
 
@@ -3281,6 +3308,21 @@ do_undo() {
     print_success "Done. To go forward again, the folders from this undo are in $BACKUP_ROOT/undone-$STAMP/."
 }
 
+# Saves the three versions in Moonraker's database (namespace wondermaker, key versions) so the screen (More / System) and the Fluidd panel
+# can show them: Pi = VERSION of this installer, Screen = SCREEN_VERSION, Panel = VERSION of the ACE Pro / Fluidd panel project.
+publish_versions() {
+    [ "$DRY" = 1 ] && return 0
+    [ "$TESTING" = 1 ] && { [ -n "${WM_TEST_VERSIONS_FILE:-}" ] && echo "versions saved" >> "$WM_TEST_VERSIONS_FILE"; return 0; }   # the test suite must never write to the real Moonraker of the machine it runs on
+    local pi sc pa; pi="$VERSION"; sc="$(head -n1 "$REPO_DIR/SCREEN_VERSION" 2>/dev/null | tr -d '[:space:]')"
+    pa="$(head -n1 "$(ace_dir)/VERSION" 2>/dev/null | tr -d '[:space:]')"
+    local body="{\"namespace\":\"wondermaker\",\"key\":\"versions\",\"value\":{\"pi\":\"$pi\",\"screen\":\"$sc\",\"panel\":\"$pa\"}}" try   # the database write can take a while on an SD card
+    for try in 1 2 3; do
+        curl -fsS -m 20 -X POST -H 'Content-Type: application/json' -d "$body" http://127.0.0.1:7125/server/database/item >/dev/null 2>&1 && return 0
+        sleep 3
+    done
+    print_info "The versions were not saved in Moonraker (it did not answer). The screen shows ? until the next update." 2>/dev/null || true
+}
+
 self_test() {
     print_header "Self-test"
     local w=0; while [ -z "$(api_get /server/info)" ] && [ "$TESTING" != 1 ] && [ "$DRY" != 1 ] && [ "$w" -lt 15 ]; do sleep 2; w=$((w+1)); done   # Moonraker needs up to 30 s after a restart
@@ -3323,6 +3365,9 @@ doc_updates() {   # doctor: is a newer installer, Fluidd panel or screen board o
         [ -n "$t" ] || continue
         bv="$(board_version "$t")"
         if [ -z "$bv" ]; then doc_bad "screen board $t cannot be reached over ssh" "Check that it is on; set the key up again with ./installer.sh --board add $t"
+        elif [ -n "$(screen_version_new)" ]; then
+            if screen_ver_newer "$(screen_version_new)" "$bv"; then doc_bad "screen board $t is behind (screen $(screen_show "$bv"), latest $(screen_version_new))" "Update with ./installer.sh --update-boards (or --update-all)."; behind=1
+            else doc_ok "screen board $t has screen $(screen_show "$bv") (newest)"; fi
         elif ver_newer "$newv" "$bv"; then doc_bad "screen board $t is behind ($bv, latest $newv)" "Update with ./installer.sh --update-boards (or --update-all)."; behind=1
         else doc_ok "screen board $t has $bv (newest)"; fi
         if [ -n "$bv" ]; then
@@ -4447,6 +4492,7 @@ step_cfgindex
 step_ultrabackup   # after the panel and the add-ons, which write backups of their own
 restart_klipper_after
 self_test
+publish_versions
 pi_sensors_in_flow
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi   # last: enabling and starting the services
 step_load_cell   # after Klipper runs: the load cell board on firmware V2? (a full install only, never an update)

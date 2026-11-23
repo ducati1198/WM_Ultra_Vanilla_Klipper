@@ -416,6 +416,15 @@ save_state() {
     cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"; [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && cp "$SCRIPT_DIR/lib_free_space.sh" "$BK/lib_free_space.sh"
     case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) echo "$REPO_DIR" > "$BK/installer_dir" ;; esac   # the Update button refreshes this folder too
     [ -f "$REPO_DIR/VERSION" ] && cp "$REPO_DIR/VERSION" "$BK/version"
+    write_screen_marks "$REPO_DIR"
+}
+write_screen_marks() {   # the screen's own version (S1.0.0, file SCREEN_VERSION of the bundle) next to the old marks; $1 = the folder that holds SCREEN_VERSION
+    local src="${1:-$REPO_DIR}"
+    [ -f "$src/SCREEN_VERSION" ] || return 0
+    mkdir -p "$BK"; cp "$src/SCREEN_VERSION" "$BK/screen_version"
+    [ -d "$KS_DIR/panels" ] && cp "$src/SCREEN_VERSION" "$KS_DIR/panels/zr_screen_version.txt"
+    [ -f "$src/SCREEN_NEEDS_PI" ] && cp "$src/SCREEN_NEEDS_PI" "$BK/screen_needs_pi"
+    return 0
 }
 
 step_disable_factory() {
@@ -494,7 +503,7 @@ step_klipperscreen() {
     fi
     # ZR Tools panel files
     if [ "$DRY" != 1 ]; then
-        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py,wm_setter.py,wm_ztrim.py} "$KS_DIR/panels/"; cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt" 2>/dev/null
+        mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py,wm_sensors.py,wm_setter.py,wm_ztrim.py} "$KS_DIR/panels/"; cp "$REPO_DIR/VERSION" "$KS_DIR/panels/zr_version.txt" 2>/dev/null; write_screen_marks "$REPO_DIR"
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
@@ -1057,7 +1066,7 @@ fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from Gi
     if [ "$TESTING" = 1 ]; then LATEST_DIR="${WM_TEST_UPDATE_DIR:-}"; [ -d "$LATEST_DIR" ]; return; fi
     LATEST_DIR="$(mktemp -d)"; LATEST_TMP="$LATEST_DIR"; trap 'rm -rf "${LATEST_TMP:-}"; exit 130' INT TERM; print_info "Downloading the newest version from GitHub ..."
     # the small screen bundle (about 90 KB) has everything the board reads. Only if it cannot be fetched, the whole repository is downloaded instead.
-    if curl -fsSL -m 60 "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz?nocache=$(date +%s)" | tar -xz -C "$LATEST_DIR" 2>/dev/null && [ -f "$LATEST_DIR/scripts/screen_board.sh" ] && [ -f "$LATEST_DIR/VERSION" ]; then return 0; fi
+    if curl -fsSL -m 60 "${WM_SCREEN_BUNDLE_URL:-https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz?nocache=$(date +%s)}" | tar -xz -C "$LATEST_DIR" 2>/dev/null && [ -f "$LATEST_DIR/scripts/screen_board.sh" ] && [ -f "$LATEST_DIR/VERSION" ]; then return 0; fi
     print_warning "The small download was not available: downloading the whole repository instead (it is large)."
     rm -rf "${LATEST_DIR:?}"/* "$LATEST_DIR"/.[!.]* 2>/dev/null
     curl -fsSL -m 600 https://codeload.github.com/ducati1198/WM_Ultra_Vanilla_Klipper/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
@@ -1098,7 +1107,7 @@ do_post_update() {   # optional argument: the folder that holds the newest files
     mkdir -p "$BK"
     cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"; [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && cp "$SCRIPT_DIR/lib_free_space.sh" "$BK/lib_free_space.sh"
     if [ -f "$src/VERSION" ] && ! panels_differ "$src"; then
-        cp "$src/VERSION" "$BK/version"; [ -d "$KS_DIR/panels" ] && cp "$src/VERSION" "$KS_DIR/panels/zr_version.txt"
+        cp "$src/VERSION" "$BK/version"; [ -d "$KS_DIR/panels" ] && cp "$src/VERSION" "$KS_DIR/panels/zr_version.txt"; write_screen_marks "$src"
     elif [ -f "$src/VERSION" ]; then
         print_warning "The screen files are not the files of version $(cat "$src/VERSION"): the version marks were left as they are. Run: bash scripts/screen_board.sh --update"
     fi
@@ -1127,6 +1136,10 @@ do_update_board_core() {
     w="$LATEST_DIR"
     new="$(cat "$w/VERSION" 2>/dev/null)"
     [ -n "$new" ] || die_with_fix "the download has no VERSION file." "try again later."
+    # since S1.0.0 the screen has its own version: a Pi-only release does not count as a screen update
+    local newS oldS; newS="$(head -n1 "$w/SCREEN_VERSION" 2>/dev/null | tr -d '[:space:]')"
+    oldS="$(head -n1 "$KS_DIR/panels/zr_screen_version.txt" 2>/dev/null || head -n1 "$BK/screen_version" 2>/dev/null)"; oldS="$(printf '%s' "$oldS" | tr -d '[:space:]')"
+    if [ -n "$newS" ]; then new="$newS"; old="${oldS:-$old}"; fi
     echo "  Installed: ${old:-unknown}    Newest: $new"
     if [ -n "$old" ] && [ "$new" != "$old" ] && [ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | head -1)" = "$new" ]; then   # never go back to an older version
         print_warning "The download is version $new, which is OLDER than the one installed ($old). GitHub can serve an old copy for a few minutes after a new version is published."
@@ -1165,7 +1178,7 @@ do_update_board_core() {
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup; REPO_DIR="$w" patch_ks_job_status_light; REPO_DIR="$w" patch_ks_wm; REPO_DIR="$w" patch_ks_update
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
-        mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"; cp "$w/scripts/lib_free_space.sh" "$BK/lib_free_space.sh" 2>/dev/null; cp "$w/VERSION" "$BK/version"
+        mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"; cp "$w/scripts/lib_free_space.sh" "$BK/lib_free_space.sh" 2>/dev/null; cp "$w/VERSION" "$BK/version"; write_screen_marks "$w"
         # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)
         if [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; then
             if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 && [ "$TESTING" != 1 ]; then git -C "$REPO_DIR" pull -q --ff-only 2>/dev/null || cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR; run: cd $REPO_DIR && git pull"

@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/screen_board_bundle/wm-screen-board.tar.gz"
 cd "$ROOT"
 FILES="$( { printf '%s\n' scripts/screen_board.sh scripts/lib_free_space.sh scripts/screen_board_inspect.sh scripts/screen_board_precheck.sh \
-    config/pins/addons.txt VERSION CHANGELOG.md; find zr_tools screen_rescue usb_flags -type f ! -name '*.pyc' ! -path '*__pycache__*'; } | LC_ALL=C sort )"
+    config/pins/addons.txt VERSION SCREEN_VERSION SCREEN_NEEDS_PI CHANGELOG.md; find zr_tools screen_rescue usb_flags -type f ! -name '*.pyc' ! -path '*__pycache__*'; } | LC_ALL=C sort )"
 TMP="$(mktemp)"; trap 'rm -f "$TMP"' EXIT
 # shellcheck disable=SC2086
 echo "$FILES" | tar --sort=name --mtime='2020-01-01 00:00:00' --owner=0 --group=0 --numeric-owner --mode=u+rwX,go+rX,go-w -cf - -T - | gzip -n -9 > "$TMP"

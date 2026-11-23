@@ -189,6 +189,16 @@ class Logic(unittest.TestCase):
         self.assertFalse(L.rescue_available(["/nonexistent/wm-screen-rescue.service"]))
         shutil.rmtree(d)
 
+    def test_pi_values_from_moonraker(self):
+        L = load_logic()
+        self.assertEqual(L.power_from_moonraker({"bits": 0, "flags": []}), "ok")
+        self.assertEqual(L.power_from_moonraker({"bits": 1, "flags": ["Under-Voltage Detected"]}), "under-voltage now")
+        self.assertEqual(L.power_from_moonraker(None), "unknown")
+        self.assertEqual(L.can_from_moonraker({"result": {"system_info": {"canbus": {"can0": {"bitrate": 1000000}}}}}), "present (1000000 bit/s)")
+        self.assertEqual(L.can_from_moonraker({"result": {"system_info": {"canbus": {}}}}), "not found")
+        self.assertEqual(L.versions_line("2.28.0", "S1.0.0", "1.16.3"), "Pi 2.28.0 \u00b7 Screen S1.0.0 \u00b7 Panel 1.16.3")
+        self.assertEqual(L.versions_line(), "Pi ? \u00b7 Screen ? \u00b7 Panel ?")
+
     def test_update_button_logic(self):
         self.assertEqual(L.update_command("/x/wm"), ["sudo", "-n", "/x/wm", "--update", "--yes", "--detach"])
         self.assertTrue(L.version_newer("2.0.8", "2.0.7"))
@@ -206,11 +216,11 @@ class Logic(unittest.TestCase):
         self.assertEqual(L.latest_version("http://127.0.0.1:9/none", timeout=1), "")
         # the version file next to the panels is found first, so the screen never says "unknown" and offers the update it already has
         with mock.patch.object(L, "BOARD_VERSION_FILE", os.path.join(d, "none")):
-            panel = os.path.join(SRC, "zr_version.txt")
+            panel = os.path.join(SRC, "zr_screen_version.txt")
             had = os.path.exists(panel)
             try:
-                open(panel, "w").write("7.7.7\n")
-                self.assertEqual(L.installed_version(), "7.7.7")
+                open(panel, "w").write("S7.7.7\n")
+                self.assertEqual(L.installed_version(), "S7.7.7")
             finally:
                 if not had:
                     os.remove(panel)

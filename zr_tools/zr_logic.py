@@ -382,8 +382,8 @@ def factory_restore_command(script=None):
     return ["sudo", "-n", script or BOARD_SCRIPT, "--factory-restore", "--yes", "--detach"]
 
 
-UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/VERSION"
-BOARD_VERSION_FILE = os.path.join(BOARD_DIR, "version")        # written by scripts/screen_board.sh at install and after every update
+UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/SCREEN_VERSION"   # the screen has its own version since S1.0.0 (the Pi installer has VERSION)
+BOARD_VERSION_FILE = os.path.join(BOARD_DIR, "screen_version")   # written by scripts/screen_board.sh at install and after every update (S1.0.0 style)
 
 
 def update_command(script=None):
@@ -393,8 +393,11 @@ def update_command(script=None):
 
 
 def version_tuple(text):
-    """'2.0.7' -> (2, 0, 7); anything that is not numbers like that gives None."""
-    parts = (text or "").strip().split(".")
+    """'2.0.7' -> (2, 0, 7); a screen version 'S1.0.0' -> (1, 0, 0); anything that is not numbers like that gives None."""
+    text = (text or "").strip()
+    if text[:1] in ("S", "s"):
+        text = text[1:]
+    parts = text.split(".")
     if not parts or not all(p.isdigit() for p in parts):
         return None
     return tuple(int(p) for p in parts)
@@ -411,10 +414,11 @@ def version_newer(latest, installed):
 
 
 def installed_version(path=None):
-    """The version of the files on this screen. Every install and update writes it next to the panels (zr_version.txt) and to
-    ~/wm-screen-backup/version; the installer folder's VERSION is the last resort. '' when none can be read."""
+    """The screen version of the files on this screen (S1.0.0). Every install and update writes it next to the panels (zr_screen_version.txt)
+    and to ~/wm-screen-backup/screen_version. The old Pi-style marks (zr_version.txt, 2.x) are NOT used: a board from before S1.0.0
+    gives '' and is offered the update. '' when none can be read."""
     here = os.path.dirname(os.path.abspath(__file__))
-    files = [path] if path else [os.path.join(here, "zr_version.txt"), BOARD_VERSION_FILE] + sorted(glob.glob(os.path.expanduser("~/WM_Ultra_Vanilla_Klipper*/VERSION")))
+    files = [path] if path else [os.path.join(here, "zr_screen_version.txt"), BOARD_VERSION_FILE]
     for f in files:
         try:
             with open(f) as fh:
@@ -911,3 +915,57 @@ def update_tmt1_slot(text, index, color, material):
             at -= 1
         lines[at:at] = extra
     return eol.join(lines) + (eol if text.endswith(("\n", "\r")) else "")
+
+
+# ---------------------------------------------------------------------------
+# System page on the screen board: the temperature, the power state and can0 belong to the main Pi, not to the board the screen
+# runs on (the board has no can0 and no vcgencmd), so they are read from the Pi through Moonraker.
+# ---------------------------------------------------------------------------
+def power_from_moonraker(throttled):
+    """Moonraker proc_stats throttled_state ({bits, flags}) -> same wording as throttled_text. None/{} -> unknown."""
+    if not isinstance(throttled, dict) or "bits" not in throttled:
+        return "unknown"
+    try:
+        return throttled_text(hex(int(throttled["bits"])))
+    except (TypeError, ValueError):
+        return "unknown"
+
+
+def can_from_moonraker(system_info):
+    """Moonraker system_info -> 'present (1000000 bit/s)' / 'not found'. Moonraker lists the CAN interfaces it finds, it does not say
+    whether the link is up (Klipper: ready says the boards answer)."""
+    info = ((system_info or {}).get("result") or {}).get("system_info", {})
+    can = info.get("canbus") or {}
+    if not isinstance(can, dict) or not can:
+        return "not found"
+    name = "can0" if "can0" in can else sorted(can)[0]
+    rate = (can.get(name) or {}).get("bitrate")
+    return "present (%s bit/s)" % rate if rate else "present"
+
+
+def pi_health(base, timeout=4):
+    """{temp, power, can} of the main Pi through Moonraker, or None when it cannot be reached."""
+    try:
+        stats = _moonraker(base, "GET", "/machine/proc_stats", timeout).get("result", {})
+        sysinfo = _moonraker(base, "GET", "/machine/system_info", timeout)
+    except Exception:
+        return None
+    temp = stats.get("cpu_temp")
+    return {"temp": float(temp) if isinstance(temp, (int, float)) else None,
+            "power": power_from_moonraker(stats.get("throttled_state")),
+            "can": can_from_moonraker(sysinfo)}
+
+
+def versions_line(pi="", screen="", panel=""):
+    """'Pi 2.28.0 · Screen S1.0.0 · Panel 1.16.3' (a version that is not known shows as '?')."""
+    return "Pi %s \u00b7 Screen %s \u00b7 Panel %s" % (pi or "?", screen or "?", panel or "?")
+
+
+def pi_versions(base, timeout=4):
+    """The versions the installer saved in Moonraker's database (namespace wondermaker, key versions): {pi, screen, panel} or {}."""
+    try:
+        v = _moonraker(base, "GET", "/server/database/item?namespace=wondermaker&key=versions", timeout)
+        v = (v.get("result") or {}).get("value")
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}

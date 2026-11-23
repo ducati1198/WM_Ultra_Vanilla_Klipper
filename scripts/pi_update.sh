@@ -59,11 +59,5 @@ elif [ "$KIND" = panel ]; then ( cd "$REPO" && bash "$REPO/installer.sh" --updat
 else ( cd "$REPO" && bash "$REPO/installer.sh" --update --yes ) >> "$LOG" 2>&1; rc=$?; fi
 say "$what update finished, exit code $rc"
 
-# The screen boards you added follow the installer (their screen files come from the same version)
-if [ "$KIND" = installer ] && [ "$rc" = 0 ] && [ -s "$HOME/wm-rpi-backup/boards.conf" ]; then
-    say "updating the screen boards (installer --update-boards)"
-    if [ -n "${WM_PI_UPDATE_BOARDS_CMD:-}" ]; then bash -c "$WM_PI_UPDATE_BOARDS_CMD" >> "$LOG" 2>&1; brc=$?
-    else ( cd "$REPO" && bash "$REPO/installer.sh" --update-boards ) >> "$LOG" 2>&1; brc=$?; fi
-    say "screen boards finished, exit code $brc"
-fi
+# The screen boards you added: installer.sh --update looks at them itself at the end (only a board whose screen version is behind is updated)
 exit 0
