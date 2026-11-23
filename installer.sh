@@ -63,7 +63,8 @@
 # ./installer.sh --set-hostname NAME   the name.local address of this Pi (asks first)
 # ./installer.sh --no-backup           with --update: skip the automatic backup that is otherwise saved first (the newest 5 are kept in ~/ultra-backup/settings)
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
-# ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
+# ./installer.sh --screen-board user@host   (2.27.0, F-215) install KlipperScreen with the ZR Tools on the screen board over ssh (the board password is asked once, never stored)
+# ./installer.sh --screen on|off|macros   (2.27.0: KlipperScreen is no longer installed on the Pi; "on" now means macros) nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
 # ./installer.sh --screen-backend x11|weston|cage   graphics stack for KlipperScreen (default x11)
 # ./installer.sh --screen-remove       remove KlipperScreen from this Pi (Klipper, Moonraker and Fluidd stay)
@@ -262,10 +263,11 @@ while [ $# -gt 0 ]; do
         --shaketune)    case "${2:-}" in on|yes|1) WANT_SHAKETUNE=1 ;; off|no|0) WANT_SHAKETUNE=0 ;; *) print_error "--shaketune needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE shaketune"; CLI_SHAKETUNE="$WANT_SHAKETUNE"; shift ;;
         --octoeverywhere) case "${2:-}" in on|yes|1) WANT_OCTOEVERYWHERE=1 ;; off|no|0) WANT_OCTOEVERYWHERE=0 ;; *) print_error "--octoeverywhere needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoeverywhere"; CLI_OCTOEVERYWHERE="$WANT_OCTOEVERYWHERE"; shift ;;
         --only-addon)   ONLY_ADDON="${2:-}"; shift ;;   # used by the menu (Add-ons): with --update, touch only that add-on, not the system files, packages, panel or nginx
-        --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
+        --screen)       case "${2:-}" in on|yes|1) if [ "${WM_KS_ON_PI:-0}" = 1 ]; then WANT_SCREEN=1; else WANT_SCREEN=macros; SCREEN_ON_NOTICE=1; fi ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
         --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
         --screen-test)  MODE=screentest ;;
+        --screen-board) MODE=screenboard; BOARD_TARGET="${2:-}"; shift $(( $# < 2 ? $# : 2 )) ;;   # 2.27.0 (F-215): install KlipperScreen + ZR Tools on the screen board over ssh
         --screen-remove) MODE=screenremove ;;
         --no-start)     AUTOSTART=0 ;;
         --force)        FORCE=1 ;;
@@ -1609,12 +1611,36 @@ open(p, "w").write("\n".join(out))
 PY
     print_info "Removed [update_manager $1] from moonraker.conf (copy: moonraker.conf.wm-before-$1-removal-$STAMP)"
 }
+ks_off_the_pi() {   # F-215: no KlipperScreen on the Pi any more. An existing one is removed at the update, without a question; its settings file is copied first.
+    [ "${WM_KS_ON_PI:-0}" = 1 ] && return 0   # only the suite sets this (its older checks build KlipperScreen on the Pi)
+    [ "$WANT_SCREEN" = 1 ] || [ -d "$KS_DIR" ] || [ -f /etc/systemd/system/KlipperScreen.service ] || return 0
+    print_info "KlipperScreen is no longer installed on the Pi (the touchscreen runs on the screen board): removing it. Its settings file is copied to $BACKUP_ROOT first."
+    local f="$HOME_DIR/printer_data/config/KlipperScreen.conf"
+    if [ "$DRY" != 1 ]; then mkdir -p "$BACKUP_ROOT"; [ -f "$f" ] && cp -p "$f" "$BACKUP_ROOT/KlipperScreen.conf.before-removal-$STAMP"; fi
+    do_screen_remove auto || print_warning "KlipperScreen could not be removed by itself. Remove it with ./installer.sh --screen-remove"
+    WANT_SCREEN=macros
+}
+board_install_remote() {   # F-215: $1 = user@host of the screen board. The board password is asked once (ssh-copy-id), never stored; then the board installs itself from the small download.
+    local t="$1" pihost
+    case "$t" in *@*) ;; *) die_with_fix "give the board as user@address." "./installer.sh --screen-board t13dp@<board-ip>" ;; esac
+    pihost="$(hostname -I 2>/dev/null | awk '{print $1}')"; [ "$TESTING" = 1 ] && pihost="${WM_TEST_PI_HOST:-192.0.2.10}"
+    [ -n "$pihost" ] || die_with_fix "this Pi's address is not known." "check the network."
+    BOARD_ACT=add; BOARD_TARGET="$t"; ( do_board ) || return 1
+    local url="https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz"
+    local cmd="mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL $url | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main && bash scripts/screen_board.sh --pi $pihost --yes"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run on $t: download the screen board bundle and install KlipperScreen with the ZR Tools (the board user gets sudo without a password, the board restarts at the end)${NC}"; return 0; fi
+    print_info "Installing KlipperScreen with the ZR Tools on the screen board $t (this takes several minutes, the board restarts at the end) ..."
+    wm_ssh "$t" "$cmd" && print_success "The screen board $t is set up." || { print_warning "The install on the screen board did not finish."; return 1; }
+}
 do_screen_remove() {
+    local AUTO="${1:-}"
     print_header "Remove the touchscreen (KlipperScreen)"
     load_answers || true
-    [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ] || [ -f /etc/systemd/system/KlipperScreen.service ] || die_with_fix "KlipperScreen is not installed on this Pi." "nothing to remove."
-    echo "Removes the KlipperScreen service, ~/KlipperScreen and its Python environment. Klipper, Moonraker, Fluidd and the ZR Tools macros stay."
-    ask_yn "Continue?" n || exit 0
+    if [ -z "$AUTO" ]; then
+        [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ] || [ -f /etc/systemd/system/KlipperScreen.service ] || die_with_fix "KlipperScreen is not installed on this Pi." "nothing to remove."
+        echo "Removes the KlipperScreen service, ~/KlipperScreen and its Python environment. Klipper, Moonraker, Fluidd and the ZR Tools macros stay."
+        ask_yn "Continue?" n || exit 0
+    fi
     run_official_uninstall KlipperScreen "$KS_DIR" bash scripts/Uninstall.sh
     SUDO systemctl stop KlipperScreen; SUDO systemctl disable KlipperScreen
     SUDO rm -f /etc/systemd/system/KlipperScreen.service; SUDO systemctl daemon-reload
@@ -1625,7 +1651,7 @@ do_screen_remove() {
         [ -f "$f" ] && sed -i '/^\[menu __main zr_tools\]/,/^$/d' "$f"
         WANT_SCREEN=macros; save_answers     # the ZR Tools macros stay in printer.cfg
     fi
-    print_success "KlipperScreen removed. The ZR Tools macros and your settings file zr_screen.conf were kept. Add KlipperScreen again with: ./installer.sh --screen on --update"
+    print_success "KlipperScreen removed. The ZR Tools macros and your settings file zr_screen.conf were kept. Set up the touchscreen on a screen board with: ./installer.sh --screen-board t13dp@<board-ip>"
 }
 
 do_screen_layout() {
@@ -2213,9 +2239,12 @@ questions() {
         if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
         [ -n "$r" ] && print_info "A screen is connected: $r"
-        if ask_yn "Add a touchscreen (KlipperScreen with the ZR Tools page) on this Pi?" y; then WANT_SCREEN=1
-        elif ask_yn "Add only the ZR Tools macros (needed if the WonderMaker screen board is your screen)?" y; then WANT_SCREEN=macros
-        else WANT_SCREEN=0; fi
+        print_info "The touchscreen runs on its own screen board, not on this Pi. This Pi gets the ZR Tools macros the screen needs."
+        WANT_SCREEN=macros
+        if ask_yn "Set up the touchscreen board now (KlipperScreen with the ZR Tools on the board, over ssh)?" y; then
+            local bh bu; read -r -p "  Screen board address (IP): " bh; read -r -p "  Screen board user [t13dp]: " bu; bu="${bu:-t13dp}"
+            [ -n "$bh" ] && { board_install_remote "$bu@$bh" || print_warning "The screen board was not set up. The printer works without a screen. Later: ./installer.sh --screen-board $bu@<board-ip>"; }
+        else print_info "Later: ./installer.sh --screen-board t13dp@<board-ip>"; fi
     fi
     if [ "$WANT_NETMGR" = ask ]; then
         if [ "$WANT_SCREEN" != 1 ]; then WANT_NETMGR=0
@@ -2918,6 +2947,7 @@ do_update() {
         if [ -n "$sha" ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; else print_success "Fluidd panel is already the latest"; fi
     fi
     progress_bar 55 100 "Update step 6 of $UT: touchscreen and add-ons"
+    ks_off_the_pi   # 2.27.0 (F-215): KlipperScreen on this Pi is removed by itself, the screen board is the touchscreen
     if [ "$WANT_SCREEN" = 1 ] && upd_wants screen; then
         if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
     fi
@@ -4331,6 +4361,7 @@ echo -e "${BLUE}WonderMaker Ultra Raspberry Pi, vanilla Klipper - installer $VER
 [ "$DRY" = 1 ] && print_info "DRY RUN: nothing will be changed."
 # No options, at a terminal: open the menu (also on an empty Pi; choose 1 there to install).
 if [ "$ORIG_ARGC" = 0 ] && [ "$MODE" = install ] && [ -t 0 ] && [ -t 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then MODE=menu; fi
+[ "${SCREEN_ON_NOTICE:-0}" = 1 ] && print_info "--screen on: KlipperScreen is no longer installed on the Pi (the touchscreen runs on the screen board). The ZR Tools macros are installed instead. Set up a screen board with: ./installer.sh --screen-board t13dp@<board-ip>"
 case "$MODE" in
     menu)       do_menu; exit 0 ;;
     remove)     do_remove_addon; exit $? ;;
@@ -4376,6 +4407,7 @@ case "$MODE" in
     screentest) do_screen_test; exit 0 ;;
     screenlayout) do_screen_layout; exit 0 ;;
     screenremove) do_screen_remove; exit 0 ;;
+    screenboard) board_install_remote "$BOARD_TARGET"; exit $? ;;
 esac
 
 if [ -n "$SCREEN_LAYOUT" ] && [ "$MODE" = install ] && [ "$WANT_SCREEN" = ask ] && [ -f "$CONF" ]; then do_screen_layout; exit 0; fi

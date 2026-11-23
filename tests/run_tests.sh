@@ -7,6 +7,7 @@ if [ -z "${WM_TESTS_IN_COPY:-}" ]; then   # always test a throwaway copy of the 
     WM_TESTS_IN_COPY=1 bash "$CP/tests/run_tests.sh" "$@"; rc=$?; rm -rf "$CP"; exit $rc
 fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export WM_KS_ON_PI=1   # F-215 (2.27.0): the installer no longer builds KlipperScreen on the Pi; the older checks below still test that code, the new F-215 checks run without this
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/fstmp"; export WM_TEST_TMP="$T/fstmp"   # the free-space helper must never see (and erase) the real /tmp, which holds this very copy of the tests
 PASS=0; FAIL=0
@@ -280,6 +281,21 @@ check "plan names every other optional program" "for n in 'panel (Fluidd)' webca
 check "every saved WANT_ answer is in the plan list (add new programs to PLAN_OPTIONS)" "for v in \$(sed -n '/^save_answers()/,/^}/p' $ROOT/installer.sh | grep -o 'WANT_[A-Z]*' | sort -u); do grep -q \"|\$v\\\"\" $ROOT/installer.sh || { echo missing \$v; exit 1; }; done"
 
 
+echo "== 2.27.0 (F-215): KlipperScreen only on the screen board"
+inst2() { local h="$1"; shift; env -u WM_KS_ON_PI WM_TEST_PANEL_DIR="${WM_TEST_PANEL_DIR:-$T/stubpanel}" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1; }
+F5="$T/f215a"; rm -rf "$F5"; mkdir -p "$F5"; mkstage "$T/stage_f215"
+OUT="$(inst2 "$F5" --from-stage "$T/stage_f215" --screen on)"
+check "F-215: --screen on says KlipperScreen is no longer installed on the Pi, installs the ZR Tools macros and puts no KlipperScreen on the Pi" "echo \"\$OUT\" | grep -q 'no longer installed on the Pi' && [ ! -d $F5/KlipperScreen ] && grep -q 'WANT_SCREEN=macros' $F5/wm-rpi-backup/install.conf"
+F6="$T/f215b"; rm -rf "$F6"; mkdir -p "$F6"
+inst "$F6" --from-stage "$T/stage_f215" --screen on >/dev/null
+check "F-215: (setup for the next check) the old install put KlipperScreen on the Pi" "[ -d $F6/KlipperScreen ] || grep -q 'WANT_SCREEN=1' $F6/wm-rpi-backup/install.conf"
+printf '[main]\n' > $F6/printer_data/config/KlipperScreen.conf
+OUT="$(inst2 "$F6" --update)"
+check "F-215: the update removes a KlipperScreen on the Pi by itself, no question, copies its settings file first, and remembers macros" "echo \"\$OUT\" | grep -q 'no longer installed on the Pi' && [ ! -d $F6/KlipperScreen ] && ls $F6/wm-rpi-backup/KlipperScreen.conf.before-removal-* >/dev/null 2>&1 && grep -q 'WANT_SCREEN=macros' $F6/wm-rpi-backup/install.conf"
+check "F-215: --screen-board needs user@address" "! WM_INSTALLER_TEST=1 WM_HOME=$F5 bash $ROOT/installer.sh --screen-board nohost >/dev/null 2>&1"
+OUT="$(WM_INSTALLER_TEST=1 WM_HOME=$F5 WM_ASSUME_YES=1 bash $ROOT/installer.sh --dry-run --screen-board t13dp@10.0.0.9 2>&1 </dev/null)"
+check "F-215: --screen-board --dry-run shows what would run on the board and installs nothing" "echo \"\$OUT\" | grep -q 'would run on t13dp@10.0.0.9' && [ ! -s $F5/.ssh/id_ed25519 ]"
+check "F-215: the install no longer asks for a touchscreen on the Pi" "! grep -q 'Add a touchscreen (KlipperScreen with the ZR Tools page) on this Pi' $ROOT/installer.sh && grep -q 'Set up the touchscreen board now' $ROOT/installer.sh"
 echo "== NetworkManager option"
 check "--network-manager needs on or off" "! bash $ROOT/installer.sh --network-manager maybe"
 NM="$T/nm"; rm -rf "$NM"; mkdir -p "$NM"; mkstage "$T/stage_nm"; mkdir -p "$NM/.svc"; touch "$NM/.svc/dhcpcd.enabled"
