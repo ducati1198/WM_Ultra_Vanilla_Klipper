@@ -520,41 +520,42 @@ m = re.search(r"^#~# ", s, re.M)
 open(p, "w").write(s[:m.start()] + add + s[m.start():] if m else s.rstrip("\n") + "\n\n" + add)
 PYE
 }
-write_ks_conf() {
+write_ks_conf() {   # B-084: an existing KlipperScreen.conf is kept (your menu entries, [main] settings and the settings saved from the screen); only the Pi address and missing ZR Tools entries are written
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would write KlipperScreen.conf (Pi: $PI_HOST) and zr_screen.conf${NC}"; return 0; }
     mkdir -p "$CFG_DIR"
     local f="$CFG_DIR/KlipperScreen.conf"; [ -f "$f" ] && [ ! -f "$BK/KlipperScreen.conf.orig" ] && cp "$f" "$BK/KlipperScreen.conf.orig"
-    cat > "$f" <<E
-# Written by WM_Ultra_Vanilla_Klipper scripts/screen_board.sh (the Pi runs Klipper and Moonraker)
-[printer WonderMaker]
-moonraker_host: $PI_HOST
-moonraker_port: 7125
-
-[menu __main zr_tools]
-name: ZR Tools
-icon: extruder
-panel: zr_tools
-
-[menu __main chamber_light]
-name: Chamber light
-icon: light
-method: wm_chamber_light
-
-[menu __main more pi_address]
-name: Pi address
-icon: network
-panel: pi_address
-
-[menu __splashscreen pi_address]
-name: Pi address
-icon: network
-panel: pi_address
-
-[menu __splashscreen zr_tools]
-name: ZR Tools
-icon: extruder
-panel: zr_tools
-E
+    if [ -f "$f" ]; then mkdir -p "$CFG_DIR/backup"; cp -p "$f" "$CFG_DIR/backup/KlipperScreen.conf.wm-before-install-$(date +%Y%m%d-%H%M%S)"; fi
+    python3 - "$f" "$PI_HOST" <<'PYE'
+import sys, re, os
+p, host = sys.argv[1], sys.argv[2]
+BLOCKS = [
+    ("[menu __main zr_tools]", "name: ZR Tools\nicon: extruder\npanel: zr_tools"),
+    ("[menu __main chamber_light]", "name: Chamber light\nicon: light\nmethod: wm_chamber_light"),
+    ("[menu __main more pi_address]", "name: Pi address\nicon: network\npanel: pi_address"),
+    ("[menu __splashscreen pi_address]", "name: Pi address\nicon: network\npanel: pi_address"),
+    ("[menu __splashscreen zr_tools]", "name: ZR Tools\nicon: extruder\npanel: zr_tools"),
+    ("[menu __print zr_tools]", "name: ZR Tools\nicon: extruder\npanel: zr_tools"),
+]
+HEAD = "# Written by WM_Ultra_Vanilla_Klipper scripts/screen_board.sh (the Pi runs Klipper and Moonraker)\n"
+old = open(p).read() if os.path.exists(p) else ""
+m = re.search(r"^#~# ", old, re.M)
+top, saved = (old[:m.start()], old[m.start():]) if m else (old, "")
+if not re.search(r"^\[printer [^\]]*\]", top, re.M):
+    top = HEAD + "[printer WonderMaker]\nmoonraker_host: %s\nmoonraker_port: 7125\n\n" % host + top.lstrip("\n")
+else:
+    # the Pi address of the first printer section (added when the section has none)
+    sec = re.search(r"^\[printer [^\]]*\]\n(?:(?!\[).*\n?)*", top, re.M)
+    body = sec.group(0)
+    if re.search(r"^moonraker_host:.*$", body, re.M): body2 = re.sub(r"^moonraker_host:.*$", "moonraker_host: %s" % host, body, count=1, flags=re.M)
+    else: body2 = body.rstrip("\n") + "\nmoonraker_host: %s\n\n" % host
+    if not re.search(r"^moonraker_port:", body2, re.M): body2 = body2.rstrip("\n") + "\nmoonraker_port: 7125\n\n"
+    top = top[:sec.start()] + body2 + top[sec.end():]
+for h, b in BLOCKS:
+    if not re.search("^" + re.escape(h) + r"\s*$", top, re.M):
+        top = top.rstrip("\n") + "\n\n" + h + "\n" + b + "\n"
+top = top.rstrip("\n") + "\n"
+open(p, "w").write(top + ("\n" + saved if saved else ""))
+PYE
     [ -f "$CFG_DIR/zr_screen.conf" ] || printf '# Written by screen_board.sh and the ZR Tools Settings page\n[screen]\nlayout = tabs\ndensity = comfortable\ntheme = dark\n' > "$CFG_DIR/zr_screen.conf"
 }
 

@@ -1625,12 +1625,24 @@ board_install_remote() {   # F-215: $1 = user@host of the screen board. The boar
     case "$t" in *@*) ;; *) die_with_fix "give the board as user@address." "./installer.sh --screen-board t13dp@<board-ip>" ;; esac
     pihost="$(hostname -I 2>/dev/null | awk '{print $1}')"; [ "$TESTING" = 1 ] && pihost="${WM_TEST_PI_HOST:-192.0.2.10}"
     [ -n "$pihost" ] || die_with_fix "this Pi's address is not known." "check the network."
-    BOARD_ACT=add; BOARD_TARGET="$t"; ( do_board ) || return 1
     local url="https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz"
     local cmd="mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL $url | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main && bash scripts/screen_board.sh --pi $pihost --yes"
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run on $t: download the screen board bundle and install KlipperScreen with the ZR Tools (the board user gets sudo without a password, the board restarts at the end)${NC}"; return 0; fi
+    # the dry run stops here, before the board is added: adding it logs in to the board, may ask for its password and sets its time zone
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add the board $t to this Pi (ssh key, asked for the board password once if needed), then run on it: download the screen board bundle and install KlipperScreen with the ZR Tools, pointing at this Pi ($pihost) (the board user gets sudo without a password, the board restarts at the end)${NC}"; return 0; fi
+    BOARD_ACT=add; BOARD_TARGET="$t"; ( do_board ) || return 1
     print_info "Installing KlipperScreen with the ZR Tools on the screen board $t (this takes several minutes, the board restarts at the end) ..."
-    wm_ssh "$t" "$cmd" && print_success "The screen board $t is set up." || { print_warning "The install on the screen board did not finish."; return 1; }
+    # B-083: the board restarts at the end of its install, which closes the ssh connection with an error code. That is not a failure:
+    # the install counts as finished when its last line (the restart notice) was reached, then the board is waited for.
+    local out rc i st=""
+    out="$(mktemp)"; wm_ssh "$t" "$cmd" 2>&1 | tee "$out"; rc="${PIPESTATUS[0]}"
+    if [ "$rc" != 0 ] && ! grep -q "Rebooting in" "$out"; then rm -f "$out"; print_warning "The install on the screen board did not finish."; return 1; fi
+    if grep -q "Rebooting in" "$out" && [ "$TESTING" != 1 ]; then
+        print_info "The screen board restarts now. Waiting for it to come back (up to 4 minutes) ..."
+        sleep 20
+        for i in $(seq 1 44); do st="$(wm_ssh "$t" 'systemctl is-active KlipperScreen' 2>/dev/null)"; [ "$st" = active ] && break; sleep 5; done
+        if [ "$st" != active ]; then rm -f "$out"; print_warning "The install on the screen board finished and the board restarted, but its screen is not answering yet. Look at the screen in a minute; check it with ./installer.sh --doctor"; return 0; fi
+    fi
+    rm -f "$out"; print_success "The screen board $t is set up."
 }
 do_screen_remove() {
     local AUTO="${1:-}"
@@ -2239,12 +2251,18 @@ questions() {
         if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
         [ -n "$r" ] && print_info "A screen is connected: $r"
+        if [ "${WM_KS_ON_PI:-0}" = 1 ]; then   # only the suite sets this: its older checks build KlipperScreen on the Pi
+            if ask_yn "Add a touchscreen (KlipperScreen with the ZR Tools page) on this Pi?" y; then WANT_SCREEN=1
+            elif ask_yn "Add only the ZR Tools macros (needed if the WonderMaker screen board is your screen)?" y; then WANT_SCREEN=macros
+            else WANT_SCREEN=0; fi
+        else
         print_info "The touchscreen runs on its own screen board, not on this Pi. This Pi gets the ZR Tools macros the screen needs."
         WANT_SCREEN=macros
         if ask_yn "Set up the touchscreen board now (KlipperScreen with the ZR Tools on the board, over ssh)?" y; then
             local bh bu; read -r -p "  Screen board address (IP): " bh; read -r -p "  Screen board user [t13dp]: " bu; bu="${bu:-t13dp}"
             [ -n "$bh" ] && { board_install_remote "$bu@$bh" || print_warning "The screen board was not set up. The printer works without a screen. Later: ./installer.sh --screen-board $bu@<board-ip>"; }
         else print_info "Later: ./installer.sh --screen-board t13dp@<board-ip>"; fi
+        fi
     fi
     if [ "$WANT_NETMGR" = ask ]; then
         if [ "$WANT_SCREEN" != 1 ]; then WANT_NETMGR=0
