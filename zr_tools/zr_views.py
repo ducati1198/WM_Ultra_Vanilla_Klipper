@@ -108,7 +108,9 @@ class ViewsMixin:
         if L.collision_settings(self._collision_section()):
             items.append(("warning", "Collision", self.show_collision))
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),
-                  ("clock", "Timelapse", self.show_extras)]
+                  ("clock", "Timelapse", self._timelapse_open),
+                  ("refresh", "Restart Klipper", lambda: self._utility("Restart Klipper", "RESTART", "Restart Klipper (reload the config)?")),
+                  ("refresh", "Firmware restart", lambda: self._utility("Firmware restart", "FIRMWARE_RESTART", "Firmware restart? This resets the MCUs."))]
         if L.board_mode():          # KlipperScreen runs on the WonderMaker screen board: it can update itself from GitHub
             items.append(("refresh", "Update screen", self._sys_update))
         items.append(("refresh", "Update Pi", self._pi_update))     # the same update as Fluidd's Update button
@@ -511,18 +513,23 @@ class ViewsMixin:
     # ------------------------------------------------------------------
     # TIMELAPSE / RESTART / TEST TOOL CHANGE
     # ------------------------------------------------------------------
+    def _timelapse_open(self):
+        # the Timelapse button of More opens the timelapse menu (WM_TIMELAPSE) straight away;
+        # a Pi without that macro still gets the old page (Take frame, Render video)
+        have = {x.upper() for x in (self._sections() or [])}
+        if "GCODE_MACRO WM_TIMELAPSE" in have:
+            self._utility("Timelapse", "WM_TIMELAPSE", None)
+        else:
+            self.show_extras()
+
     def show_extras(self):
         self.view = "extras"
         self._clear()
-        self.root.pack_start(self._header("Timelapse and restart"), False, False, 0)
+        self.root.pack_start(self._header("Timelapse"), False, False, 0)
         have = {s.upper() for s in self._sections()}
-        a = self._active_tool()
-        nxt = (a + 1) % NTOOLS if a >= 0 else 0
-        entries = [("camera", "Take frame", "TIMELAPSE_TAKE_FRAME", "Take one timelapse frame now?", "GCODE_MACRO TIMELAPSE_TAKE_FRAME"),
-                   ("complete", "Render video", "TIMELAPSE_RENDER", "Render the timelapse video now?", "GCODE_MACRO TIMELAPSE_RENDER"),
-                   ("refresh", "Restart Klipper", "RESTART", "Restart Klipper (reload the config)?", None),
-                   ("refresh", "Firmware restart", "FIRMWARE_RESTART", "Firmware restart? This resets the MCUs.", None),
-                   ("toolchanger", "Test change to T%d" % nxt, "T%d" % nxt, "Change to toolhead T%d now?\nThe printer must be homed." % nxt, "GCODE_MACRO T%d" % nxt)]
+        entries = [("clock", "Timelapse settings", "WM_TIMELAPSE", None, "GCODE_MACRO WM_TIMELAPSE"),
+                   ("camera", "Take frame", "TIMELAPSE_TAKE_FRAME", "Take one timelapse frame now?", "GCODE_MACRO TIMELAPSE_TAKE_FRAME"),
+                   ("complete", "Render video", "TIMELAPSE_RENDER", "Render the timelapse video now?", "GCODE_MACRO TIMELAPSE_RENDER")]
         tiles = []
         for icon, text, script, q, need in entries:
             if need is None or need in have:

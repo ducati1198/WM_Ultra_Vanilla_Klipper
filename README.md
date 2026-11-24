@@ -40,6 +40,7 @@ More:
 - [Backup before every update](#backup-before-every-update)
 - [Status page and Network and system](#status-page-and-network-and-system)
 - [Klipper gcode shell command (installed automatically)](#klipper-gcode-shell-command-installed-automatically)
+- [Timelapse settings window](#timelapse-settings-window-wm_timelapse) (`WM_TIMELAPSE`)
 - Optional add-ons: [Anycubic ACE Pro](#anycubic-ace-pro-optional-add-on) · [Spoolman](#spoolman-optional-add-on) · [Klippain Shake&Tune](#klippain-shaketune-add-on-on-by-default) · [Remote access: Obico, OctoApp, OctoEverywhere](#remote-access-add-ons-obico-octoapp-octoeverywhere-optional)
 
 ## Quick start
@@ -304,7 +305,6 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --dry-run` | show the plan and what would change. The plan lists every optional program (panel, webcam, timelapse, shell command, touchscreen, Obico, OctoApp, OctoEverywhere) as yes or no |
 | `./installer.sh --shell-command on` | with `--update` or a first install: installs or skips the Klipper gcode shell command extension (it is installed by default; `off` stops updating it and the file stays) |
 | `./installer.sh --obico on` / `--octoapp on` / `--octoeverywhere on` | with `--update` or a first install: adds that remote-access add-on (see below) |
-| `./installer.sh --screen-remove` | removes KlipperScreen from the Pi (Klipper, Moonraker, Fluidd stay) |
 | `./installer.sh --first-start` | checks with the main board connected, fixes `canbus_uuid` (asks, keeps a copy), then enables and starts Klipper and the other services |
 | `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
 | `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first). It checks the services, the config, the CAN ids, the ACE Pro, the load cell firmware, the saved_variables safeguard, ModemManager, the backups and the Fluidd macro categories |
@@ -672,9 +672,7 @@ The installer asks **"Add a touchscreen?"** (default yes). Skip it with `--scree
 | Option | Meaning |
 |---|---|
 | `--screen on\|off\|macros` | `on`: KlipperScreen on the Pi (for a screen plugged into the Pi). `off`: nothing. `macros`: only the ZR Tools macros in `printer.cfg`, for people who use the WonderMaker screen board (section 7) |
-| `--network-manager on\|off` | NetworkManager, for KlipperScreen's own **Network** panel (choose Wi-Fi on the screen). Default **off**. KlipperScreen's installer is run without it on purpose: switching a Pi to NetworkManager can **drop the network connection** (your SSH session and Fluidd) and Wi-Fi may need its password again (screen's Network panel, or `sudo nmtui`). The installer therefore installs and enables it but does **not** restart anything: it takes over at the next reboot. If NetworkManager is already running (Raspberry Pi OS Bookworm uses it), nothing is changed. Asked during the install only when you add a touchscreen |
 | `--screen-layout tabs\|grid` | `tabs` (default): big touch buttons with bottom tabs. `grid`: cards on a home page |
-| `--screen-backend x11\|weston\|cage` | graphics stack, default `x11` |
 | `--screen-test` | read-only: shows the screen and touch device found |
 
 What it does: installs [KlipperScreen](https://github.com/KlipperScreen/KlipperScreen) pinned to one tested commit (`34610ce`, so a later upstream change cannot break it), copies the ZR Tools panel into it, adds the helper macros (`zr_tools.cfg`) to `printer.cfg` and enables the `KlipperScreen` service. KlipperScreen's own home screen and menus stay as they are; ZR Tools is one extra menu entry.
@@ -962,7 +960,7 @@ Details:
 
 To read the board first (nothing is changed): `scripts/screen_board_inspect.sh`. Notes: the board's Reboot/Shut down buttons in ZR Tools act on the **Pi**; the Pi's `moonraker.conf` must trust the board's address; the apt packages stay installed after a restore.
 
-On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper, Moonraker and Fluidd stay).
+On the Pi, KlipperScreen is removed by itself at the next `./installer.sh --update` (Klipper, Moonraker and Fluidd stay; its settings file is copied to the backup folder first). There is no separate command for it any more.
 
 ## 8. Go back / uninstall
 
@@ -1130,6 +1128,7 @@ Three things get new versions on GitHub: this installer, the Fluidd panel (the A
 
 ## Status page and Network and system
 
+- **Wi-Fi bus (Raspberry Pi 4 Model B on Wi-Fi):** every install and update adds `dtparam=sdio_overclock=25` to `/boot/firmware/config.txt` (a copy is kept in the backup folder). The Wi-Fi chip of the main printer Pi died after a long print and took it off the network; with the bus at 25 MHz instead of 41.7 MHz it ran for days without a hang. Wi-Fi is about 40 percent slower, still plenty for Fluidd. It takes effect at the next reboot. A Pi on a cable, and other Pi models, are left alone.
 - **Status** (Check and fix → Status, or `./installer.sh --status`): one read-only page with the version, address, Pi temperature, power flags, disk and memory, Klipper / Moonraker / nginx state, can0 and the CAN ids in the config (placeholders are called out), every add-on's state, the newest backup and the newest log.
 - **Network and system** (Advanced → Network and system): **Show** (`--system-info`: host name, time zone, clock, addresses, Wi-Fi, gateway), **Set the time zone** (`--set-timezone America/Toronto`) and **Change the host name** (`--set-hostname name`). Both changes ask first; the host name default is no and warns that `oldname.local` stops working. Nothing restarts.
 
@@ -1146,6 +1145,10 @@ Without an ACE Pro none of this is installed. The Doctor checks the folder, the 
 ## Spoolman (optional add-on)
 
 [Spoolman](https://github.com/Donkie/Spoolman) by Donkie tracks your filament spools; Fluidd shows them. Add it from the menu (Add-ons) or with `./installer.sh --update --spoolman on`. It follows the steps KIAUH uses: downloads Spoolman's latest release (`spoolman.zip`) to `~/Spoolman`, runs its own `scripts/install.sh` (service `Spoolman`, port 7912), adds `[spoolman]` and an update entry to `moonraker.conf` (a copy is kept) and lets Moonraker manage the service (`moonraker.asvc`). Open `http://<Pi address>:7912` to add spools. Remove it with Uninstall → Spoolman: your spool database in `~/.local/share/spoolman` is kept unless you answer yes to its own question (Erase everything deletes it). Not yet tried on a WonderMaker printer.
+
+## Timelapse settings window (WM_TIMELAPSE)
+
+With timelapse and the shell command extension installed, the Fluidd macro **WM_TIMELAPSE** (category Timelapse, cyan) opens a window to set the video **Quality** (Fast, Better, Best), the **Mode** (every layer or by time) and **Head parking**. **Save and restart** saves the choices and restarts Klipper so they take effect (during a print it only saves, it never restarts). **Cancel** closes the window without a restart. On the screen board, **More > Timelapse** opens the same window. The file is `rpi-cfg/rpi_timelapse.cfg` and its helper `scripts/wm_timelapse.py` (copied to `~/printer_data/wm-tools`); the encoder preset stays as `moonraker.conf` sets it.
 
 ## Klippain Shake&Tune (add-on, on by default)
 
@@ -1215,7 +1218,6 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
   | `obico`, `octoapp`, `octoeverywhere` | OctoApp and OctoEverywhere: their own `./uninstall.sh` runs first (at a terminal it asks you its own questions). Obico has no uninstall script (`./install.sh -u` only prints the steps), so the installer does exactly the steps it lists: stop, disable and delete the service, `reset-failed`, delete `~/moonraker-obico` and its environment, and remove the two include lines. Your account on their website stays |
   | `fluidd` | the Fluidd web page (with the Toolheads panel) and its nginx site; `./installer.sh --update` puts it back |
   | `moonraker`, `klipper` | the service, the program folder and its Python environment; `~/printer_data` stays |
-  | `network-manager` | switches the Pi back to dhcpcd, only if this installer switched it (effective at the next reboot) |
   | `data` | `~/printer_data` and `~/TM_T1` (config, calibration, database, gcode files, factory settings). A backup is made first and you must type `DELETE` |
   | `system` | the services, nginx files and can0 rule listed in the install record (same as `--uninstall`) |
   | `cleanup` | a page of installer-made files with their sizes, see below |
@@ -1239,7 +1241,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
   | Installer records | `~/wm-rpi-backup` (saved answers and the install record; afterwards the installer no longer knows what is installed) | type `DELETE` |
   | The installer folder | the repository folder this script is in | type `DELETE` |
 - **Advanced → Start Klipper again** (`./installer.sh --start-klipper`) undoes *Stop Klipper*: it enables Klipper at boot and starts it now, without the hardware checks. *First start* does the same after checking the main board and can0.
-- **NetworkManager (for the screen's Network panel):** off by default. Add it later with `./installer.sh --update --network-manager on` or from **Add-ons → NetworkManager**. If the Pi was switched by this installer, **Uninstall → NetworkManager** (`./installer.sh --remove network-manager`) enables dhcpcd again and disables NetworkManager, again taking effect at the next reboot. If NetworkManager was already in use, the installer leaves your network setup alone. If the network does not come back after the reboot: plug in a cable, or use the screen's Network panel, or `sudo nmtui` on the Pi.
+- **NetworkManager:** the installer no longer offers it (2.30.0). The Add-ons and Uninstall menus do not list it and `--network-manager` is gone. A Pi that an older installer switched to NetworkManager is switched back to dhcpcd by **Uninstall → Erase everything**. The screen board uses its own Wi-Fi page (`wpa_supplicant`), so it does not need NetworkManager. If the network does not come back after a reboot: plug in a cable, or `sudo nmtui` on the Pi.
 - **Logs:** every run that changes something (install, update, repair, remove, restore, undo, uninstall, first start, start or stop Klipper, doctor, backup, hardware test) is written to `~/wm-install-logs/installer-<what>-<date>.log`, and its path is printed at the end. At a terminal the installer runs itself inside `script`, so the screen behaves exactly as before (colours, prompts, the add-ons' own questions) and everything shown is recorded; without a terminal the output is copied with `tee`. In the file, colour codes are removed, progress bars are reduced to their last line, and passwords and tokens are replaced by `<removed>`. The folder and files are private (`700` / `600`), the newest 20 logs are kept, `./installer.sh --show-log` shows the newest one, and `--support-bundle` includes it (with private addresses removed too). Dry runs, read-only checks and the menu itself write no log. Delete the logs under Uninstall → Clean up installer files.
 - **Deleting needs no manual sudo:** when a file or folder cannot be deleted as the Pi user (an uninstaller that ran as root can leave root-owned files, for example `~/octoeverywhere-env`), the installer retries with `sudo` and says so. It also removes what the add-ons leave next to their folders: `~/crowsnest-env`, `~/octoapp-installer.log`, `~/octoeverywhere-installer.log` and the add-on's own files in your config folder. Nothing is removed without a confirmation first: a y/n, or typing `DELETE` or `REMOVE` for the bigger ones.
 - **Official uninstallers first:** every removal that has an official uninstaller runs it first (KlipperScreen, crowsnest, OctoApp, OctoEverywhere). The installer then checks the result and finishes anything left (service file, folders), so a failed official uninstaller does not leave a half-removed add-on. It also removes the add-on's `[update_manager ...]` section from `moonraker.conf` (a copy is kept), so Fluidd stops listing it. Moonraker timelapse and the shell command have no uninstaller; their files are removed by the installer.

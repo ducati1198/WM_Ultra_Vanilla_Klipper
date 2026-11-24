@@ -100,10 +100,10 @@ rm -f "$H3/KlipperScreen/panels/zr_views.py"; inst "$H3" --repair >/dev/null
 check "repair puts the panel files back" "[ -f $H3/KlipperScreen/panels/zr_views.py ]"
 rm -f "$H3/KlipperScreen/panels/zr_logic.py"; printf 'n\nn\nn\nn\n' | WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --doctor > "$T/doc.out" 2>&1
 check "doctor notices missing panel file" "grep -q 'ZR Tools panel files are missing' $T/doc.out"
-H5="$T/h5"; mkdir -p "$H5"; inst "$H5" --from-stage "$T/stage" --screen off --screen-backend weston >/dev/null
+H5="$T/h5"; mkdir -p "$H5"; inst "$H5" --from-stage "$T/stage" --screen off >/dev/null
 check "screen off: nothing installed" "[ ! -d $H5/KlipperScreen ] && grep -q WANT_SCREEN=0 $H5/wm-rpi-backup/install.conf"
-H6="$T/h6"; mkdir -p "$H6"; inst "$H6" --from-stage "$T/stage" --screen on --screen-layout grid --screen-backend cage >/dev/null
-check "options: grid + cage" "grep -q 'layout = grid' $H6/printer_data/config/zr_screen.conf && grep -q 'backend=cage' $H6/.sudo.log"
+H6="$T/h6"; mkdir -p "$H6"; inst "$H6" --from-stage "$T/stage" --screen on --screen-layout grid >/dev/null
+check "options: grid layout" "grep -q 'layout = grid' $H6/printer_data/config/zr_screen.conf"
 H7="$T/h7"; mkdir -p "$H7"; inst "$H7" --from-stage "$T/stage" --screen macros >/dev/null
 check "screen macros: only the macros, no KlipperScreen" "[ ! -d $H7/KlipperScreen ] && ! grep -q 'KlipperScreen-install' $H7/.sudo.log && [ -f $H7/printer_data/config/zr_tools.cfg ] && grep -q '^\\[include zr_tools.cfg\\]' $H7/printer_data/config/printer.cfg && grep -q WANT_SCREEN=macros $H7/wm-rpi-backup/install.conf"
 check "nginx step lets nginx reach the home folder (Fluidd 403 fix)" "grep -q 'chmod o+x' $H7/.sudo.log"
@@ -278,7 +278,7 @@ PO="$T/plan"; mkdir -p "$PO"; mkstage "$T/stage_plan"
 OUT="$(WM_TEST_PANEL_DIR=$T/stubpanel WM_HOME=$PO WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --dry-run --from-stage $T/stage_plan --model ultra-s --obico on --octoapp on --octoeverywhere off --screen off 2>&1 </dev/null)"
 check "plan names obico, octoapp and octoeverywhere with their answers" "echo \"$OUT\" | grep -q 'obico  *yes' && echo \"$OUT\" | grep -q 'octoapp  *yes' && echo \"$OUT\" | grep -q 'octoeverywhere  *no'"
 check "plan names every other optional program" "for n in 'panel (Fluidd)' webcam timelapse 'shell command' touchscreen; do echo \"$OUT\" | grep -q \"\$n\" || exit 1; done"
-check "every saved WANT_ answer is in the plan list (add new programs to PLAN_OPTIONS)" "for v in \$(sed -n '/^save_answers()/,/^}/p' $ROOT/installer.sh | grep -o 'WANT_[A-Z]*' | sort -u); do grep -q \"|\$v\\\"\" $ROOT/installer.sh || { echo missing \$v; exit 1; }; done"
+check "every saved WANT_ answer is in the plan list (add new programs to PLAN_OPTIONS; WANT_NETMGR is kept only so old saved answers still load, F-234)" "for v in \$(sed -n '/^save_answers()/,/^}/p' $ROOT/installer.sh | grep -o 'WANT_[A-Z]*' | sort -u | grep -v WANT_NETMGR); do grep -q \"|\$v\\\"\" $ROOT/installer.sh || { echo missing \$v; exit 1; }; done"
 
 
 echo "== 2.27.0 (F-215): KlipperScreen only on the screen board"
@@ -313,23 +313,18 @@ check "B-084: a first board install writes the Pi address and the six ZR Tools m
 echo "== F-223: unload tip recipe by material"
 check "F-223: the unload tip recipe is chosen by the material saved for the toolhead (PLA, PETG, ABS, default), never cooler than min_extrude_temp + 5" "python3 -I $ROOT/tests/test_tip_recipes.py"
 echo "== NetworkManager option"
-check "--network-manager needs on or off" "! bash $ROOT/installer.sh --network-manager maybe"
 NM="$T/nm"; rm -rf "$NM"; mkdir -p "$NM"; mkstage "$T/stage_nm"; mkdir -p "$NM/.svc"; touch "$NM/.svc/dhcpcd.enabled"
 inst "$NM" --from-stage "$T/stage_nm" --screen on >/dev/null
-check "NetworkManager is off by default (asked, default no)" "! grep -q 'install -y network-manager' $NM/.sudo.log && grep -q 'WANT_NETMGR=0' $NM/wm-rpi-backup/install.conf"
-check "the question warns that the connection can drop" "grep -q 'can DROP the network connection' $ROOT/installer.sh && grep -q 'update --network-manager on' $ROOT/installer.sh"
-OUT="$(inst "$NM" --update --network-manager on)"
-check "--update --network-manager on installs and enables it, without starting or rebooting" "grep -q 'apt-get install -y network-manager' $NM/.sudo.log && grep -q 'systemctl enable NetworkManager' $NM/.sudo.log && grep -q 'systemctl disable dhcpcd' $NM/.sudo.log && ! grep -q 'systemctl start NetworkManager\\|systemctl restart NetworkManager\\|reboot' $NM/.sudo.log && echo \"$OUT\" | grep -q 'next reboot'"
-check "the choice is remembered and shown in the plan" "grep -q 'WANT_NETMGR=1' $NM/wm-rpi-backup/install.conf && WM_TEST_PANEL_DIR=$T/stubpanel WM_HOME=$T/nmplan WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --dry-run --from-stage $T/stage_nm --model ultra-s --screen on --network-manager on </dev/null 2>&1 | grep -q 'network manager  *yes'"
+check "NetworkManager is never installed by the installer (F-234)" "! grep -q 'install -y network-manager' $NM/.sudo.log && grep -q 'WANT_NETMGR=0' $NM/wm-rpi-backup/install.conf"
+mkdir -p "$NM/wm-rpi-backup"; echo dhcpcd-was-enabled > "$NM/wm-rpi-backup/netmgr.state"   # a Pi that an older installer switched: the switch back still works (erase uses it)
+check "F-234: --network-manager, --screen-backend and --screen-remove are gone" "! bash $ROOT/installer.sh --network-manager on >/dev/null 2>&1 && ! bash $ROOT/installer.sh --screen-backend x11 >/dev/null 2>&1 && ! bash $ROOT/installer.sh --screen-remove >/dev/null 2>&1 && ! bash $ROOT/installer.sh --help | grep -q -e --network-manager -e --screen-remove -e --screen-backend"
+check "F-234: the Add-ons and Uninstall menus no longer list the touchscreen or NetworkManager" "! M '3\n0\n0\n' $NM --menu | grep -q -e 'Touchscreen (KlipperScreen)' -e 'NetworkManager' && ! M '6\n0\n0\n' $NM --menu | grep -q -e 'Touchscreen (KlipperScreen)' -e 'NetworkManager'"
 check "a saved dhcpcd state lets the user switch back" "[ -f $NM/wm-rpi-backup/netmgr.state ]"
 check "--remove network-manager asks first" "M 'n\n' $NM --remove network-manager | grep -q 'Nothing changed' && [ -f $NM/wm-rpi-backup/netmgr.state ]"
 : > "$NM/.sudo.log"
 check "--remove network-manager switches back to dhcpcd at the next boot" "M 'y\n' $NM --remove network-manager | grep -q 'Reboot when you are ready' && grep -q 'systemctl enable dhcpcd' $NM/.sudo.log && grep -q 'systemctl disable NetworkManager' $NM/.sudo.log && [ ! -f $NM/wm-rpi-backup/netmgr.state ] && grep -q 'WANT_NETMGR=0' $NM/wm-rpi-backup/install.conf"
 check "--remove network-manager does nothing when the installer did not switch it" "M 'y\n' $NM --remove network-manager | grep -q 'nothing to switch back'"
 : > "$NM/.sudo.log"
-check "NetworkManager already running: nothing is changed" "WM_TEST_NM=1 inst $NM --update --network-manager on | grep -q 'already running' && ! grep -q 'install -y network-manager' $NM/.sudo.log"
-check "menu: Add-ons lists NetworkManager with its status" "M '3\n0\n0\n' $NM --menu | grep -q 'NetworkManager (Network panel)'"
-check "menu: Uninstall lists the switch back" "M '6\n0\n0\n' $NM --menu | grep -q 'switch back to dhcpcd'"
 
 
 echo "== Obico uses its own installer"
@@ -344,7 +339,7 @@ UO="$T/uo"; mkun "$UO"; printf '\n[update_manager crowsnest]\ntype: git_repo\npa
 M 'y\n' $UO --remove webcam >/dev/null
 check "webcam: crowsnest's own 'make uninstall' runs first, before the installer's own cleanup" "grep -n 'official uninstall crowsnest: official_yes make uninstall' $UO/.sudo.log | head -1 | cut -d: -f1 | { read a; b=\$(grep -n 'systemctl stop crowsnest' $UO/.sudo.log | head -1 | cut -d: -f1); [ \$a -lt \$b ]; }"
 check "webcam: its [update_manager crowsnest] section is removed, other sections stay, a copy is kept" "! grep -q 'update_manager crowsnest' $UO/printer_data/config/moonraker.conf && grep -q '^\[other\]' $UO/printer_data/config/moonraker.conf && ls $UO/printer_data/config/moonraker.conf.wm-before-crowsnest-removal-*"
-M 'y\n' $UO --remove screen >/dev/null
+mkdir -p "$UO/KlipperScreen"; inst2 "$UO" --update >/dev/null   # F-234: the update removes the KlipperScreen of the Pi by itself (no --remove screen any more)
 check "touchscreen: KlipperScreen's own scripts/Uninstall.sh runs" "grep -q 'official uninstall KlipperScreen: bash scripts/Uninstall.sh' $UO/.sudo.log"
 check "touchscreen: its [update_manager KlipperScreen] section is removed" "! grep -qi 'update_manager KlipperScreen' $UO/printer_data/config/moonraker.conf && grep -q '^\[other\]' $UO/printer_data/config/moonraker.conf"
 OA="$T/oa"; rm -rf "$OA"; mkdir -p "$OA"; mkstage "$T/stage_oa"; inst "$OA" --from-stage "$T/stage_oa" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OA/printer_data/config/moonraker.conf"
@@ -938,7 +933,7 @@ check "speed test: no test and no Save without a calibrated input shaper" "grep 
 SL="$T/sl"; rm -rf "$SL"; mkdir -p "$SL/printer_data/config"; cp "$ROOT/factory/ultra-s/config/printer.cfg" "$SL/printer_data/config/printer.cfg"
 check "speed test Save script: writes only max_accel and max_velocity of [printer], with a copy" "HOME=$SL python3 $ROOT/scripts/wm_speed_limits.py 4800 700 | grep -q 'saved max_accel 4800' && [ \$(diff $ROOT/factory/ultra-s/config/printer.cfg $SL/printer_data/config/printer.cfg | grep -c '^>') = 2 ] && grep -q '^max_accel: 4800' $SL/printer_data/config/printer.cfg && ls $SL/printer_data/config/printer.cfg.wm-before-autospeed-*"
 check "speed test Save script: refuses values out of range and changes nothing" "cp $SL/printer_data/config/printer.cfg $SL/p0; HOME=$SL python3 $ROOT/scripts/wm_speed_limits.py 99999 700 | grep -q FAILED; cmp $SL/p0 $SL/printer_data/config/printer.cfg"
-check "removing the shell command extension also takes the speed test (rpi_nozzle.cfg) out" "grep -q 'for own in rpi_nozzle.cfg; do' $ROOT/installer.sh"
+check "removing the shell command extension also takes the speed test (rpi_nozzle.cfg) out" "grep -q 'for own in rpi_nozzle.cfg rpi_timelapse.cfg; do' $ROOT/installer.sh"
 check "factory extruder files (both models): the load mark for the head sensor queue, only when its macro exists" "(for m in ultra ultra-s; do for n in 0 1 2 3; do grep -q \"_WM_HEAD_MARK T=\$n\" $ROOT/factory/\$m/config/extruder\$n.cfg && grep -q 'gcode_macro _WM_HEAD_MARK\" in printer' $ROOT/factory/\$m/config/extruder\$n.cfg || exit 1; done; done)"
 check "factory printer.cfg (both models, all variants): X/Y homing 80; rpi_base.cfg: z_rise skipped in a print, G28 X Z homes, idle timeout spares a paused print" "(for f in $ROOT/factory/*/config/printer.cfg $ROOT/factory/*/config-variants/printer?.cfg; do [ \$(grep -c '^homing_speed:80' \$f) = 2 ] || exit 1; done) && H=$ROOT/rpi-cfg/rpi_base.cfg && grep -q 'a print has its own Z clearance' \$H && grep -q 'set hz = params.Z is defined' \$H && grep -q 'Idle timeout during a pause' \$H"
 check "factory macros (both models): live Z adjust per tool in _OFFSET_SET, one Z trim per tool, dead macros gone; START_PRINT has the guarded bed warp lines and ADAPTIVE as a number" "(for m in ultra ultra-s; do d=$ROOT/factory/\$m/config; grep -q '_WM_LIVEZ' \$d/change_macros.cfg && ! grep -q 'wm_z_trim_all' \$d/change_macros.cfg && ! grep -qE '_SAVE_SPEED|_RESTORE_SPEED|_OFFSET_RESET' \$d/change_macros.cfg && ! grep -qE '_START_PROBE|_RGB_CLOSE' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK_MARK\" in printer' \$d/macros.cfg && grep -q 'if \"gcode_macro _WM_BED_SOAK\" in printer' \$d/macros.cfg && grep -q 'params.ADAPTIVE|int == 1' \$d/macros.cfg && ! grep -q _GANTRY_TRIGGER \$d/load_cell.cfg || exit 1; done)"
@@ -1013,6 +1008,8 @@ check "nozzle: with the shell command extension off, rpi_nozzle.cfg is not insta
 check "nozzle: and the doctor does not ask for it" "! yes n | WM_HOME=$HNZ WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'wm_nozzle'"
 inst "$HNZ" --update --shell-command on >/dev/null
 check "nozzle: turning the extension on installs rpi_nozzle.cfg and includes it" "[ -f $HNZ/printer_data/config/rpi_nozzle.cfg ] && grep -q '^\\[include rpi_nozzle.cfg\\]' $HNZ/printer_data/config/printer.cfg && [ -f $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
+check "timelapse (F-232): with the shell command and timelapse on, rpi_timelapse.cfg is installed, included once, with its helper script" "cmp $ROOT/rpi-cfg/rpi_timelapse.cfg $HNZ/printer_data/config/rpi_timelapse.cfg && [ \$(grep -c '^\\[include rpi_timelapse.cfg\\]' $HNZ/printer_data/config/printer.cfg) = 1 ] && cmp $ROOT/scripts/wm_timelapse.py $HNZ/printer_data/wm-tools/wm_timelapse.py"
+check "timelapse (F-232): the settings window macros and the helper exist" "grep -q '^\\[gcode_macro WM_TIMELAPSE\\]' $ROOT/rpi-cfg/rpi_timelapse.cfg && grep -q 'Save and restart' $ROOT/rpi-cfg/rpi_timelapse.cfg && python3 -I -m py_compile $ROOT/scripts/wm_timelapse.py"
 check "nozzle: removing the shell command extension takes rpi_nozzle.cfg out of printer.cfg first" "M 'y\n' $HNZ --remove shell-command | grep -q 'Removed' && ! grep -q 'rpi_nozzle.cfg' $HNZ/printer_data/config/printer.cfg && ls $HNZ/printer_data/config/rpi_nozzle.cfg.wm-removed-* && [ ! -e $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
 
 # Fluidd window macros (rpi_nozzle.cfg / rpi_calibration.cfg): mistakes found on a real printer
@@ -1084,7 +1081,7 @@ WM_TEST_PANEL_DIR="$T/pnlbad" inst "$P2" --update > "$T/p2w.out" 2>&1
 check "update: a damaged panel zip leaves the old Fluidd untouched and says so" "grep -q NEWEST-PANEL $P2/fluidd/index.html && [ ! -e $P2/fluidd.new ] && grep -q 'NOT updated' $T/p2w.out"
 
 echo "== screen removal on the Pi"
-printf 'y\n' | WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --screen-remove > "$T/rm.out" 2>&1
+inst2 "$H3" --update > "$T/rm.out" 2>&1   # F-234: no --screen-remove any more; the update removes it
 check "screen-remove: folder and service gone" "[ ! -d $H3/KlipperScreen ] && grep -q 'systemctl disable KlipperScreen' $H3/.sudo.log"
 check "screen-remove: answers keep only the macros" "grep -q WANT_SCREEN=macros $H3/wm-rpi-backup/install.conf"
 check "screen-remove: Klipper stays (macros kept)" "[ -f $H3/printer_data/config/zr_tools.cfg ] && [ -d $H3/klipper ]"
@@ -1382,7 +1379,7 @@ check "doctor: no camera means the webcam service waits, not a problem" "echo \"
 OUT="$(WM_TEST_CAMERA=1 inst "$HR" --doctor)"
 check "doctor: camera plugged in but service not running is a problem" "echo \"$OUT\" | grep -q 'camera is plugged in but the webcam service is not running'"
 check "status: webcam row says waiting for a camera" "inst $HR --status | grep -q 'waiting for a camera'"
-check "menu: Add-ons, Webcam (installed) offers setting up the cameras again" "M '3\n3\n0\n0\n0\n' $HR --menu | grep -q 'Set up the cameras again'"
+check "menu: Add-ons, Webcam (installed) offers setting up the cameras again" "M '3\n1\n0\n0\n0\n' $HR --menu | grep -q 'Set up the cameras again'"
 check "menu: Check and fix has Fix everything" "M '4\n0\n0\n' $HR --menu | grep -q 'Fix everything'"
 check "--doctor --fix-all explains and asks once" "inst $HR --doctor --fix-all | grep -q 'Fix everything: every problem'"
 check "hostname: /etc/hosts is changed before hostnamectl" "awk '/^do_set_hostname/,/^}/' $ROOT/installer.sh | grep -n 'sed -i\|hostnamectl' | head -2 | head -1 | grep -q 'sed -i'"
@@ -1595,10 +1592,18 @@ wifi() { WM_TEST_WIFI_DEV="$1" WM_TEST_NM="$2" WM_HOME="$WF" WM_INSTALLER_TEST=1
 rm -f "$WF/.sudo.log"; OUTW="$(wifi wlan0 1)"
 check "Wi-Fi with NetworkManager: power saving off on the active connection, a copy of the connection kept, no watchdog installed (2.19.1)" "grep -q 'wifi powersave off (testwifi, was default)' $WF/.sudo.log && ! grep -q 'wifi watchdog installed' $WF/.sudo.log && echo \"\$OUTW\" | grep -q 'Wi-Fi power saving off' && ls -d $WF/wm-rpi-backup/wifi-*"
 rm -f "$WF/.sudo.log"
+WB="$T/wifibus"; rm -rf "$WB"; mkdir -p "$WB/printer_data/config"; printf '[all]\narm_64bit=1\n' > "$WB/boot-config.txt"
+wifib() { WM_TEST_WIFI_DEV=wlan0 WM_TEST_NM=1 WM_TEST_PI_MODEL="$1" WM_HOME="$WB" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --wifi 2>&1 </dev/null; }
+OUTB="$(wifib 'Raspberry Pi 400 Rev 1.0')"
+check "Wi-Fi bus (F-196): a Pi 400 is left alone" "! grep -q sdio_overclock $WB/boot-config.txt"
+OUTB="$(wifib 'Raspberry Pi 4 Model B Rev 1.5')"
+check "Wi-Fi bus (F-196): a Raspberry Pi 4 Model B on Wi-Fi gets dtparam=sdio_overclock=25 once, with a copy of the old file" "[ \$(grep -c '^dtparam=sdio_overclock=25' $WB/boot-config.txt) = 1 ] && grep -q 'arm_64bit=1' $WB/boot-config.txt && ls $WB/wm-rpi-backup/wifi-bus-*/config.txt"
+OUTB="$(wifib 'Raspberry Pi 4 Model B Rev 1.5')"
+check "Wi-Fi bus (F-196): a second run adds nothing" "[ \$(grep -c 'sdio_overclock' $WB/boot-config.txt) = 1 ] && echo \"$OUTB\" | grep -q 'already set'"
 check "Wi-Fi: a second run changes nothing" "wifi wlan0 1 | grep -q 'power saving is off' && [ ! -f $WF/.sudo.log ]"
 check "Wi-Fi: a Pi on a cable is left alone" "rm -f $WF/.wifi_powersave; wifi eth0 1 | grep -q 'not Wi-Fi: nothing to do' && [ ! -f $WF/.sudo.log ]"
 check "Wi-Fi without NetworkManager: power saving left as it is, it says why" "wifi wlan0 0 | grep -q 'without NetworkManager' && [ ! -f $WF/.sudo.log ]"
-check "Wi-Fi: install and update run the step, uninstall stops an old watchdog, the doctor checks it" "grep -q 'step_netmgr; step_wifi;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; step_logs' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-wifi-watchdog' $ROOT/installer.sh && grep -q 'offer_fix \"turn Wi-Fi power saving off' $ROOT/installer.sh"
+check "Wi-Fi: install and update run the step, uninstall stops an old watchdog, the doctor checks it" "grep -q 'step_screen; step_wifi;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; step_logs' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-wifi-watchdog' $ROOT/installer.sh && grep -q 'offer_fix \"turn Wi-Fi power saving off' $ROOT/installer.sh"
 check "Wi-Fi watchdog removed (2.19.1): no script, no service file in the repo, the installer installs none" "[ ! -e $ROOT/scripts/wm-wifi-watchdog ] && [ ! -e $ROOT/config/wm-wifi-watchdog.service ] && ! grep -q 'SUDO install .*wm-wifi-watchdog' $ROOT/installer.sh"
 mkdir -p "$WF/.wifiwd"; echo old > "$WF/.wifiwd/wm-wifi-watchdog"; rm -f "$WF/.sudo.log"; rm -f "$WF/.wifi_powersave"
 check "Wi-Fi: an old watchdog is stopped and deleted at the next run" "wifi wlan0 1 >/dev/null; grep -q 'wifi watchdog removed' $WF/.sudo.log && [ ! -e $WF/.wifiwd/wm-wifi-watchdog ]"
@@ -1617,7 +1622,7 @@ rm -f "$LGX/.sudo.log"
 check "logs: a second run changes nothing" "logsrun --logs | grep -q 'are written' && logsrun --logs | grep -q 'Pi is recorded every 10 s' && [ ! -f $LGX/.sudo.log ]"
 check "logs: --dry-run shows the steps and changes nothing" "LGD=$T/logsd; mkdir -p \$LGD/printer_data/config; WM_HOME=\$LGD WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --logs --dry-run </dev/null 2>&1 | grep -q 'would install wm_log_digest.py' && [ ! -e \$LGD/printer_data/scripts/wm_log_digest.py ]"
 check "logs: an old script on the Pi is replaced at the next run" "echo '# old' > $LGX/printer_data/scripts/wm_log_digest.py; logsrun --logs | grep -q 'Troubleshooting logs installed' && cmp -s $ROOT/scripts/wm_log_digest.py $LGX/printer_data/scripts/wm_log_digest.py"
-check "logs: install and update run both steps, uninstall stops both services, the doctor checks both" "grep -q 'step_netmgr; step_wifi; step_logs; step_blackbox;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; step_logs; step_blackbox; fi' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-log-digest' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-blackbox' $ROOT/installer.sh && grep -q 'offer_fix \"install the troubleshooting logs\" step_logs' $ROOT/installer.sh && grep -q 'offer_fix \"install the black box\" step_blackbox' $ROOT/installer.sh"
+check "logs: install and update run both steps, uninstall stops both services, the doctor checks both" "grep -q 'step_screen; step_wifi; step_logs; step_blackbox;' $ROOT/installer.sh && grep -q 'step_wm_modules; step_wifi; step_logs; step_blackbox; fi' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-log-digest' $ROOT/installer.sh && grep -q 'SUDO systemctl stop wm-blackbox' $ROOT/installer.sh && grep -q 'offer_fix \"install the troubleshooting logs\" step_logs' $ROOT/installer.sh && grep -q 'offer_fix \"install the black box\" step_blackbox' $ROOT/installer.sh"
 check "logs: the doctor says when they are missing" "LGM=$T/logsdoc; mkdir -p \$LGM/printer_data/config; WM_HOME=\$LGM WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor </dev/null 2>&1 | grep -q 'the troubleshooting log service is not installed'"
 check "logs: the service runs as t13dp and starts the script from printer_data/scripts" "grep -q '^User=t13dp' $ROOT/config/wm-log-digest.service && grep -q 'ExecStart=/usr/bin/python3 /home/t13dp/printer_data/scripts/wm_log_digest.py' $ROOT/config/wm-log-digest.service && grep -q 'Restart=on-failure' $ROOT/config/wm-log-digest.service"
 check "logs: the digest only reads (no write to Klipper files, no restart, no gcode sent)" "python3 -I -m py_compile $ROOT/scripts/wm_log_digest.py && ! grep -vE '^\s*#' $ROOT/scripts/wm_log_digest.py | grep -qE 'gcode/script|server/restart|printer/restart|firmware_restart|systemctl|os\.system|shell=True' && [ "$(grep -vE '^\s*#' $ROOT/scripts/wm_log_digest.py | grep -c 'subprocess.run')" = 2 ] && grep -q 'cmd = \[.journalctl., .--no-pager.' $ROOT/scripts/wm_log_digest.py"

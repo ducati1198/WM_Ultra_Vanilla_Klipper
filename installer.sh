@@ -48,12 +48,11 @@
 # ./installer.sh --load-cell           the load cell board (CELL): downloads or updates the project wm-load-cell-mcu and opens its menu (flash firmware V2, factory firmware, restore, check the bootloader). A full install does the check by itself at the end and flashes V2 when the board is not on it yet (it asks first); --no-load-cell skips that
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
-# ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
+# ./installer.sh --remove NAME         remove something after asking: webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --cameras N --cam-resolution 480p|720p|1080p|WxH --cam-fps N --cam-mode ustreamer|camera-streamer|spyglass   webcam answers given on the command line (otherwise asked; the streamer defaults to ustreamer)
 # ./installer.sh --screen-camera yes|no   the factory camera is plugged into the factory screen board (yes: it is Camera in Fluidd, the Pi's own cameras are Camera 2 ...)
 # ./installer.sh --webcam-setup        ask the camera questions again and rewrite crowsnest.conf (a copy of the old one is kept)
-# ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
 # ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). On by default in a new install (not asked); --shaketune off skips it
 # ./installer.sh --spoolman on|off     Spoolman (filament spool tracking, shown in Fluidd). Add-on only: not asked during the install
 # ./installer.sh --acepro on|off       Anycubic ACE Pro (feeder and dryer): its Klipper driver and config from the project wm-ultra-fluidd-acepro-panel. Asked during the install; add it later with --update --acepro on, remove it with --remove acepro
@@ -66,8 +65,6 @@
 # ./installer.sh --screen-board user@host   (2.27.0, F-215) install KlipperScreen with the ZR Tools on the screen board over ssh (the board password is asked once, never stored)
 # ./installer.sh --screen on|off|macros   (2.27.0: KlipperScreen is no longer installed on the Pi; "on" now means macros) nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
-# ./installer.sh --screen-backend x11|weston|cage   graphics stack for KlipperScreen (default x11)
-# ./installer.sh --screen-remove       remove KlipperScreen from this Pi (Klipper, Moonraker and Fluidd stay)
 # ./installer.sh --screen-test         read-only: show the screen and touch device found on this Pi
 # ./installer.sh --no-start            at the end of an install do not enable or start Klipper
 # ./installer.sh --force               continue even if a print is active (not recommended)
@@ -252,7 +249,6 @@ while [ $# -gt 0 ]; do
         --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
         --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
         --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
-        --network-manager) case "${2:-}" in on|yes|1) WANT_NETMGR=1 ;; off|no|0) WANT_NETMGR=0 ;; *) print_error "--network-manager needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE netmgr"; CLI_NETMGR="$WANT_NETMGR"; shift ;;
         --spoolman)     case "${2:-}" in on|yes|1) WANT_SPOOLMAN=1 ;; off|no|0) WANT_SPOOLMAN=0 ;; *) print_error "--spoolman needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE spoolman"; CLI_SPOOLMAN="$WANT_SPOOLMAN"; shift ;;
         --acepro)       case "${2:-}" in on|yes|1) WANT_ACEPRO=1 ;; off|no|0) WANT_ACEPRO=0 ;; *) print_error "--acepro needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE acepro"; CLI_ACEPRO="$WANT_ACEPRO"; shift ;;
         --no-backup)    NO_BACKUP=1 ;;
@@ -265,10 +261,8 @@ while [ $# -gt 0 ]; do
         --only-addon)   ONLY_ADDON="${2:-}"; shift ;;   # used by the menu (Add-ons): with --update, touch only that add-on, not the system files, packages, panel or nginx
         --screen)       case "${2:-}" in on|yes|1) if [ "${WM_KS_ON_PI:-0}" = 1 ]; then WANT_SCREEN=1; else WANT_SCREEN=macros; SCREEN_ON_NOTICE=1; fi ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
-        --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
         --screen-test)  MODE=screentest ;;
         --screen-board) MODE=screenboard; BOARD_TARGET="${2:-}"; shift $(( $# < 2 ? $# : 2 )) ;;   # 2.27.0 (F-215): install KlipperScreen + ZR Tools on the screen board over ssh
-        --screen-remove) MODE=screenremove ;;
         --no-start)     AUTOSTART=0 ;;
         --force)        FORCE=1 ;;
         --disable-klipper) MODE=disable ;;
@@ -439,9 +433,10 @@ step_unpack() {
 nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
 estep_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_estep.py"; }
+timelapse_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_timelapse.py"; }   # F-232: behind the WM_TIMELAPSE settings window
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
 rpicfg_list() {   # rpi_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
-    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_base.cfg ] && continue; echo "$b"; done
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = rpi_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = rpi_timelapse.cfg ] && { ! rpicfg_shell_ok || { [ "${WANT_TIMELAPSE:-0}" != 1 ] && [ ! -d "$HOME_DIR/moonraker-timelapse" ]; }; } && continue; [ "$b" = rpi_base.cfg ] && continue; echo "$b"; done
     # rpi_base.cfg comes last: step_rpicfg puts each new include line above the first one, so the file handled last is read first by Klipper, and its [wm_virtual_pins] must be read before rpi_calibration.cfg uses a wm_pin
     [ -f "$SCRIPT_DIR/rpi-cfg/rpi_base.cfg" ] && echo rpi_base.cfg; return 0
 }
@@ -525,6 +520,8 @@ rpicfg_role() {   # $1 = rpi-cfg file, $2 = name | effect: what the file is, and
         rpi_base.cfg:effect) echo "homing and the bed drop (z_rise), the idle timeout, the bed warp wait, the switch pins, the start-up safety check, the unload menu, the head sensor load queue and live Z per tool do not exist, and the other rpi_ files that use them fail" ;;
         rpi_nozzle.cfg:name) echo "nozzle type, extruder setup and speed test" ;;
         rpi_nozzle.cfg:effect) echo "the Nozzle Type and Extruder Setup macros and the X/Y speed test (WM_AUTO_SPEED) do not exist" ;;
+        rpi_timelapse.cfg:name) echo "timelapse settings window" ;;
+        rpi_timelapse.cfg:effect) echo "the Timelapse settings window (WM_TIMELAPSE: video quality, mode, head parking) does not exist" ;;
         *:name) echo "Pi config" ;;
         *) echo "the macros in it do not exist" ;;
     esac
@@ -568,6 +565,9 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
             mkdir -p "$(dirname "$(nozzle_script_dst)")" && cp "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" && chmod +x "$(nozzle_script_dst)"
             cp "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" && chmod +x "$(canids_script_dst)"   # behind WM_EXTRUDER_SETUP (Set Up)
             cp "$SCRIPT_DIR/scripts/wm_estep.py" "$(estep_script_dst)" && chmod +x "$(estep_script_dst)"   # behind WM_ESTEP_CAL (E-step calibration)
+        fi
+        if [ "$f" = rpi_timelapse.cfg ]; then   # its shell command runs this helper (kept outside the config folder, like wm_nozzle.py)
+            mkdir -p "$(dirname "$(timelapse_script_dst)")" && cp "$SCRIPT_DIR/scripts/wm_timelapse.py" "$(timelapse_script_dst)" && chmod +x "$(timelapse_script_dst)"
         fi
         if rpicfg_included "$f"; then print_success "$f is installed (printer.cfg already includes it)"
         else
@@ -1264,21 +1264,6 @@ PY
 # ---------------------------------------------------------------------------
 NETMGR_STATE="$BACKUP_ROOT/netmgr.state"
 nm_active() { [ "$(service_state NetworkManager)" = active ] || { [ "$TESTING" = 1 ] && [ "${WM_TEST_NM:-0}" = 1 ]; }; }
-step_netmgr() {
-    [ "$WANT_NETMGR" = 1 ] || return 0
-    print_header "NetworkManager (for KlipperScreen's Network panel)"
-    why "KlipperScreen's Network panel talks to NetworkManager. Without it the panel does not appear."
-    if nm_active; then print_success "NetworkManager is already running: nothing to change."; return 0; fi
-    print_warning "The network may drop when the Pi restarts with NetworkManager. After the reboot, if it does not come back: connect a cable, or use the screen's Network panel, or run: sudo nmtui"
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: apt-get install network-manager; disable dhcpcd; enable NetworkManager (no restart)${NC}"; return 0; fi
-    if [ "$(service_enabled dhcpcd)" = enabled ]; then mkdir -p "$BACKUP_ROOT"; echo "dhcpcd-was-enabled" > "$NETMGR_STATE"; fi
-    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y network-manager || { warn_later "NetworkManager could not be installed (network?). Run ./installer.sh --update --network-manager on to retry."; return 0; }
-    SUDO mkdir -p /etc/NetworkManager/conf.d
-    SUDO systemctl disable dhcpcd 2>/dev/null
-    SUDO systemctl enable NetworkManager
-    warn_later "NetworkManager is installed and starts at the next reboot (sudo reboot). Until then nothing changed. If the network does not come back: cable, or sudo nmtui, or ./installer.sh --remove network-manager from the screen's keyboard."
-    print_success "NetworkManager installed and enabled. It takes over at the next reboot."
-}
 
 # Wi-Fi (B-041): the Raspberry Pi 4's Wi-Fi chip (BCM43455) can hang while the Pi keeps running (no Fluidd, no SSH, the touchscreen loses it).
 # Only on a Pi whose network is Wi-Fi through NetworkManager: power saving is turned off on that connection. 2.19.1: the Wi-Fi watchdog
@@ -1318,11 +1303,26 @@ wifi_wd_remove() {   # stop and delete the old Wi-Fi watchdog
     SUDO systemctl daemon-reload
     print_success "The old Wi-Fi watchdog was stopped and deleted."
 }
+wifi_bus_slow() {   # F-196 (B-078): on a Raspberry Pi 4 Model B that uses Wi-Fi, the Wi-Fi bus is slowed from 41.7 to 25 MHz (dtparam=sdio_overclock=25). The onboard Wi-Fi chip of the main printer Pi died after a print and took it off the network; with the slower bus it ran for days without a hang. Wi-Fi is about 40 percent slower. Takes effect at the next reboot.
+    local m bc="${WM_BOOT_CONFIG:-/boot/firmware/config.txt}" bk
+    m="$(pi_model)"; [ "$TESTING" = 1 ] && bc="$HOME_DIR/boot-config.txt"
+    case "$m" in *"Raspberry Pi 4 Model B"*) ;; *) return 0 ;; esac
+    [ -f "$bc" ] || return 0
+    grep -qE '^[[:space:]]*dtparam=sdio_overclock=' "$bc" && { print_success "Wi-Fi bus: sdio_overclock is already set in $bc"; return 0; }
+    print_header "Wi-Fi bus: slower and steadier"
+    why "The Wi-Fi chip of a Raspberry Pi 4 can hang after a long print and take the Pi off the network until a power cycle. Running its bus at 25 MHz instead of 41.7 MHz stopped it on the main printer (Wi-Fi is about 40 percent slower, still plenty for Fluidd). A network cable is the most reliable. Takes effect at the next reboot."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add dtparam=sdio_overclock=25 to $bc (a copy is kept)${NC}"; return 0; fi
+    bk="$BACKUP_ROOT/wifi-bus-$STAMP"; mkdir -p "$bk"; cp -p "$bc" "$bk/config.txt"
+    if [ "$TESTING" = 1 ]; then printf '\n[all]\ndtparam=sdio_overclock=25\n' >> "$bc"; echo "[test] wifi bus slowed" >> "$HOME_DIR/.sudo.log"
+    else printf '\n[all]\ndtparam=sdio_overclock=25\n' | SUDO tee -a "$bc" >/dev/null || { warn_later "The Wi-Fi bus setting could not be written to $bc."; return 0; }; fi
+    print_success "Wi-Fi bus slowed to 25 MHz (dtparam=sdio_overclock=25 in $bc). Reboot the Pi when you are ready. Copy of the old file: $bk"
+}
 step_wifi() {   # every install and update, and ./installer.sh --wifi
     local dev con ps bk
     wifi_wd_remove                                              # an old watchdog goes first, on any kind of network
     dev="$(wifi_dev)"
     [ -n "$dev" ] || return 0                                   # cable (or no network): nothing more to do
+    wifi_bus_slow                                               # F-196
     if ! nm_active; then print_info "The Pi is on Wi-Fi without NetworkManager: Wi-Fi power saving was left as it is."; return 0; fi
     con="$(wifi_con "$dev")"
     [ -n "$con" ] || { print_info "No active NetworkManager connection on $dev: the Wi-Fi was left as it is."; return 0; }
@@ -1617,7 +1617,7 @@ ks_off_the_pi() {   # F-215: no KlipperScreen on the Pi any more. An existing on
     print_info "KlipperScreen is no longer installed on the Pi (the touchscreen runs on the screen board): removing it. Its settings file is copied to $BACKUP_ROOT first."
     local f="$HOME_DIR/printer_data/config/KlipperScreen.conf"
     if [ "$DRY" != 1 ]; then mkdir -p "$BACKUP_ROOT"; [ -f "$f" ] && cp -p "$f" "$BACKUP_ROOT/KlipperScreen.conf.before-removal-$STAMP"; fi
-    do_screen_remove auto || print_warning "KlipperScreen could not be removed by itself. Remove it with ./installer.sh --screen-remove"
+    do_screen_remove auto || print_warning "KlipperScreen could not be removed by itself."
     WANT_SCREEN=macros
 }
 board_install_remote() {   # F-215: $1 = user@host of the screen board. The board password is asked once (ssh-copy-id), never stored; then the board installs itself from the small download.
@@ -2275,16 +2275,7 @@ questions() {
         else print_info "Later: ./installer.sh --screen-board t13dp@<board-ip>"; fi
         fi
     fi
-    if [ "$WANT_NETMGR" = ask ]; then
-        if [ "$WANT_SCREEN" != 1 ]; then WANT_NETMGR=0
-        elif nm_active; then print_info "NetworkManager is already running here, so KlipperScreen's Network panel will work."; WANT_NETMGR=0
-        else
-            echo "  KlipperScreen has a Network panel (pick a Wi-Fi network on the screen). It needs NetworkManager."
-            echo -e "  ${YELLOW}Note:${NC} switching this Pi to NetworkManager can DROP the network connection (your SSH session and Fluidd) and you may have to enter the Wi-Fi password again on the screen or with nmtui."
-            echo "  Nothing is restarted by the installer: the change starts at the next reboot. You can add it later with: ./installer.sh --update --network-manager on"
-            if ask_yn "Install NetworkManager for the Network panel?" n; then WANT_NETMGR=1; else WANT_NETMGR=0; fi
-        fi
-    fi
+    if [ "$WANT_NETMGR" = ask ]; then WANT_NETMGR=0; fi   # F-234: NetworkManager is no longer offered by the installer
 }
 
 # ============================================================================
@@ -2504,7 +2495,6 @@ PLAN_OPTIONS=(
     "obico|WANT_OBICO"
     "octoapp|WANT_OCTOAPP"
     "octoeverywhere|WANT_OCTOEVERYWHERE"
-    "network manager|WANT_NETMGR"
     "klippain shake&tune|WANT_SHAKETUNE"
     "spoolman|WANT_SPOOLMAN"
     "ace pro|WANT_ACEPRO"
@@ -2981,7 +2971,6 @@ do_update() {
         if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
     fi
     if [ "$WANT_SCREEN" = macros ] && upd_wants screen; then step_macros; fi
-    if [ "$WANT_NETMGR" = 1 ] && upd_wants network-manager; then step_netmgr; fi
     if [ "$WANT_TIMELAPSE" = 1 ] && upd_wants timelapse; then step_timelapse; fi
     if [ "$WANT_SHELLCMD" = 1 ] && upd_wants shell-command; then step_shellcmd; fi
     if [ "$WANT_SHAKETUNE" = 1 ] && upd_wants shaketune; then step_shaketune; fi
@@ -3467,6 +3456,10 @@ do_doctor() {
             if cmp -s "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" 2>/dev/null; then doc_ok "wm_canids.py (the helper behind WM_EXTRUDER_SETUP) is in place"
             else doc_bad "wm_canids.py is missing or different in ~/printer_data/wm-tools" "WM_EXTRUDER_SETUP could not write the CAN ids."; offer_fix "copy wm_canids.py again" step_rpicfg; fi
         fi
+        if [ "$rf" = rpi_timelapse.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
+            if cmp -s "$SCRIPT_DIR/scripts/wm_timelapse.py" "$(timelapse_script_dst)" 2>/dev/null; then doc_ok "wm_timelapse.py (the helper behind WM_TIMELAPSE) is in place"
+            else doc_bad "wm_timelapse.py is missing or different in ~/printer_data/wm-tools" "The Timelapse settings window could not change the settings."; offer_fix "copy wm_timelapse.py again" step_rpicfg; fi
+        fi
     done
     if [ -f "$HOME_DIR/printer_data/config/rpi_pi.cfg" ]; then
         rpicfg_included rpi_pi.cfg && doc_ok "rpi_pi.cfg (host MCU, temperatures, chamber light: $(python3 -I "$(rpipi_py)" parts "$HOME_DIR/printer_data/config" 2>/dev/null)) is included" || { doc_bad "rpi_pi.cfg is not included in printer.cfg" "The Pi temperature, the board temperatures, the host MCU and WM_CHAMBER_LIGHT are missing."; offer_fix "include rpi_pi.cfg" rpipi_step; }
@@ -3847,13 +3840,13 @@ do_remove_addon_core() {
         shell-command)
             local ef="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" users
             [ -f "$ef" ] || { print_info "The shell command extension is not installed."; return 0; }
-            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v -e '/rpi_nozzle\.cfg$' -e '/backup/' | tr '\n' ' ')"   # rpi_nozzle.cfg is ours (it holds the speed test too): it is taken out below
+            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v -e '/rpi_nozzle\.cfg$' -e '/rpi_timelapse\.cfg$' -e '/backup/' | tr '\n' ' ')"   # rpi_nozzle.cfg is ours (it holds the speed test too): it is taken out below
             if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
             ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
             local own what
-            for own in rpi_nozzle.cfg; do   # _WM_NOZZLE_TYPE and the Save button of the speed test need the extension: take the include out (printer.cfg is copied first) and keep the file aside
+            for own in rpi_nozzle.cfg rpi_timelapse.cfg; do   # _WM_NOZZLE_TYPE and the Save button of the speed test need the extension: take the include out (printer.cfg is copied first) and keep the file aside
                 [ -f "$cfgd/$own" ] || continue
-                [ "$own" = rpi_nozzle.cfg ] && what="_WM_NOZZLE_TYPE and the speed test WM_AUTO_SPEED" || what="?"
+                case "$own" in rpi_nozzle.cfg) what="_WM_NOZZLE_TYPE and the speed test WM_AUTO_SPEED" ;; rpi_timelapse.cfg) what="the Timelapse settings window WM_TIMELAPSE" ;; *) what="?" ;; esac
                 [ -f "$cfgd/printer.cfg" ] && { [ -f "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" ] || cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP"; } && sed -i "/^[[:space:]]*\[include[[:space:]]\+${own//./\\.}[[:space:]]*\]/d" "$cfgd/printer.cfg"
                 mv "$cfgd/$own" "$cfgd/$own.wm-removed-$STAMP"; print_info "$own ($what) was taken out of printer.cfg too, because it needs the extension. It is kept as $own.wm-removed-$STAMP."
             done
@@ -3886,7 +3879,6 @@ do_remove_addon_core() {
             print_success "$name removed."
             [ "$name" != obico ] && moonraker_drop_update_section "$name"
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
-        screen) do_screen_remove ;;
         acepro)
             local adir bk tl="~"; adir="$(ace_dir)"; bk="$HOME_DIR/ultra-backup/installer/acepro-panel"; [ -d "$bk" ] || bk="$HOME_DIR/acepro-backup"   # the panel installer keeps its undo folders in ~/ultra-backup since 1.16.0
             if ! ace_installed && [ ! -d "$adir" ] && [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ] && ! ls "$cfgd"/rpi_ace*.cfg "$cfgd"/rpi_endless.cfg "$cfgd"/rpi_stats.cfg >/dev/null 2>&1; then print_info "The ACE Pro is not installed."; return 0; fi
@@ -3946,7 +3938,7 @@ do_remove_addon_core() {
             ask_yn "Switch back to dhcpcd?" n || { echo "Nothing changed."; return 0; }
             SUDO systemctl enable dhcpcd; SUDO systemctl disable NetworkManager
             rm -f "$NETMGR_STATE"; WANT_NETMGR=0; save_answers
-            print_success "Done. Reboot when you are ready (sudo reboot). Install NetworkManager again any time: ./installer.sh --update --network-manager on" ;;
+            print_success "Done. Reboot when you are ready (sudo reboot)." ;;
         webcam)
             [ -d "$HOME_DIR/crowsnest" ] || [ -f /etc/systemd/system/crowsnest.service ] || { print_info "The webcam service is not installed."; return 0; }
             echo "  This removes the webcam service (crowsnest) and ~/crowsnest. Your camera settings file crowsnest.conf stays in your config folder."
@@ -4080,7 +4072,7 @@ PY
             done
             progress_bar "$tn" "$tn" "Done"
             print_success "Everything was erased. Kept: the installer folder ($REPO_DIR). Install again with: cd $REPO_DIR && ./installer.sh" ;;
-        *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all, erase." ;;
+        *) die_with_fix "unknown name '${name}'." "use one of: webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all, erase." ;;
     esac
 }
 
@@ -4152,7 +4144,7 @@ menu_updates() {
 }
 
 menu_addons() {
-    local k items=(screen network-manager webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere zr-tools)
+    local k items=(webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere zr-tools)
     declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [acepro]="Anycubic ACE Pro (feeder, dryer)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [zr-tools]="ZR Tools macros (screen board)")
     declare -A help=([acepro]="Klipper driver and config for the ACE Pro, from wm-ultra-fluidd-acepro-panel" [spoolman]="Filament spool tracking, shown in Fluidd (port 7912)" [shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)" [zr-tools]="For the WonderMaker screen board: checks, then installs what is missing")
     while true; do
@@ -4167,8 +4159,6 @@ menu_addons() {
         if [ "$st" = "not installed" ]; then
             ask_yn "Install ${label[$k]}?" n || continue
             case "$k" in
-                screen) menu_run --update --only-addon screen --screen on ;;
-                network-manager) echo "  This can drop the network connection (SSH, Fluidd) when the Pi restarts. Nothing restarts by itself."; ask_yn "Still install it?" n && menu_run --update --only-addon network-manager --network-manager on ;;
                 webcam) menu_run --update --only-addon webcam --webcam on ;;
                 timelapse) menu_run --update --only-addon timelapse --timelapse on ;;
                 *) menu_run --update --only-addon "$k" "--$k" on ;;
@@ -4243,7 +4233,7 @@ menu_restore() {   # shows where the backups are kept and lets you choose one by
 }
 
 menu_uninstall() {
-    local k n items=(screen network-manager webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase freespace)
+    local k n items=(webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase freespace)
     declare -A label=([freespace]="Free up disk space" [screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [acepro]="Anycubic ACE Pro (driver, config, project)" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
     declare -A help=([freespace]="Shows what is safe to erase, with sizes and warnings; erases only what you pick" [network-manager]="Only if this installer switched you to it" [fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Every program above and the system files. Keeps my printer data, backups and installer files" [erase]="Programs, printer data, backups, logs and every installer file. Keeps only the installer folder")
     while true; do
@@ -4497,7 +4487,7 @@ rpi_names_migrate
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
+step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_cfgindex
 step_ultrabackup   # after the panel and the add-ons, which write backups of their own

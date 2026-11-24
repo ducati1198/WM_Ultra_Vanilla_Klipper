@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.30.0
+
+- **Offset and calibration windows in the e-step window style (F-230 Full offset calibration, F-231 offset and calibration windows, batches 1 to 5).** `WM_FULL_OFFSET_CAL`, `WM_OFFSETS_RAPID`, `WM_OFFSETS_Z_HOT`, `WM_NOZZLE_GROWTH_CAL`, Bed Leveling, Bed Screws, Vibration Compensation, Hotend PID, Speed test, Bed warp measurement, Extruder Setup, Probe calibrate, Offsets accurate, Change nozzles and the Unload confirm now open the same window as First Run Calibration: a short text, **What it does**, **Start**, **Cancel**, a red **Please wait** window and one result window. Shared helpers `_WM_WIN_START` and `_WM_WIN_INFO`; the purge location of the offset calibrations is untouched. Tested on the production printer.
+- **Timelapse settings window (F-232 Timelapse menu).** New `WM_TIMELAPSE` (file `rpi-cfg/rpi_timelapse.cfg`, helper `scripts/wm_timelapse.py`): Quality, Mode and Head parking, **Save and restart** (never restarts during a print), **Cancel**. Installed with the shell command extension when timelapse is on; the doctor checks the helper; removing the shell command extension takes it out too.
+- **Screen S1.1.0 (F-233 More page).** On the screen board **More > Timelapse** opens the timelapse window, and **Restart Klipper** and **Firmware restart** are on the main More page (each asks first). The old Test change entry is gone.
+- **Wi-Fi bus slowed on a Raspberry Pi 4 Model B (F-196, fix for B-078 the Wi-Fi chip that died after a print).** `dtparam=sdio_overclock=25` is added to `/boot/firmware/config.txt` once (a copy is kept). Applies only to a Raspberry Pi 4 Model B that uses Wi-Fi; takes effect at the next reboot.
+- **Fluidd panel 1.21.0** adds the macro category **Timelapse** (cyan) for `WM_TIMELAPSE`.
+
+- **No touchscreen and no NetworkManager entries any more (F-234, installer: Add-ons and Uninstall clean-up).** The Add-ons menu and the Uninstall menu no longer list "Touchscreen (KlipperScreen)" or "NetworkManager". The options `--network-manager`, `--screen-backend` and `--screen-remove` are removed, and so are the NetworkManager install step and its question. The touchscreen runs on the screen board, so the Pi never installs KlipperScreen (since 2.27.0). Kept on purpose: an old KlipperScreen on a Pi is still removed by the update by itself (settings file copied first), and Uninstall, Erase everything still switches back a Pi that an older installer switched to NetworkManager. Tests and README updated.
+
 ## 2.29.1
 
 - **Shake&Tune shows as valid in Fluidd's update manager.** The installer left the Shake&Tune folder detached at its pinned version, and Moonraker listed it as INVALID ("Failed to detect git branch", "Detached HEAD detected"). The folder is now put on branch `main` at the same commit (no file changes), for a new install and for an install you already have (the next `--update` repairs it).
