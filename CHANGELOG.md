@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.29.1
+
+- **Shake&Tune shows as valid in Fluidd's update manager.** The installer left the Shake&Tune folder detached at its pinned version, and Moonraker listed it as INVALID ("Failed to detect git branch", "Detached HEAD detected"). The folder is now put on branch `main` at the same commit (no file changes), for a new install and for an install you already have (the next `--update` repairs it).
+
 ## 2.29.0
 
 - **Shake&Tune is installed by default.** A new install adds Klippain Shake&Tune without asking (`./installer.sh --shaketune off` skips it); an existing install keeps its saved choice. Its five commands are in their own Fluidd macro category **Shake&Tune** (brown, with the Fluidd panel 1.20.0).

@@ -9,6 +9,16 @@ except ImportError:
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 text = open(os.path.join(ROOT, "rpi-cfg", "rpi_calibration.cfg")).read() + "\n" + open(os.path.join(ROOT, "rpi-cfg", "rpi_nozzle.cfg")).read()
 macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', text, re.M)}
+# One list of state macros: every macro that some macro reads with printer["gcode_macro X"] gets the variable_ defaults written in its own
+# section, so a new state macro needs no hand-written default here. The macro under test keeps its own handling in run().
+STATE_MACROS = sorted(set(re.findall(r"""printer\[["']gcode_macro (\S+?)["']\]""", text)))
+def state_defaults(name):
+    mm = re.search(r"^\[gcode_macro " + re.escape(name) + r"\]\n((?:(?!\[).*\n)*)", text, re.M)
+    vs = {}
+    for vl in re.finditer(r"^variable_(\w+):\s*([^#\n]*?)\s*(?:#.*)?$", mm.group(1) if mm else "", re.M):
+        try: vs[vl.group(1)] = eval(vl.group(2), {}, {})
+        except Exception: vs[vl.group(1)] = vl.group(2)
+    return vs
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
 env = jinja2.Environment(variable_start_string='{', variable_end_string='}')
@@ -21,7 +31,8 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     cs = printer['configfile']['settings']
     printer['configfile']['save_config_pending_items'] = pend or {}
     printer.setdefault('gcode_macro _WM_FIRST_RUN_CAL_DONE', {'done_t': done_t})
-    printer.setdefault('gcode_macro _WM_WIN', {'busy': ''})   # F-228: the wait window state the guards read
+    for sm in STATE_MACROS: printer.setdefault('gcode_macro ' + sm, state_defaults(sm))   # the shared state list (STATE_MACROS)
+    printer['gcode_macro _WM_WIN'].setdefault('busy', '')   # F-228: the wait window state the guards read
     for i, h in enumerate(HEAT[1:5]): cs[h]['nozzle_diameter'] = 0.4
     if screws: cs['screws_tilt_adjust'] = {}
     if shell: cs['gcode_shell_command wm_nozzle'] = {}

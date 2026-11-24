@@ -1682,6 +1682,13 @@ fetch_addon() {  # url sha dir : clone once, then pin to the version WonderMaker
 }
 addon_pin() { grep "^$1|" "$SCRIPT_DIR/config/pins/addons.txt" | cut -d'|' -f2,3; }
 
+shaketune_on_branch() {  # dir : put the Shake&Tune repo on branch main at the commit it already has (no file changes), so Moonraker's update manager can read it
+    local dir="$1"
+    git -C "$dir" symbolic-ref -q HEAD >/dev/null 2>&1 && return 0
+    git -C "$dir" checkout -q -B main HEAD 2>/dev/null && git -C "$dir" branch -q --set-upstream-to=origin/main main 2>/dev/null
+    return 0
+}
+
 step_timelapse() {
     [ "$WANT_TIMELAPSE" = 1 ] || return 0
     print_header "Step 12: Moonraker timelapse"
@@ -1737,10 +1744,14 @@ step_shaketune() {
     local dir="$HOME_DIR/klippain_shaketune" ext="$HOME_DIR/klipper/klippy/extras/shaketune" cfgd="$HOME_DIR/printer_data/config" pin url sha
     [ "$DRY" = 1 ] || [ -d "$HOME_DIR/klipper/klippy/extras" ] || { warn_later "Shake&Tune needs ~/klipper. Run ./installer.sh --update first."; return 0; }
     [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || [ -x "$HOME_DIR/klippy-env/bin/pip" ] || { warn_later "Shake&Tune needs ~/klippy-env. Run ./installer.sh --repair."; return 0; }
-    if [ -L "$ext" ] && [ -d "$dir/.git" ] && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ]; then print_success "Shake&Tune is already installed (update it from Fluidd's update manager)"; return 0; fi
+    if [ -L "$ext" ] && [ -d "$dir/.git" ] && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ]; then
+        shaketune_on_branch "$dir"   # an install from before 2.29.1 is detached: Moonraker showed it as INVALID
+        print_success "Shake&Tune is already installed (update it from Fluidd's update manager)"; return 0
+    fi
     pin="$(addon_pin shaketune)"; url="${pin%|*}"; sha="${pin#*|}"
     SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y libopenblas-dev || { warn_later "libopenblas-dev could not be installed (network?). Shake&Tune was not installed."; return 0; }
     fetch_addon "$url" "$sha" "$dir" || { warn_later "Could not download Shake&Tune (network?). Run ./installer.sh --update --shaketune on to retry."; return 0; }
+    [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || shaketune_on_branch "$dir"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: pip install -r requirements.txt (in ~/klippy-env), link shaketune into klippy/extras, add shaketune.cfg and the update manager section${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then mkdir -p "$dir/shaketune"; echo "[test] shaketune pip install -r requirements.txt" >> "$HOME_DIR/.sudo.log"
     else
