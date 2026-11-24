@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.32.0
+
+- **The installer folder has no capital letters any more (F-242 installer folder name).** The folder is now `~/wm_ultra_vanilla_klipper` (it was `~/WM_Ultra_Vanilla_Klipper`) and Fluidd's software update list shows the entry as `wm_ultra_vanilla_klipper`, like the panel entry. A new download is cloned into the lower-case folder (the README commands name it). An existing Pi is moved by its next `./installer.sh --update` (or the Fluidd Update button): the folder is renamed, the old name stays as a link so old commands and notes still work, the old update entry is replaced by the new one (a copy of `moonraker.conf` is kept) and the update service points at the new folder. If both folders exist nothing is moved and the installer says so. The GitHub address keeps its spelling (GitHub ignores capital letters in addresses). Screen S1.2.1: the **Update Pi** button finds the update entry under either name, so a screen board works with a Pi that is not moved yet and with one that is.
+
 ## 2.31.0
 
 - **Screen S1.2.0 (F-235 Move page).** On the screen board the bottom tab **Filament** is now **Move**: **Home all**, **Home XY**, **Home Z**, **Motors off**, big X/Y arrows, **Z up** and **Z down**, the live coordinates and the step size (0.1, 1, 10 or 50 mm). Tap the coordinates to open **Go to position**: a number pad to type X, Y and Z, then **Go** (the window stays open so you can send another move; **Cancel** leaves it). Moves and homing are refused during a print. Tap a toolhead card on the Toolheads page to open that toolhead's filament page (the Filament tile stays on the More page). Tested on the production printer.
@@ -547,7 +551,7 @@ Cleanup from the 2026-11-14 code audit (both models). Nothing changes on a print
 
 ## 2.0.0
 
-First release of **WM_Ultra_Vanilla_Klipper**. It starts from the wm-ultra-rpi installer (same options, same questions, same steps, same KlipperScreen on the Pi and on the screen board) and replaces WonderMaker's modified Klipper and Moonraker with the upstream ones.
+First release of **wm_ultra_vanilla_klipper**. It starts from the wm-ultra-rpi installer (same options, same questions, same steps, same KlipperScreen on the Pi and on the screen board) and replaces WonderMaker's modified Klipper and Moonraker with the upstream ones.
 
 - **Upstream Klipper and Moonraker, pinned and bundled.** `factory/<model>/klipper` is Klipper v0.13.0-827-g29d4ec2d6 (Klipper3d) and `factory/<model>/moonraker` is Moonraker v0.11.0-4-gb559b9a (Arksine), both as source copies with `lib/`. The installer deploys them like before (checksums first). Updates come from this repository.
 - **WonderMaker's modules added to upstream Klipper**, as files in `klippy/extras/`: the 5 compiled modules (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`, unchanged, same checksums) and the Python modules the printer needs (`heater_air`, `probe_air`, `tools_calibrate`, `xy_offset_calibrator`, `echelon_stepper`, `custom_hall`, `lis2dw`, `stall_sensor`, ...).

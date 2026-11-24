@@ -52,7 +52,7 @@ The idea: a Raspberry Pi takes over the job of the WonderMaker screen/host board
 
    ```bash
    sudo apt-get update && sudo apt-get install -y git
-   git clone https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git && cd WM_Ultra_Vanilla_Klipper
+   git clone https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git wm_ultra_vanilla_klipper && cd wm_ultra_vanilla_klipper
    chmod +x installer.sh && ./installer.sh
    ```
 
@@ -73,7 +73,7 @@ Optional later: [use the original screen board as the touchscreen](#7-klipperscr
 
 ## Everyday cheat sheet
 
-Run these in `~/WM_Ultra_Vanilla_Klipper` on the Pi.
+Run these in `~/wm_ultra_vanilla_klipper` on the Pi.
 
 | I want to... | Run | What happens to my data |
 |---|---|---|
@@ -197,20 +197,22 @@ Log in to the Pi as `t13dp` and:
 sudo apt-get update
 sudo apt-get install -y git
 cd ~
-git clone https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git
-cd WM_Ultra_Vanilla_Klipper
+git clone https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git wm_ultra_vanilla_klipper
+cd wm_ultra_vanilla_klipper
 chmod +x installer.sh
 ./installer.sh
 ```
 
-> **"destination path 'WM_Ultra_Vanilla_Klipper' already exists"?** You already downloaded it once. Do not clone again. Update the folder instead:
+> **"destination path 'wm_ultra_vanilla_klipper' already exists"?** You already downloaded it once. Do not clone again. Update the folder instead:
 >
 > ```bash
-> cd ~/WM_Ultra_Vanilla_Klipper
+> cd ~/wm_ultra_vanilla_klipper
 > ./installer.sh --get-latest
 > ```
 >
 > That only gets the newest files from GitHub and changes nothing else. To also apply the update to the printer, run `./installer.sh --update` afterwards (optional).
+
+> **Installed before version 2.32.0?** The folder used to be called `~/WM_Ultra_Vanilla_Klipper`. The next `./installer.sh --update` (or the Update button in Fluidd) renames it to `~/wm_ultra_vanilla_klipper`, keeps the old name as a link so old commands still work, and replaces the Fluidd update entry with the lower-case one. If both folders exist nothing is moved and the installer tells you to keep one.
 
 ### The installer menu
 
@@ -829,20 +831,20 @@ Then on the **screen board** (SSH in as `t13dp`, it needs internet). Pick one wa
 **Option A: small download, no git needed** (works even if apt is broken). It is about 90 KB and has only what the board needs (KlipperScreen setup, ZR Tools, the rescue window and the USB flags). The board does not need the whole 500 MB repository.
 
 ```bash
-mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main
+mkdir -p ~/wm_ultra_vanilla_klipper-main && curl -fsSL https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz | tar xz -C ~/wm_ultra_vanilla_klipper-main && cd ~/wm_ultra_vanilla_klipper-main
 ```
 
 **Option B: with git** (after the clock and apt fix above, so `apt-get install -y git` works). This is a *sparse* clone: it fetches only the folders the board needs (about 2 MB), not the whole 500 MB repository, and `git pull` still updates it.
 
 ```bash
 cd ~
-git clone --depth 1 --filter=blob:none --sparse https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper && cd WM_Ultra_Vanilla_Klipper
+git clone --depth 1 --filter=blob:none --sparse https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper wm_ultra_vanilla_klipper && cd wm_ultra_vanilla_klipper
 git sparse-checkout init --cone && git sparse-checkout set scripts zr_tools screen_rescue usb_flags config/pins
 ```
 
 (`init --cone` is needed on the board's older git 2.30. Without it git uses the old pattern mode, which leaves out `VERSION` and also pulls in the `scripts` folders inside `factory/`.)
 
-If you cloned it before, a `git clone` copy does **not** update by itself: run `cd WM_Ultra_Vanilla_Klipper && git pull` first (or delete the folder and clone again). With Option A, delete the old `WM_Ultra_Vanilla_Klipper-main` folder before downloading again.
+If you cloned it before, a `git clone` copy does **not** update by itself: run `cd wm_ultra_vanilla_klipper && git pull` first (or delete the folder and clone again). With Option A, delete the old `wm_ultra_vanilla_klipper-main` folder before downloading again.
 
 Then, inside the folder you just downloaded (you are already in it after Option A or B), run:
 
@@ -896,7 +898,7 @@ KlipperScreen on the WonderMaker screen board
 - **Klipper restart:** after an install or update the board restarts KlipperScreen and asks the Pi's Moonraker to restart Klipper on the Pi (never during a print; skipped with a note if the Pi does not answer or does not trust the board's address).
 - **Reboot question:** the install ends with "Reboot the board now?" (default yes; Enter reboots after a 10 second countdown). `--no-reboot` skips the question.
 - **A print stops changes:** while the factory Moonraker on the board reports a print, every entry that changes something refuses (add `--force` to override).
-- **An old copy has an old menu.** A `git clone` copy does not update by itself: run `cd ~/WM_Ultra_Vanilla_Klipper && git pull` once. From then on **Update > Update now** refreshes the installer folder too.
+- **An old copy has an old menu.** A `git clone` copy does not update by itself: run `cd ~/wm_ultra_vanilla_klipper && git pull` once. From then on **Update > Update now** refreshes the installer folder too.
 
 **To uninstall KlipperScreen and go back to the factory screen** (over SSH, as `t13dp`):
 
@@ -1056,7 +1058,7 @@ Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic 
 `tools/wm-release/wm_release.py` brings a new WonderMaker System release (1.1.14 and later) to the Pi **without losing your own changes**. It is separate from the installer; `git pull` or `./installer.sh --get-latest` keeps it up to date with the rest of this folder.
 
 ```bash
-cd ~/WM_Ultra_Vanilla_Klipper
+cd ~/wm_ultra_vanilla_klipper
 python3 tools/wm-release/wm_release.py        # menu; option 1 asks: old screen board, or WonderMaker website
 ```
 
@@ -1110,7 +1112,7 @@ The install asks these (or take them from the command line, then nothing is aske
 
 ## Update from Fluidd
 
-In Fluidd's software update page the entry `WM_Ultra_Vanilla_Klipper` has an **Update** button. It downloads the new installer; a small service (`wm-pi-update`) then runs `./installer.sh --update --yes` for you, the same as in SSH: backup first, then packages, configs, the Fluidd panel and add-ons, and a restart of Klipper and Moonraker at the end (Fluidd disconnects for about a minute). Nothing is applied while a print is running or paused (Moonraker refuses the update then too), when the installed version already is the new one, or when your user has no passwordless sudo: run `./installer.sh --update` in SSH then. Log: `~/wm-pi-update.log`.
+In Fluidd's software update page the entry `wm_ultra_vanilla_klipper` has an **Update** button. It downloads the new installer; a small service (`wm-pi-update`) then runs `./installer.sh --update --yes` for you, the same as in SSH: backup first, then packages, configs, the Fluidd panel and add-ons, and a restart of Klipper and Moonraker at the end (Fluidd disconnects for about a minute). Nothing is applied while a print is running or paused (Moonraker refuses the update then too), when the installed version already is the new one, or when your user has no passwordless sudo: run `./installer.sh --update` in SSH then. Log: `~/wm-pi-update.log`.
 
 ### Updating everything
 

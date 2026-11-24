@@ -206,7 +206,7 @@ EOF2
 head_ "Verdict"
 if [ "$NFAIL" = 0 ] && [ "$GOT" -ge 1 ]; then V="READY (with $NWARN warning(s))"; RC=0; else V="NOT READY ($NFAIL problem(s), $NWARN warning(s))"; RC=1; fi
 echo "$V   -  pass: $NPASS  warn: $NWARN  fail: $NFAIL"
-{ echo "WM_Ultra_Vanilla_Klipper screen board preflight $(date)"; sed -E 's/((password|passwd|token|secret|psk)[[:space:]]*[:=][[:space:]]*).*/\1<removed>/I; s/\b(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)\b/<private-ip>/g' "$TMP"; echo; echo "$V"; } > "$REPORT"
+{ echo "wm_ultra_vanilla_klipper screen board preflight $(date)"; sed -E 's/((password|passwd|token|secret|psk)[[:space:]]*[:=][[:space:]]*).*/\1<removed>/I; s/\b(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)\b/<private-ip>/g' "$TMP"; echo; echo "$V"; } > "$REPORT"
 echo "Report saved: $REPORT"
 [ "$RC" = 0 ] && echo "Nothing blocks the install. Next: bash scripts/screen_board.sh --dry-run (on the board)." || echo "Fix the FAIL lines (or send me the report), then run this again."
 exit $RC

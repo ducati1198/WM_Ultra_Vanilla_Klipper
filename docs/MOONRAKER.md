@@ -18,7 +18,7 @@ Written 2026-11-18 from `~/printer_data/config/moonraker.conf` (read line by lin
 | `[data_store]` | gcode_store_size 5000 (console history lines) | ok |
 | `[update_manager]` | enable_auto_refresh True | ok |
 | `[update_manager timelapse]` | git_repo ~/moonraker-timelapse, managed_services klipper moonraker | ok |
-| `[update_manager WM_Ultra_Vanilla_Klipper]` | git_repo ~/WM_Ultra_Vanilla_Klipper (ducati1198), is_system_service False, info_tags desc=... | ok. **Custom**: the Update button also applies the update through the service `wm-pi-update` (log `~/wm-pi-update.log`) |
+| `[update_manager wm_ultra_vanilla_klipper]` | git_repo ~/wm_ultra_vanilla_klipper (ducati1198), is_system_service False, info_tags desc=... | ok. **Custom**: the Update button also applies the update through the service `wm-pi-update` (log `~/wm-pi-update.log`) |
 | `[update_manager wm-ultra-fluidd-acepro-panel]` | git_repo ~/wm-ultra-fluidd-acepro-panel, managed_services klipper | ok. **Custom**: service `wm-panel-update` applies the update |
 | `[timelapse]` | output_path, frame_path, camera default, parkpos back_right, park speeds, `extraoutputparams: -preset superfast` | options belong to the third-party component moonraker-timelapse (its own docs), not to Moonraker's configuration.md: not verified here |
 | `[webcam Camera]` | service mjpegstreamer, stream_url /webcam/?action=stream, snapshot_url ...action=snapshot | ok (MJPEG-Streamer is a documented service) |

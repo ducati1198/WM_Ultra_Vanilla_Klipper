@@ -9,7 +9,7 @@ It is not part of any installer and no installer runs it. It lives in the `tools
 
 | What | Where |
 |---|---|
-| The tool, this README, the tests | `WM_Ultra_Vanilla_Klipper/tools/wm-release/` (on the Pi: `~/WM_Ultra_Vanilla_Klipper/tools/wm-release/`) (`wm_release.py`, `README.md`, `test.sh`) |
+| The tool, this README, the tests | `wm_ultra_vanilla_klipper/tools/wm-release/` (on the Pi: `~/wm_ultra_vanilla_klipper/tools/wm-release/`) (`wm_release.py`, `README.md`, `test.sh`) |
 | What the tool saves (baselines, releases, reports, backups, notes, history) | `~/wm-private-data/` on the machine where you run it (change with `WMR_HOME`) |
 | The files it compares against and changes | your home folder, `~` (change with `WMR_LIVE_HOME`) |
 
@@ -270,7 +270,7 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 To get the newest version of the tool onto the Pi:
 
 ```
-cd ~/WM_Ultra_Vanilla_Klipper
+cd ~/wm_ultra_vanilla_klipper
 ./installer.sh --get-latest
 python3 tools/wm-release/wm_release.py --version
 ```
@@ -279,7 +279,7 @@ python3 tools/wm-release/wm_release.py --version
 - **Important:** `--get-latest` decides by the installer's version number. If it says "Already up to date" but you know the tool changed, the installer version was not raised yet. Then download just the tool's files:
 
   ```
-  cd ~/WM_Ultra_Vanilla_Klipper/tools/wm-release
+  cd ~/wm_ultra_vanilla_klipper/tools/wm-release
   for f in wm_release.py README.md test.sh; do curl -fsSL -o $f https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/tools/wm-release/$f; done
   ```
 - The last command prints the tool's version (`wm_release.py 1.0.0` or newer). Check the "Version history" below to see what changed.

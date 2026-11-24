@@ -959,7 +959,7 @@ class ViewsMixin:
                 logging.error("ZR Tools: update did not start: %s", msg)
                 hint = ""
                 if "password" in msg.lower() or "not allowed" in msg.lower():
-                    hint = "\nThe update permission is missing. In a terminal on the board run once:\nbash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --post-update"
+                    hint = "\nThe update permission is missing. In a terminal on the board run once:\nbash ~/wm_ultra_vanilla_klipper/scripts/screen_board.sh --post-update"
                 self._screen.show_popup_message("Could not start the update: %s%s" % (msg, hint))
         except Exception:
             logging.exception("ZR Tools: update start")
@@ -987,7 +987,7 @@ class ViewsMixin:
             if info is None:
                 self._screen.show_popup_message("Could not check for a new version. Is the Pi online?")
             elif not info["known"]:
-                self._screen.show_popup_message("This installer is not in the Pi's update list yet.\nIn SSH run once: cd ~/WM_Ultra_Vanilla_Klipper && ./installer.sh --update")
+                self._screen.show_popup_message("This installer is not in the Pi's update list yet.\nIn SSH run once: cd ~/wm_ultra_vanilla_klipper (old Pi: ~/WM_Ultra_Vanilla_Klipper) && ./installer.sh --update")
             elif info["problem"]:
                 self._screen.show_popup_message(info["problem"])
             elif not names:
@@ -999,7 +999,7 @@ class ViewsMixin:
                 self._screen.show_popup_message(text, 1)
             else:
                 lines = []
-                if names[0] == L.PI_UPDATE_NAME:
+                if names[0] in (L.PI_UPDATE_NAME, L.PI_UPDATE_NAME_OLD):
                     lines.append("Installer: %s -> %s" % (info["version"] or "unknown", info["remote"] or "unknown"))
                 if panel.get("known") and panel.get("behind"):
                     lines.append("Fluidd panel: %s -> %s" % (panel.get("version") or "unknown", panel.get("remote") or "unknown"))

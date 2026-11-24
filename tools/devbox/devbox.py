@@ -176,7 +176,7 @@ def find_dict(data):
 def extract_dicts(out_dir, quiet=False):
     src = mcu_dir()
     if not os.path.isdir(src):
-        die("no MCU firmware folder at %s" % src, "run this from a WM_Ultra_Vanilla_Klipper checkout that has factory/%s/mcu" % model_name())
+        die("no MCU firmware folder at %s" % src, "run this from a wm_ultra_vanilla_klipper checkout that has factory/%s/mcu" % model_name())
     os.makedirs(out_dir, exist_ok=True)
     got = {}
     for fn, key in FIRMWARE.items():
@@ -230,7 +230,7 @@ def dict_for(name):
 # ---------------------------------------------------------------------------------------------- klipper.env
 def read_args():
     if not os.path.exists(ENV):
-        die("%s not found" % ENV, "this tool expects the Klipper service of WM_Ultra_Vanilla_Klipper (KLIPPER_ARGS in klipper.env)")
+        die("%s not found" % ENV, "this tool expects the Klipper service of wm_ultra_vanilla_klipper (KLIPPER_ARGS in klipper.env)")
     text = open(ENV).read()
     m = re.search(r'^KLIPPER_ARGS="(.*)"[ \t]*$', text, re.M)
     if not m:

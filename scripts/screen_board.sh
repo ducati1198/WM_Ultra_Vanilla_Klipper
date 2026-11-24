@@ -3,7 +3,7 @@
 # KlipperScreen on the WonderMaker screen board (WM-ZR-M, RK3308B)
 # =============================================================================
 # Run ON the screen board (Debian 11, user t13dp), from a clone of this repository:
-#   mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main
+#   mkdir -p ~/wm_ultra_vanilla_klipper-main && curl -fsSL https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz | tar xz -C ~/wm_ultra_vanilla_klipper-main && cd ~/wm_ultra_vanilla_klipper-main
 #   (this small download, about 90 KB, has only what the board needs. The whole repository, 500 MB, is NOT needed on the board.)
 #   bash scripts/screen_board.sh                            install (asks for the Pi IP address)
 #
@@ -414,7 +414,7 @@ save_state() {
         [ ! -f /etc/X11/Xwrapper.config ] || [ -f "$BK/Xwrapper.config.orig" ] || cp /etc/X11/Xwrapper.config "$BK/Xwrapper.config.orig" 2>/dev/null
     fi
     cp "$SCRIPT_DIR/screen_board.sh" "$BK/screen_board.sh"; [ -f "$SCRIPT_DIR/lib_free_space.sh" ] && cp "$SCRIPT_DIR/lib_free_space.sh" "$BK/lib_free_space.sh"
-    case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) echo "$REPO_DIR" > "$BK/installer_dir" ;; esac   # the Update button refreshes this folder too
+    case "$(basename "$REPO_DIR")" in wm_ultra_vanilla_klipper*|WM_Ultra_Vanilla_Klipper*) echo "$REPO_DIR" > "$BK/installer_dir" ;; esac   # the Update button refreshes this folder too
     [ -f "$REPO_DIR/VERSION" ] && cp "$REPO_DIR/VERSION" "$BK/version"
     write_screen_marks "$REPO_DIR"
 }
@@ -545,7 +545,7 @@ BLOCKS = [
     ("[menu __splashscreen zr_tools]", "name: ZR Tools\nicon: extruder\npanel: zr_tools"),
     ("[menu __print zr_tools]", "name: ZR Tools\nicon: extruder\npanel: zr_tools"),
 ]
-HEAD = "# Written by WM_Ultra_Vanilla_Klipper scripts/screen_board.sh (the Pi runs Klipper and Moonraker)\n"
+HEAD = "# Written by wm_ultra_vanilla_klipper scripts/screen_board.sh (the Pi runs Klipper and Moonraker)\n"
 old = open(p).read() if os.path.exists(p) else ""
 m = re.search(r"^#~# ", old, re.M)
 top, saved = (old[:m.start()], old[m.start():]) if m else (old, "")
@@ -1092,7 +1092,7 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
         git -C "$REPO_DIR" pull --ff-only -q 2>/dev/null && return 0
         print_warning "git pull failed in $REPO_DIR (local changes?): copying the new files over it instead."
     fi
-    case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) ;; *) return 0 ;; esac
+    case "$(basename "$REPO_DIR")" in wm_ultra_vanilla_klipper*|WM_Ultra_Vanilla_Klipper*) ;; *) return 0 ;; esac
     [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
     return 0
 }
@@ -1112,7 +1112,7 @@ do_post_update() {   # optional argument: the folder that holds the newest files
         print_warning "The screen files are not the files of version $(cat "$src/VERSION"): the version marks were left as they are. Run: bash scripts/screen_board.sh --update"
     fi
     local idir="${WM_INSTALLER_DIR:-$REPO_DIR}"
-    case "$(basename "$idir")" in WM_Ultra_Vanilla_Klipper*) echo "$idir" > "$BK/installer_dir" ;; esac
+    case "$(basename "$idir")" in wm_ultra_vanilla_klipper*|WM_Ultra_Vanilla_Klipper*) echo "$idir" > "$BK/installer_dir" ;; esac
     step_sudo_group
     step_sudo_nopasswd
     step_restore_button
@@ -1203,7 +1203,7 @@ PYE
     [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] || WM_INSTALLER_DIR="$REPO_DIR" WM_ASSUME_YES=1 bash "$w/scripts/screen_board.sh" --post-update --yes 2>&1 | sed 's/^/  /'   # with the NEW script: sudoers, root copy, version marks
     if [ "$TESTING" != 1 ] && [ "$(id -u)" = 0 ]; then   # started by the Update button (root): the files must stay the board user's own
         chown -R "$WM_USER": "$BK" "$KS_DIR" "${BKDIR:-$BK}" 2>/dev/null; chown "$WM_USER": "$CFG_DIR/KlipperScreen.conf" 2>/dev/null
-        case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) chown -R "$WM_USER": "$REPO_DIR" 2>/dev/null ;; esac
+        case "$(basename "$REPO_DIR")" in wm_ultra_vanilla_klipper*|WM_Ultra_Vanilla_Klipper*) chown -R "$WM_USER": "$REPO_DIR" 2>/dev/null ;; esac
     fi
     progress_bar 55 100 "Update step 4 of 6: restarting KlipperScreen"
     ks_restart
@@ -1326,7 +1326,7 @@ do_remove_files() {   # installer-file removal; never touches KlipperScreen itse
     case "$what" in
         installer)
             local d="$REPO_DIR"
-            case "$(basename "$d")" in WM_Ultra_Vanilla_Klipper*) ;; *) print_info "The installer folder ($d) does not look like a downloaded copy of WM_Ultra_Vanilla_Klipper: not removing it."; return 0 ;; esac
+            case "$(basename "$d")" in wm_ultra_vanilla_klipper*|WM_Ultra_Vanilla_Klipper*) ;; *) print_info "The installer folder ($d) does not look like a downloaded copy of wm_ultra_vanilla_klipper: not removing it."; return 0 ;; esac
             [ "$d" != "$HOME_DIR" ] && [ "$d" != / ] && [ -f "$d/scripts/screen_board.sh" ] || { print_info "No installer folder to remove."; return 0; }
             echo "  This deletes the downloaded installer folder $d. KlipperScreen and your settings stay. A copy of this script stays in $BK (when KlipperScreen is installed)."
             ask_yn "Delete $d?" y || { echo "Nothing changed."; return 0; }

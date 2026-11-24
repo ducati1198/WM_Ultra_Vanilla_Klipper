@@ -232,7 +232,7 @@ class Logic(unittest.TestCase):
         shutil.rmtree(d)
 
     def test_update_pi_button_logic(self):
-        st = lambda **k: {"result": {"version_info": {"WM_Ultra_Vanilla_Klipper": k}}}
+        st = lambda **k: {"result": {"version_info": {"wm_ultra_vanilla_klipper": k}}}
         i = L.pi_update_parse(st(version="v2.3.0-0-gabc", remote_version="v2.5.0", current_hash="a", remote_hash="b", commits_behind=[{"x": 1}]))
         self.assertTrue(i["known"]); self.assertTrue(i["behind"]); self.assertEqual(i["problem"], "")
         i = L.pi_update_parse(st(version="v2.5.0", current_hash="a", remote_hash="a", commits_behind=[]))
@@ -247,13 +247,17 @@ class Logic(unittest.TestCase):
         src = open(os.path.join(SRC, "zr_views.py")).read()
         self.assertIn('"Update Pi", self._pi_update', src)         # the button is on the More page, also on the Pi's own screen
         # the Fluidd panel is part of the answer, and "Update now" asks for the right entry
-        both = {"result": {"version_info": {"WM_Ultra_Vanilla_Klipper": {"version": "v2.6.0", "current_hash": "a", "remote_hash": "a"},
+        both = {"result": {"version_info": {"wm_ultra_vanilla_klipper": {"version": "v2.6.0", "current_hash": "a", "remote_hash": "a"},
                                            "wm-ultra-fluidd-acepro-panel": {"version": "v1.6.0", "remote_version": "v1.6.1", "current_hash": "a", "remote_hash": "b"}}}}
         info = L.pi_update_parse(both); info["panel"] = L.pi_update_parse(both, L.PANEL_UPDATE_NAME)
         self.assertFalse(info["behind"]); self.assertTrue(info["panel"]["behind"])
         self.assertEqual(L.pi_update_names(info), ["wm-ultra-fluidd-acepro-panel"])
         info["behind"] = True
-        self.assertEqual(L.pi_update_names(info), ["WM_Ultra_Vanilla_Klipper"])      # the installer's update pulls the panel itself
+        self.assertEqual(L.pi_update_names(info), ["wm_ultra_vanilla_klipper"])
+        old = {"result": {"version_info": {"WM_Ultra_Vanilla_Klipper": {"version": "v2.6.0", "current_hash": "a", "remote_hash": "b"}}}}   # F-242: a Pi not updated yet still has the old capital entry
+        oi = L.pi_update_parse(old)
+        self.assertTrue(oi["known"] and oi["behind"])
+        self.assertEqual(L.pi_update_names(oi), ["WM_Ultra_Vanilla_Klipper"])      # the installer's update pulls the panel itself
         info["behind"] = False; info["panel"]["behind"] = False
         self.assertEqual(L.pi_update_names(info), [])
         self.assertEqual(L.pi_update_names({"known": False, "behind": False, "panel": {"known": False}}), [])

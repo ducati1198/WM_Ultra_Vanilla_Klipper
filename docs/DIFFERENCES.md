@@ -1,4 +1,4 @@
-# DIFFERENCES.md - where WM_Ultra_Vanilla_Klipper differs from upstream Klipper
+# DIFFERENCES.md - where wm_ultra_vanilla_klipper differs from upstream Klipper
 
 Written 2026-11-18. **Compared byte for byte (rsync checksum, dry run)** the Klipper folder of the dev Pi (`~/klipper`, version string `v0.13.0-827-g29d4ec2d6`) with a checkout of upstream `Klipper3d/klipper` commit `29d4ec2d6d840ee839333306003a400da186d41d` (2026-11-10, "trdispatch: Fix signed comparison when extending trsync timeout"; exists upstream, 6427 commits). Raw result: `05-notes/reference/klipper-vs-upstream-rsync-2026-11-18.txt`. Checked against: upstream commit above, 2026-11-18. Python caches (`__pycache__`, `*.pyc`) were ignored.
 

@@ -270,7 +270,7 @@ while [ $# -gt 0 ]; do
         --uninstall)    MODE=uninstall ;;
         --dry-run)      DRY=1 ;;
         --yes)          WM_ASSUME_YES=1 ;;
-        --version)      echo "WM_Ultra_Vanilla_Klipper installer $VERSION"; exit 0 ;;
+        --version)      echo "wm_ultra_vanilla_klipper installer $VERSION"; exit 0 ;;
         -h|--help)      usage; exit 0 ;;
         *) print_error "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -1626,7 +1626,7 @@ board_install_remote() {   # F-215: $1 = user@host of the screen board. The boar
     pihost="$(hostname -I 2>/dev/null | awk '{print $1}')"; [ "$TESTING" = 1 ] && pihost="${WM_TEST_PI_HOST:-192.0.2.10}"
     [ -n "$pihost" ] || die_with_fix "this Pi's address is not known." "check the network."
     local url="https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/screen_board_bundle/wm-screen-board.tar.gz"
-    local cmd="mkdir -p ~/WM_Ultra_Vanilla_Klipper-main && curl -fsSL $url | tar xz -C ~/WM_Ultra_Vanilla_Klipper-main && cd ~/WM_Ultra_Vanilla_Klipper-main && bash scripts/screen_board.sh --pi $pihost --yes"
+    local cmd="mkdir -p ~/wm_ultra_vanilla_klipper-main && curl -fsSL $url | tar xz -C ~/wm_ultra_vanilla_klipper-main && cd ~/wm_ultra_vanilla_klipper-main && bash scripts/screen_board.sh --pi $pihost --yes"
     # the dry run stops here, before the board is added: adding it logs in to the board, may ask for its password and sets its time zone
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add the board $t to this Pi (ssh key, asked for the board password once if needed), then run on it: download the screen board bundle and install KlipperScreen with the ZR Tools, pointing at this Pi ($pihost) (the board user gets sudo without a password, the board restarts at the end)${NC}"; return 0; fi
     BOARD_ACT=add; BOARD_TARGET="$t"; ( do_board ) || return 1
@@ -1963,13 +1963,25 @@ step_acepro() {
     else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
 }
 
+migrate_installer_folder() {   # the installer folder used to be ~/WM_Ultra_Vanilla_Klipper: move it to lower case, keep a link under the old name (F-242)
+    local old="$HOME_DIR/WM_Ultra_Vanilla_Klipper" new="$HOME_DIR/wm_ultra_vanilla_klipper"
+    [ "$REPO_DIR" = "$old" ] || return 0                       # a copy somewhere else, or already the new name: nothing to do
+    [ -L "$old" ] && return 0
+    if [ -e "$new" ]; then warn_later "Both ~/WM_Ultra_Vanilla_Klipper and ~/wm_ultra_vanilla_klipper exist. Keep one: move the old one away (mv ~/WM_Ultra_Vanilla_Klipper ~/WM_Ultra_Vanilla_Klipper.old), then run ./installer.sh --update again."; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rename the installer folder ~/WM_Ultra_Vanilla_Klipper to ~/wm_ultra_vanilla_klipper and leave a link under the old name${NC}"; return 0; fi
+    if mv "$old" "$new" 2>/dev/null; then
+        ln -s "$new" "$old" 2>/dev/null || true               # old commands and old notes keep working
+        REPO_DIR="$new"; SCRIPT_DIR="$new"; MOONRAKER_CHANGED=1
+        print_info "The installer folder is now ~/wm_ultra_vanilla_klipper (no capital letters). The old name stays as a link; the Fluidd update entry and the update service follow the new folder."
+    else warn_later "Could not rename ~/WM_Ultra_Vanilla_Klipper to ~/wm_ultra_vanilla_klipper. Do it by hand: mv ~/WM_Ultra_Vanilla_Klipper ~/wm_ultra_vanilla_klipper, then ./installer.sh --update."; fi
+}
 installer_update_block() {   # the [update_manager] section of this installer: the Update button downloads it, wm-pi-update.path applies it
-    printf '[update_manager WM_Ultra_Vanilla_Klipper]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=WonderMaker Ultra vanilla Klipper Pi installer. The Update button downloads the new installer and applies it (like ./installer.sh --update, log: ~/wm-pi-update.log)\n' "$REPO_DIR"
+    printf '[update_manager wm_ultra_vanilla_klipper]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=WonderMaker Ultra vanilla Klipper Pi installer. The Update button downloads the new installer and applies it (like ./installer.sh --update, log: ~/wm-pi-update.log)\n' "$REPO_DIR"
 }
 moonraker_add_update_entries() {   # [update_manager ...] for this installer's repo and the ACE Pro panel repo, so Fluidd shows when GitHub has a newer version
     local conf="$HOME_DIR/printer_data/config/moonraker.conf" added=""
     [ -f "$conf" ] || return 0
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [update_manager WM_Ultra_Vanilla_Klipper] (and the ACE Pro panel) to moonraker.conf so Fluidd shows new versions${NC}"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [update_manager wm_ultra_vanilla_klipper] (and the ACE Pro panel) to moonraker.conf so Fluidd shows new versions${NC}"; return 0; fi
     if [ -d "$REPO_DIR/.git" ]; then
         local want have; want="$(installer_update_block)"
         have="$(python3 - "$conf" <<'PY'
@@ -1983,8 +1995,8 @@ print("\n".join(out))
 PY
 )"
         if [ "$have" != "$(echo "$want" | sed '/^$/d')" ]; then
-            if [ -n "$have" ]; then moonraker_drop_update_section WM_Ultra_Vanilla_Klipper >/dev/null; added="WM_Ultra_Vanilla_Klipper (description refreshed)"
-            else cp "$conf" "$conf.wm-before-updatemgr-$STAMP"; added="WM_Ultra_Vanilla_Klipper"; fi
+            if [ -n "$have" ]; then moonraker_drop_update_section wm_ultra_vanilla_klipper >/dev/null; added="wm_ultra_vanilla_klipper (description refreshed)"
+            else cp "$conf" "$conf.wm-before-updatemgr-$STAMP"; added="wm_ultra_vanilla_klipper"; fi
             printf '\n%s' "$want" >> "$conf"
             MOONRAKER_CHANGED=1
         fi
@@ -2079,7 +2091,7 @@ screen_cam_decide() {   # is the factory camera plugged into the factory screen 
     local url; url="$(screen_cam_url)"
     case "${SCREEN_CAM:-}" in
         no) return 0 ;;
-        yes) [ -n "$url" ] || { print_warning "No screen board has announced a camera yet (rpi_screen_camera.json is not in the config folder), so the screen camera is not set up now. Plug the camera into the board, run on the board: bash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --camera   then here: ./installer.sh --webcam-setup"; SCREEN_CAM=no; }; return 0 ;;
+        yes) [ -n "$url" ] || { print_warning "No screen board has announced a camera yet (rpi_screen_camera.json is not in the config folder), so the screen camera is not set up now. Plug the camera into the board, run on the board: bash ~/wm_ultra_vanilla_klipper/scripts/screen_board.sh --camera   then here: ./installer.sh --webcam-setup"; SCREEN_CAM=no; }; return 0 ;;
     esac
     if [ -z "$url" ]; then SCREEN_CAM=no; return 0; fi
     print_info "The screen board announced a camera at $url."
@@ -2983,6 +2995,7 @@ do_update() {
         if screen_cam_on; then screen_camera_apply   # the screen board camera: nginx follows the board's address, Fluidd lists it as Camera
         elif [ -n "$(screen_cam_url)" ]; then print_info "The screen board announced a camera. To show it in Fluidd as Camera: ./installer.sh --webcam-setup (it asks if the factory camera is plugged into the screen board)."; fi
     fi
+    migrate_installer_folder
     moonraker_add_update_entries
     step_pi_updater
     step_panel_updater
@@ -3020,7 +3033,7 @@ panel_remote_version() {   # newest panel version on GitHub (after a fetch); '' 
     git -C "$d" show "origin/main:VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 }
 board_version() {   # the screen files' version on a board: its own S version (wm-screen-backup/screen_version); a board from before S1.0.0 reports its old number (2.x)
-    wm_ssh "$1" 'for f in ~/wm-screen-backup/screen_version ~/wm-screen-backup/version ~/WM_Ultra_Vanilla_Klipper/VERSION; do [ -f "$f" ] && { head -n1 "$f"; exit 0; }; done' 2>/dev/null | head -n1 | tr -d '[:space:]'
+    wm_ssh "$1" 'for f in ~/wm-screen-backup/screen_version ~/wm-screen-backup/version ~/wm_ultra_vanilla_klipper/VERSION ~/WM_Ultra_Vanilla_Klipper/VERSION; do [ -f "$f" ] && { head -n1 "$f"; exit 0; }; done' 2>/dev/null | head -n1 | tr -d '[:space:]'
 }
 screen_version_new() {   # the newest screen version: SCREEN_VERSION on GitHub (origin/main) after a fetch, else the file of this copy; '' for a copy from before S1.0.0
     local v=""
@@ -3090,7 +3103,7 @@ board_sync_tz() {   # a screen board takes this Pi's time zone (WonderMaker boar
     [ -n "$btz" ] && [ "$btz" != "$pitz" ] || return 0
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would set the time zone of board $t to $pitz (now $btz)${NC}"; return 0; fi
     if wm_ssh "$t" "sudo -n timedatectl set-timezone $pitz" >/dev/null 2>&1; then print_success "Board $t: time zone set to $pitz (was $btz), the same as this Pi"
-    else print_warning "Board $t is on time zone $btz, this Pi on $pitz. On the board run: bash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --set-tz $pitz"; fi
+    else print_warning "Board $t is on time zone $btz, this Pi on $pitz. On the board run: bash ~/wm_ultra_vanilla_klipper/scripts/screen_board.sh --set-tz $pitz"; fi
 }
 do_board() {   # --board add|remove|list [user@host]
     mkdir -p "$BACKUP_ROOT"
@@ -3141,7 +3154,7 @@ do_update_boards() {   # runs the board's own Update (the same root copy the Upd
         if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from screen $(screen_show "$bv") to $newv${NC}"; continue; fi
         if wm_ssh "$t" 'sudo -n /usr/local/sbin/wm-factory-restore --update --yes --detach' 2>&1 | tail -n 3; [ "${PIPESTATUS[0]}" = 0 ]; then
             print_success "Board $t: update started (screen $(screen_show "$bv") -> $newv). Its screen restarts by itself in about a minute."; n=$((n+1))
-        else print_warning "Board $t: the update did not start. On the board run once: bash ~/WM_Ultra_Vanilla_Klipper/scripts/screen_board.sh --post-update"; bad=$((bad+1)); fi
+        else print_warning "Board $t: the update did not start. On the board run once: bash ~/wm_ultra_vanilla_klipper/scripts/screen_board.sh --post-update"; bad=$((bad+1)); fi
     done < <(boards_list)
     [ "$bad" = 0 ]
 }
@@ -3613,7 +3626,7 @@ bundle_extra_logs() {  # the troubleshooting logs, the real klippy lines, the co
         echo "--- config files: date, size, checksum, name"
         for f in "$(cfg_dir)"/*.cfg "$(cfg_dir)"/moonraker.conf; do [ -f "$f" ] && printf '%s %8s %s %s\n' "$(date -r "$f" '+%F %T')" "$(stat -c %s "$f")" "$(md5sum "$f" | cut -c1-8)" "$(basename "$f")"; done
         echo "--- versions"; echo "installer $VERSION"
-        for f in klipper moonraker wm-ultra-fluidd-acepro-panel WM_Ultra_Vanilla_Klipper; do [ -d "$HOME_DIR/$f/.git" ] && echo "$f $(git -C "$HOME_DIR/$f" describe --always --dirty 2>/dev/null)"; done
+        for f in klipper moonraker wm-ultra-fluidd-acepro-panel wm_ultra_vanilla_klipper WM_Ultra_Vanilla_Klipper; do [ -d "$HOME_DIR/$f/.git" ] && echo "$f $(git -C "$HOME_DIR/$f" describe --always --dirty 2>/dev/null)"; done
         [ -f "$HOME_DIR/fluidd/.version" ] && echo "fluidd $(cat "$HOME_DIR/fluidd/.version")"
     } 2>&1 | scrub > "$b/files-and-versions.txt"
     [ "$TESTING" = 1 ] && return 0
@@ -3638,7 +3651,7 @@ do_support_bundle() {
     progress_bar 0 4 "Bundle 1 of 4: system report"
     local w; w="$(mktemp -d)"; local out="$HOME_DIR/wm-support-$STAMP.tgz" b="$w/wm-support"; mkdir -p "$b"
     {
-        echo "WM_Ultra_Vanilla_Klipper installer $VERSION   model: $(model_now)   date: $(date -u +%FT%TZ)"
+        echo "wm_ultra_vanilla_klipper installer $VERSION   model: $(model_now)   date: $(date -u +%FT%TZ)"
         echo "computer: $(pi_model_line)"; uname -a; [ -r /etc/os-release ] && grep PRETTY /etc/os-release
         echo "python3: $(python3 --version 2>&1)"; [ -x "$HOME_DIR/klippy-env/bin/python" ] && echo "klippy-env: $("$HOME_DIR/klippy-env/bin/python" --version 2>&1)"
         echo "power flags: $(power_flags)"; df -h "$HOME_DIR" | tail -1; free -m | sed -n 2p
@@ -4487,7 +4500,7 @@ rpi_names_migrate
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
+step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; migrate_installer_folder; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_cfgindex
 step_ultrabackup   # after the panel and the add-ons, which write backups of their own

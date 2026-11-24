@@ -463,7 +463,8 @@ def latest_version(url=None, timeout=10):
 # Update Pi button: the same update Fluidd's Update button does (Moonraker's update manager downloads the new installer
 # files, wm-pi-update.path then runs scripts/pi_update.sh = installer.sh --update --yes on the Pi)
 # ---------------------------------------------------------------------------
-PI_UPDATE_NAME = "WM_Ultra_Vanilla_Klipper"
+PI_UPDATE_NAME = "wm_ultra_vanilla_klipper"
+PI_UPDATE_NAME_OLD = "WM_Ultra_Vanilla_Klipper"      # the entry name before F-242 (capital letters); a Pi that was not updated yet still has it
 PANEL_UPDATE_NAME = "wm-ultra-fluidd-acepro-panel"     # the Fluidd panel (ACE Pro) project: its Update button is applied by wm-panel-update.service
 
 
@@ -477,26 +478,30 @@ def _moonraker(base, method, path, timeout):
 def pi_update_parse(status, name=PI_UPDATE_NAME):
     """Moonraker's /machine/update/status answer -> {known, behind, version, remote, dirty, detached, problem}.
     known=False: this installer is not in the update manager (run ./installer.sh --update once in SSH)."""
-    info = ((status or {}).get("result") or {}).get("version_info", {}).get(name)
+    vi = ((status or {}).get("result") or {}).get("version_info", {})
+    info = vi.get(name)
+    found = name
+    if not isinstance(info, dict) and name == PI_UPDATE_NAME:
+        info, found = vi.get(PI_UPDATE_NAME_OLD), PI_UPDATE_NAME_OLD
     if not isinstance(info, dict):
-        return {"known": False, "behind": False, "version": "", "remote": "", "dirty": False, "detached": False, "problem": ""}
+        return {"known": False, "behind": False, "version": "", "remote": "", "dirty": False, "detached": False, "problem": "", "name": name}
     behind = bool(info.get("commits_behind")) or (bool(info.get("remote_hash")) and info.get("remote_hash") != info.get("current_hash"))
     problem = ""
     if info.get("is_dirty"):
-        problem = "The installer folder on the Pi has changed files. Update it in SSH: cd ~/WM_Ultra_Vanilla_Klipper && git status"
+        problem = "The installer folder on the Pi has changed files. Update it in SSH: cd ~/wm_ultra_vanilla_klipper (old Pi: ~/WM_Ultra_Vanilla_Klipper) && git status"
     elif info.get("detached"):
         problem = "The installer folder on the Pi is not on the main branch. Update it in SSH."
     elif info.get("anomalies"):
         problem = "The update manager reports: %s" % "; ".join(str(a) for a in info["anomalies"][:2])
     return {"known": True, "behind": behind, "version": str(info.get("version", "")), "remote": str(info.get("remote_version", "")),
-            "dirty": bool(info.get("is_dirty")), "detached": bool(info.get("detached")), "problem": problem}
+            "dirty": bool(info.get("is_dirty")), "detached": bool(info.get("detached")), "problem": problem, "name": found}
 
 
 def pi_update_check(base, timeout=40):
     """Asks Moonraker to look at GitHub, then reads the result. Returns the pi_update_parse dict of the installer with the Fluidd panel
     under "panel" (same keys; known=False when the panel is not in the update list), or None when Moonraker cannot be reached."""
     try:
-        for name in (PI_UPDATE_NAME, PANEL_UPDATE_NAME):
+        for name in (PI_UPDATE_NAME, PI_UPDATE_NAME_OLD, PANEL_UPDATE_NAME):
             try:
                 _moonraker(base, "POST", "/machine/update/refresh?name=%s" % name, timeout)
             except Exception:
@@ -513,7 +518,7 @@ def pi_update_names(info):
     """Which update-manager entries 'Update now' downloads. The installer's own update also brings the Fluidd panel along (it pulls it),
     so the panel is asked for only when it is behind on its own."""
     if info.get("behind") and info.get("known"):
-        return [PI_UPDATE_NAME]
+        return [info.get("name") or PI_UPDATE_NAME]            # the entry name this Pi really has (old capital letters until it is updated once)
     panel = info.get("panel") or {}
     if panel.get("known") and panel.get("behind") and not panel.get("problem"):
         return [PANEL_UPDATE_NAME]

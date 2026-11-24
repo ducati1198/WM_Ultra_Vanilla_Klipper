@@ -5,7 +5,7 @@
 declare -a FS_ID FS_LABEL FS_KB FS_WARN FS_SUDO
 fs_add() { FS_ID+=("$1"); FS_LABEL+=("$2"); FS_KB+=("$3"); FS_WARN+=("$4"); FS_SUDO+=("$5"); }
 fs_kb() { local k; [ $# -gt 0 ] || { echo 0; return; }; k="$(du -sk "$@" 2>/dev/null | awk '{s+=$1} END{print s+0}')"; echo "${k:-0}"; }
-fs_tmpdirs() {   # leftover downloads of this installer in /tmp: only folders made by this user that hold a copy of WM_Ultra_Vanilla_Klipper
+fs_tmpdirs() {   # leftover downloads of this installer in /tmp: only folders made by this user that hold a copy of wm_ultra_vanilla_klipper
     local base="${WM_TEST_TMP:-/tmp}" d
     for d in "$base"/tmp.*; do [ -d "$d" ] && [ -f "$d/VERSION" ] && [ -f "$d/scripts/screen_board.sh" ] && [ "$(stat -c %U "$d" 2>/dev/null)" = "$(id -un)" ] && echo "$d"; done
 }
@@ -21,7 +21,7 @@ fs_scan() {
     fs_add journal "Old system log history (keeps the newest 50 MB)" "$kb" "Erases older system messages (journalctl). Only useful when looking for an old problem." 1
     kb="$(fs_kb $(ls "$FS_LOGS_DIR"/*.log.* 2>/dev/null))"; fs_add oldlogs "Old rotated printer logs (~/printer_data/logs/*.log.*)" "$kb" "Older copies of klippy/moonraker logs. The current logs stay." 0
     # (tests only ever touch a copy of the installer folder, never the real repository)
-    if [ -d "$REPO_DIR/.git" ] && case "$(basename "$REPO_DIR")" in WM_Ultra_Vanilla_Klipper*) true ;; *) false ;; esac && { [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; }; then kb="$(fs_kb "$REPO_DIR/.git")"; fs_add gitdir "Git history of the downloaded installer ($REPO_DIR/.git)" "$kb" "After this, 'git pull' no longer works in that folder; 'Update now' in the menu downloads the newest files instead." 0; fi
+    if [ -d "$REPO_DIR/.git" ] && case "$(basename "$REPO_DIR")" in wm_ultra_vanilla_klipper*|WM_Ultra_Vanilla_Klipper*) true ;; *) false ;; esac && { [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; }; then kb="$(fs_kb "$REPO_DIR/.git")"; fs_add gitdir "Git history of the downloaded installer ($REPO_DIR/.git)" "$kb" "After this, 'git pull' no longer works in that folder; 'Update now' in the menu downloads the newest files instead." 0; fi
 }
 fs_free_text() { echo "  Free space now: $(disk_free_mb) MB   (the install needs about $FREE_NEED_MB MB)"; }
 fs_do() {   # id

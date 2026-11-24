@@ -39,8 +39,8 @@ If a test passes here it means "the macros and settings run"; it does not mean "
 
    ```bash
    sudo apt-get update && sudo apt-get install -y git
-   git clone https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git
-   cd WM_Ultra_Vanilla_Klipper
+   git clone https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git wm_ultra_vanilla_klipper
+   cd wm_ultra_vanilla_klipper
    chmod +x installer.sh
    ```
 3. **Install the WonderMaker software from the factory files inside the repository**, and do not start the printer side yet:

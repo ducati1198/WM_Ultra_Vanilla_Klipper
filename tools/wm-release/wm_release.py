@@ -137,7 +137,7 @@ def _pidcfg_script():
 def pid_cfg_run(fix=False):
     """(exit code, output lines) of scripts/wm_pidcfg.py check|fix on the live config folder; exit code None = cannot run"""
     sc = _pidcfg_script(); cfgd = p(LIVE, "printer_data", "config")
-    if not sc: return None, ["scripts/wm_pidcfg.py not found (run the tool from the WM_Ultra_Vanilla_Klipper repository)"]
+    if not sc: return None, ["scripts/wm_pidcfg.py not found (run the tool from the wm_ultra_vanilla_klipper repository)"]
     if not os.path.isfile(p(cfgd, "printer.cfg")): return None, ["no printer.cfg in " + cfgd]
     cmd = [sys.executable, sc, "fix" if fix else "check", cfgd] + ([now()] if fix else [])
     r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
@@ -1298,7 +1298,7 @@ def cmd_status(a):
 def cmd_pid_cfg(a):
     """checks where the PID settings (control, pid_Kp, pid_Ki, pid_Kd) of the hotends, the bed and the chamber heater live; --fix moves them into printer.cfg"""
     rc, out = pid_cfg_run()
-    if rc is None: die(out[0], "run it from the WM_Ultra_Vanilla_Klipper repository, on the Pi")
+    if rc is None: die(out[0], "run it from the wm_ultra_vanilla_klipper repository, on the Pi")
     for x in out: say(x)
     if rc == 0: say("Nothing to fix."); return
     if not a.fix: say("\nTo repair: python3 wm_release.py pid-cfg --fix   (a copy of every changed file is kept as <file>.wm-before-pidcfg-<time>)"); return
