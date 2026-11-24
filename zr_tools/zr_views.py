@@ -132,6 +132,253 @@ class ViewsMixin:
     # ------------------------------------------------------------------
     # FILAMENT (the existing tool view: heat, load, unload, purge, colour/material/PA editor)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # F-235: MOVE page (home buttons, X Y Z jog, coordinates, motors off)
+    # ------------------------------------------------------------------
+    MOVE_STEPS = (0.1, 1, 10, 50)
+
+    def show_move(self):
+        self.view = "move"
+        self.move_step = getattr(self, "move_step", 10)
+        self._clear()
+        self.root.pack_start(self._header("Move"), False, False, 0)
+        bh = self.sz["btn_h"]
+        homes = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        homes.set_homogeneous(True)
+        for n, (label, cb) in enumerate((("Home all", lambda: self._move_home("G28", "Homing all axes...")),
+                                          ("Home XY", lambda: self._move_home("G28 X Y", "Homing X and Y...")),
+                                          ("Home Z", lambda: self._move_home("G28 Z", "Homing Z...")),
+                                          ("Motors off", lambda: self._move_home("M84", "Motors off")))):
+            b = self._button(None, label, "color1" if n == 0 else "color3", cb)
+            b.set_size_request(-1, bh)
+            if n == 0:
+                b.get_style_context().add_class("zr_btn_primary")
+            homes.pack_start(b, True, True, 0)
+        self.root.pack_start(homes, False, False, 0)
+
+        page = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        key_h = max(70, int(bh * 1.7))
+        pad = Gtk.Grid()
+        pad.set_row_spacing(5)
+        pad.set_column_spacing(5)
+        pad.set_column_homogeneous(True)
+        pad.set_row_homogeneous(True)
+        for col, row, label, axis, sign in ((1, 0, "Y+", "Y", 1), (0, 1, "X-", "X", -1), (2, 1, "X+", "X", 1), (1, 2, "Y-", "Y", -1)):
+            b = self._button(None, label, "color3", self._move_jog, axis, sign)
+            b.set_size_request(100, key_h)
+            self._move_big_label(b, label)           # F-235: big letters on the X and Y keys
+            pad.attach(b, col, row, 1, 1)
+        mid = self._button(None, "XY", "color3", lambda: None)
+        mid.set_sensitive(False)
+        pad.attach(mid, 1, 1, 1, 1)
+        page.pack_start(pad, False, False, 0)
+
+        zc = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        zc.set_homogeneous(True)
+        for label, sign in (("Z up", 1), ("Z down", -1)):
+            b = self._button(None, label, "color3", self._move_jog, "Z", sign)
+            b.set_size_request(100, -1)
+            zc.pack_start(b, True, True, 0)
+        page.pack_start(zc, False, False, 0)
+
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.w["mv_pos"] = self._button(None, "", "color3", self.show_goto)    # tap the coordinates: Go to position window
+        self.w["mv_pos"].set_size_request(230, max(48, int(bh * 1.0)))      # fixed size: a longer number never pushes the step keys
+        right.pack_start(self.w["mv_pos"], False, False, 0)
+        self.w["mv_hint"] = self._label("Step (mm)", "zr_small")   # also shows "Homing..." (no popup bar: it pushed the whole page down)
+        self.w["mv_hint"].set_size_request(230, -1)
+        self.w["mv_hint"].set_xalign(0)
+        right.pack_start(self.w["mv_hint"], False, False, 0)
+        grid = Gtk.Grid()
+        grid.set_row_spacing(6)
+        grid.set_column_spacing(6)
+        grid.set_column_homogeneous(True)
+        self.w["mv_steps"] = {}
+        for n, v in enumerate(self.MOVE_STEPS):
+            b = self._button(None, ("%g" % v), "color3", self._move_set_step, v)
+            b.set_size_request(100, max(48, int(bh * 1.05)))          # smaller step keys
+            grid.attach(b, n % 2, n // 2, 1, 1)
+            self.w["mv_steps"][v] = b
+        right.pack_start(grid, False, False, 0)
+        page.pack_start(right, True, True, 0)
+        self.root.pack_start(page, True, True, 0)
+        self._move_mark()
+        self._refresh_move()
+        self.root.show_all()
+
+    # ------------------------------------------------------------------
+    # F-235: GO TO POSITION window (tap the coordinates on the Move page): X, Y, Z boxes and a number pad
+    # ------------------------------------------------------------------
+    def show_goto(self):
+        self.view = "goto"
+        cur = self._move_pos_values()
+        self.go_vals = {ax: (v or "") for ax, v in zip("XYZ", cur)}
+        self.go_sel = "X"
+        self.go_fresh = True            # the first key after choosing a box replaces what is in it
+        self._clear()
+        self.root.pack_start(self._header("Go to position"), False, False, 0)
+        page = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        bh = self.sz["btn_h"]
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left.set_size_request(230, -1)
+        self.w["go_fields"] = {}
+        for ax in "XYZ":
+            b = self._button(None, "", "color3", self._go_select, ax)
+            b.set_size_request(-1, max(56, int(bh * 1.3)))
+            left.pack_start(b, False, False, 0)
+            self.w["go_fields"][ax] = b
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.set_homogeneous(True)
+        go = self._button(None, "Go", "color1", self._go_run)
+        go.set_size_request(-1, max(56, int(bh * 1.3)))
+        go.get_style_context().add_class("zr_btn_primary")        # green, like Start
+        cn = self._button(None, "Cancel", "color3", self.show_move)
+        cn.set_size_request(-1, max(56, int(bh * 1.3)))
+        row.pack_start(go, True, True, 0)
+        row.pack_start(cn, True, True, 0)
+        left.pack_start(row, False, False, 0)
+        self.w["go_hint"] = self._label("Tap X, Y or Z, then type the number.", "zr_small")
+        left.pack_start(self.w["go_hint"], False, False, 0)
+        page.pack_start(left, False, False, 0)
+        pad = Gtk.Grid()
+        pad.set_row_spacing(5)
+        pad.set_column_spacing(5)
+        pad.set_column_homogeneous(True)
+        pad.set_row_homogeneous(True)
+        keys = ((("7", 0, 0, 1), ("8", 1, 0, 1), ("9", 2, 0, 1), ("Back", 3, 0, 1)),
+                (("4", 0, 1, 1), ("5", 1, 1, 1), ("6", 2, 1, 1), ("Clear", 3, 1, 1)),
+                (("1", 0, 2, 1), ("2", 1, 2, 1), ("3", 2, 2, 1), ("-", 3, 2, 1)),
+                (("0", 0, 3, 2), (".", 2, 3, 1)))
+        for krow in keys:
+            for label, c, r, w in krow:
+                b = self._button(None, label, "color3", self._go_key, label)
+                b.set_size_request(-1, 64)
+                if len(label) == 1:
+                    self._move_big_label(b, label)
+                pad.attach(b, c, r, w, 1)
+        page.pack_start(pad, True, True, 0)
+        self.root.pack_start(page, True, True, 0)
+        self._go_draw()
+        self.root.show_all()
+
+    def _go_draw(self):
+        for ax, b in (self.w.get("go_fields") or {}).items():
+            self._move_set_text(b, "%s   %s" % (ax, self.go_vals.get(ax) or "--"))
+            ctx = b.get_style_context()
+            if ax == self.go_sel:
+                ctx.add_class("zr_selected")
+            else:
+                ctx.remove_class("zr_selected")
+
+    def _go_select(self, ax):
+        self.go_sel = ax
+        self.go_fresh = True
+        self._go_draw()
+
+    def _go_key(self, k):
+        v = self.go_vals.get(self.go_sel) or ""
+        if self.go_fresh and k not in ("Back", "Clear"):
+            v = ""
+        self.go_fresh = False
+        if k == "Clear":
+            v = ""
+        elif k == "Back":
+            v = v[:-1]
+        elif k == "-":
+            v = v[1:] if v.startswith("-") else "-" + v
+        elif k == ".":
+            if "." not in v:
+                v = (v or "0") + "."
+        else:
+            v += k
+        self.go_vals[self.go_sel] = v[:8]
+        self._go_draw()
+
+    def _go_run(self):
+        if not self._require_idle():
+            return
+        parts = []
+        for ax in "XYZ":
+            t = (self.go_vals.get(ax) or "").strip()
+            if not t:
+                continue
+            try:
+                parts.append("%s%g" % (ax, float(t)))
+            except ValueError:
+                self._screen.show_popup_message("%s is not a number." % ax)
+                return
+        # stay on this page after Go (the window is closed with Cancel or Back)
+        if parts:
+            self._gcode("SAVE_GCODE_STATE NAME=ZR_MOVE\nG90\nG1 %s F6000\nRESTORE_GCODE_STATE NAME=ZR_MOVE" % " ".join(parts))
+
+    def _move_big_label(self, widget, text):
+        """Make the text of a KlipperScreen button big and bold (it has no font size option)."""
+        if isinstance(widget, Gtk.Label):
+            widget.set_markup('<span size="xx-large" weight="bold">%s</span>' % text)
+            return True
+        if hasattr(widget, "get_children"):
+            for c in widget.get_children():
+                if self._move_big_label(c, text):
+                    return True
+        return False
+
+    def _move_mark(self):
+        for v, b in (self.w.get("mv_steps") or {}).items():
+            ctx = b.get_style_context()
+            if v == self.move_step:
+                ctx.add_class("zr_selected")
+            else:
+                ctx.remove_class("zr_selected")
+
+    def _move_set_step(self, v):
+        self.move_step = v
+        self._move_mark()
+
+    def _move_set_text(self, widget, text):
+        if isinstance(widget, Gtk.Label):
+            widget.set_text(text)
+            return True
+        if hasattr(widget, "get_children"):
+            for c in widget.get_children():
+                if self._move_set_text(c, text):
+                    return True
+        return False
+
+    def _move_pos_values(self):
+        th = self.st.get("toolhead") or {}
+        pos = th.get("position") or []
+        homed = str(th.get("homed_axes") or "").lower()
+        return [("%.1f" % pos[i]) if ax.lower() in homed and len(pos) > i else None for i, ax in enumerate("XYZ")]
+
+    def _refresh_move(self):
+        lbl = self.w.get("mv_pos")
+        if lbl is None:
+            return
+        vals = self._move_pos_values()
+        self._move_set_text(lbl, "   ".join("%s %s" % (ax, v if v is not None else "--") for ax, v in zip("XYZ", vals)))
+
+    def _move_home(self, script, message):
+        if not self._require_idle():
+            return
+        self._gcode(script)
+        h = self.w.get("mv_hint")
+        if h is not None:
+            h.set_text(message)
+            GLib.timeout_add(2500, self._move_hint_reset)
+
+    def _move_hint_reset(self):
+        h = self.w.get("mv_hint")
+        if h is not None and self.view == "move":
+            h.set_text("Step (mm)")
+        return False
+
+    def _move_jog(self, axis, sign):
+        if not self._require_idle():
+            return
+        d = self.move_step * sign
+        feed = 600 if axis == "Z" else 6000
+        self._gcode("SAVE_GCODE_STATE NAME=ZR_MOVE\nG91\nG1 %s%g F%d\nRESTORE_GCODE_STATE NAME=ZR_MOVE" % (axis, d, feed))
+
     def show_filament(self):
         self.show_tool(max(self._active_tool(), 0))
         self.view = "tool"

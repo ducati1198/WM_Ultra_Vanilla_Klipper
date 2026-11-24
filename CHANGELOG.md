@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.31.0
+
+- **Screen S1.2.0 (F-235 Move page).** On the screen board the bottom tab **Filament** is now **Move**: **Home all**, **Home XY**, **Home Z**, **Motors off**, big X/Y arrows, **Z up** and **Z down**, the live coordinates and the step size (0.1, 1, 10 or 50 mm). Tap the coordinates to open **Go to position**: a number pad to type X, Y and Z, then **Go** (the window stays open so you can send another move; **Cancel** leaves it). Moves and homing are refused during a print. Tap a toolhead card on the Toolheads page to open that toolhead's filament page (the Filament tile stays on the More page). Tested on the production printer.
+
 ## 2.30.0
 
 - **Offset and calibration windows in the e-step window style (F-230 Full offset calibration, F-231 offset and calibration windows, batches 1 to 5).** `WM_FULL_OFFSET_CAL`, `WM_OFFSETS_RAPID`, `WM_OFFSETS_Z_HOT`, `WM_NOZZLE_GROWTH_CAL`, Bed Leveling, Bed Screws, Vibration Compensation, Hotend PID, Speed test, Bed warp measurement, Extruder Setup, Probe calibrate, Offsets accurate, Change nozzles and the Unload confirm now open the same window as First Run Calibration: a short text, **What it does**, **Start**, **Cancel**, a red **Please wait** window and one result window. Shared helpers `_WM_WIN_START` and `_WM_WIN_INFO`; the purge location of the offset calibrations is untouched. Tested on the production printer.

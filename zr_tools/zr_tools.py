@@ -230,8 +230,8 @@ class Panel(ViewsMixin, ScreenPanel):
         return bool(L.screen_profile(width, height)["portrait"])
 
     def _nav_entries(self):
-        e = [("toolchanger", "Toolheads", self.show_main, ("main",)),
-             ("filament", "Filament", self.show_filament, ("tool", "tool_edit", "color_pick", "hsv_pick")),
+        e = [("toolchanger", "Toolheads", self.show_main, ("main", "tool", "tool_edit", "color_pick", "hsv_pick")),
+             ("move", "Move", self.show_move, ("move", "goto")),   # F-235: the Filament tab became Move; a toolhead card opens its filament page
              ("heat-up", "Climate", self.show_chamber, ("chamber",))]
         if not self.tiny:            # on a 3 to 4 inch screen Calibrate moves into More to keep the tabs big enough to hit
             e.append(("settings", "Tools", self.show_utilities, ("utilities", "cal_cat", "growth")))
@@ -352,7 +352,7 @@ class Panel(ViewsMixin, ScreenPanel):
     # ------------------------------------------------------------------
     def _objects(self):
         objs = {
-            "toolhead": ["extruder", "homed_axes"],
+            "toolhead": ["extruder", "homed_axes", "position"],
             "print_stats": ["state", "filename"],
             "output_pin ACE_Pro": ["value"],
             "output_pin Nozzle_Heat_Growth": ["value"],
@@ -2699,6 +2699,8 @@ class Panel(ViewsMixin, ScreenPanel):
                     self._refresh_chamber()
             elif self.view == "growth":
                 self._refresh_growth()
+            elif self.view == "move":
+                self._refresh_move()
             else:
                 self.refresh_extra_views()
             self._rebuild_nav_if_needed()

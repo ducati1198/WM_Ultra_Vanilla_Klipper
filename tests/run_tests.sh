@@ -1304,6 +1304,7 @@ check "board restore removes the rescue tool and its copies (only the backup lis
 BN="$T/bn"; mkdir -p "$BN/printer_data/config"; sb "$BN" --pi wmpi.local --no-rescue > "$T/bn.out"
 check "board install --no-rescue: no rescue tool" "! grep -q 'rescue tool' $BN/.sudo.log && [ ! -d $BN/wm-screen-backup/known-good ]"
 check "rescue: the ZR Tools System page has a Rescue tile on the board" "grep -q '_sys_rescue' $ROOT/zr_tools/zr_views.py && grep -q 'sudoers' $SB"
+check "2.31.0 (F-235): the screen has a Move page (home, jog, coordinates, Go to position with a number pad that stays open) instead of the Filament tab" "grep -q 'def show_move' $ROOT/zr_tools/zr_views.py && grep -q 'def show_goto' $ROOT/zr_tools/zr_views.py && grep -q 'def _go_run' $ROOT/zr_tools/zr_views.py && grep -q '\"move\", \"Move\"' $ROOT/zr_tools/zr_tools.py && grep -q 'ZR_MOVE' $ROOT/zr_tools/zr_views.py && ! grep -A12 'def _go_run' $ROOT/zr_tools/zr_views.py | grep -q 'self.show_move()' && python3 -m py_compile $ROOT/zr_tools/zr_views.py"
 B6="$T/b6"; mkdir -p "$B6/printer_data/config"; sb "$B6" --pi wmpi.local >/dev/null; sb "$B6" --pi wmpi.local >/dev/null
 check "board: running twice keeps the ORIGINAL saved state" "grep -q 'makerbase-client enabled active' $B6/wm-screen-backup/disabled.list"
 
