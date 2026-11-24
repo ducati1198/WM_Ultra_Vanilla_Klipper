@@ -1,6 +1,6 @@
 # MACROS.md - every macro of the WonderMaker Ultra / Ultra-S on the Raspberry Pi
 
-Generated 2026-11-18 from the live config of the dev Pi (the dev Pi), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
+Generated 2026-11-18 from the live config of the dev Pi (the main RPi4), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
 Klipper v0.13.0-827-g29d4ec2d6 (upstream master 2026-11-10 + WonderMaker additions, see DIFFERENCES.md), Moonraker newer than 0.11.0, Fluidd v1.38.0 (patched, see FLUIDD.md), Debian 12.  
 Checked against: Klipper docs of the installed version (`reference/klipper-docs-0.13.0-827-g29d4ec2d6/docs/G-Codes.md`, online https://www.klipper3d.org/G-Codes.html), the live command registry of the running Klipper (`/printer/gcode/help`) and the Klipper source on the Pi, 2026-11-18.
 
@@ -211,7 +211,7 @@ WonderMaker factory tool change (lock/unlock, T0-T3)
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _CHECK_CHANGE_TOOL
 - **File / lines**: change_macros.cfg L366-430 (gcode_macro)
-- **What it does**: End-of-tool-change check: saved current extruder, Hall sensor, head present; pauses the print and reports on a failure.
+- **What it does**: End-of-tool-change check: saved current extruder, Hall sensor, head present; pauses the print and reports on a failure. 2026-11-21: calls SET_PRESSURE_ADVANCE only when the extruder is not already at 0.04 and ACTIVATE_EXTRUDER only when it is not active (SET_PRESSURE_ADVANCE flushes the motion queue = a stop); changed on the .35 first, not tested in a print yet. 2026-11-21 18:13: while a print runs it does not set pressure advance at all (the slicer owns it); the 0.04 default stays outside a print and while paused; changed on the .35 first, not tested in a print yet. 2026-11-21 18:53: no longer sets pressure advance at all (the factory 0.04 line was removed; the config value or the slicer value stays); changed on the .35 first, not tested in a print yet.
 - **Calls**: M221, PAUSE, _CHANGING_TOOL, _ENABLE_SENSOR, _OFFSET_SET, _WAIT_TOOL_TEMPERATURE, _check_current_extruder_value, _check_hall_sensor, _check_tool_exist
 - **Called by**: _CHANGE_TOOL, _CHECK_CHANGE_TOOL_AGAIN
 - **Variables**: retry
@@ -241,7 +241,7 @@ WonderMaker factory tool change (lock/unlock, T0-T3)
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _check_tool_exist
 - **File / lines**: change_macros.cfg L461-477 (gcode_macro)
-- **What it does**: Checks that a tool head is present (Hall sensor value).
+- **What it does**: Checks that a tool head is present (Hall sensor value). 2026-11-21: the info-only line 'current_extruder == target_tool' was removed (no logic); changed on the .35 first, not tested in a print yet.
 - **Calls**: -
 - **Called by**: _CHANGE_TOOL, _CHECK_CHANGE_TOOL
 - **Variables**: -
@@ -271,7 +271,7 @@ WonderMaker factory tool change (lock/unlock, T0-T3)
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _WAIT_TOOL_TEMPERATURE
 - **File / lines**: change_macros.cfg L518-541 (gcode_macro)
-- **What it does**: Waits for the real active heater (heats at the wipe position first, F-150) - does not use M109 Tx because of slot remapping.
+- **What it does**: Waits for the real active heater (heats at the wipe position first, F-150) - does not use M109 Tx because of slot remapping. 2026-11-21: skips everything (wipe trip, wait, WAIT line) when the nozzle is already within +-2.5 C of its target (same-tool change had a 1 s stop); changed on the .35 first, not tested in a print yet. Checked against change_macros.cfg on the .35, 2026-11-21.
 - **Calls**: _WM_HEAT_AT_WIPE, _WM_HEAT_BACK
 - **Called by**: _CHECK_CHANGE_TOOL
 - **Variables**: -
@@ -529,15 +529,13 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Risk**: none  |  **Tags**: print  |  **Fluidd**: —
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _WM_LOG_STATE
-- **File / lines**: macros.cfg (gcode_macro, new 2.23.0, before PAUSE)
-- **What it does**: Support log: writes one console line `WMLOG <WHAT> T<tool> gcode X Y Z head X Y Z offset X Y Z homed .. nozzle t/target bed t/target speed % state ..`; the log digest copies it into wm-events.log as a STATE line.
-- **Calls**: RESPOND
-- **Called by**: PAUSE, RESUME, CANCEL_PRINT
-- **Variables**: -
-- **Uses**: reads printer.save_variables, printer.gcode_move, printer.toolhead, printer.extruder / extruderN, printer.heater_bed (guarded), printer.print_stats
-- **Commands**: all exist (RESPOND) - checked 2026-11-21 on the pi400 devbox
-- **Risk**: none (reads only)  |  **Tags**: misc  |  **Fluidd**: hidden (leading underscore)
-- **Tested**: pi400 devbox 2026-11-21: pause, resume and cancel each wrote their lines with the right numbers
+- **File / lines**: macros.cfg (gcode_macro, new 2026-11-21 / 2.23.0, just before PAUSE) - hidden helper (leading underscore)
+- **What it does**: Support log: writes one console line `WMLOG <WHAT> T<tool> gcode X Y Z head X Y Z offset X Y Z homed .. nozzle temp/target bed temp/target speed % state ..`. The log digest copies it into wm-events.log as a STATE line.
+- **Called by**: PAUSE (PAUSE_START, PAUSE_PARKED), RESUME (RESUME_START, RESUME_DONE), CANCEL_PRINT (CANCEL_START, CANCEL_DONE)
+- **Uses**: reads only (save_variables, gcode_move, toolhead, extruder/extruderN, heater_bed guarded, print_stats); command RESPOND
+- **Risk**: none  |  **Fluidd**: hidden
+- **Change log**: 2026-11-21 new. checked against Klipper on the pi400 devbox 2026-11-21.
+- **Tested**: pi400 devbox 2026-11-21: PAUSE, RESUME, CANCEL_PRINT each wrote their lines with correct numbers.
 ### PAUSE
 - **File / lines**: macros.cfg L175-260 (gcode_macro) - renames the original to BASE_PAUSE
 - **What it does**: Pause: keeps tool map and temperatures, retracts, raises Z and parks, turns heaters down after the idle timer.
@@ -548,7 +546,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Commands**: all exist (built-in/module commands used: G1, G90, G91, M25, RESPOND, SAVE_GCODE_STATE, SAVE_VARIABLE, SET_GCODE_VARIABLE, SET_IDLE_TIMEOUT, SET_STEPPER_ENABLE) - checked 2026-11-18
 - **Risk**: MOVES THE TOOLHEAD, HEATS  |  **Tags**: print  |  **Fluidd**: WM Ultra Print
 - **Tested**: F-011 guards confirmed in a real print 2026-11-15
-- **Change log**: 2.23.0 (2026-11-21): calls _WM_LOG_STATE at PAUSE_START (after the state is saved) and PAUSE_PARKED (end); behaviour unchanged.
+- **Change log 2026-11-21 (2.23.0)**: now calls _WM_LOG_STATE at PAUSE_START (after the state is saved) and PAUSE_PARKED (end); behaviour unchanged. checked against pi400 devbox 2026-11-21.
 ### RESUME
 - **File / lines**: macros.cfg L261-363 (gcode_macro) - renames the original to BASE_RESUME
 - **What it does**: Resume: heats the tool at the wipe position (F-150), wipes, restores position, offsets and feed assist, continues the print.
@@ -559,7 +557,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Commands**: all exist (built-in/module commands used: G0, G90, M118, M24, M400, RESPOND, RESTORE_GCODE_STATE, SAVE_VARIABLE, SET_GCODE_VARIABLE, SET_IDLE_TIMEOUT) - checked 2026-11-18
 - **Risk**: MOVES THE TOOLHEAD, HEATS, ACE  |  **Tags**: print  |  **Fluidd**: WM Ultra Print
 - **Tested**: F-011 confirmed 2026-11-15; F-150 heat-at-wipe NOT tested (pushed 2.21.0)
-- **Change log**: 2.23.0 (2026-11-21): calls _WM_LOG_STATE at RESUME_START and RESUME_DONE (just before M24); behaviour unchanged.
+- **Change log 2026-11-21 (2.23.0)**: now calls _WM_LOG_STATE at RESUME_START and RESUME_DONE (just before M24); behaviour unchanged. checked against pi400 devbox 2026-11-21.
 ### CANCEL_PRINT
 - **File / lines**: macros.cfg L364-420 (gcode_macro) - renames the original to BASE_CANCEL_PRINT
 - **What it does**: Cancel: heaters off, fan off, retract, wipe, park head, clear mesh, reset flow.
@@ -570,7 +568,7 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 - **Commands**: all exist (built-in/module commands used: BED_MESH_CLEAR, G1, G90, G92, M220, M400, M84, RESPOND, SAVE_VARIABLE, SDCARD_RESET_FILE, SET_GCODE_VARIABLE, SET_IDLE_TIMEOUT, SET_VELOCITY_LIMIT, TURN_OFF_HEATERS) - checked 2026-11-18
 - **Risk**: MOVES THE TOOLHEAD (+ through the macros it calls: ACE, HEATS)  |  **Tags**: print  |  **Fluidd**: WM Ultra Print
 - **Tested**: no per-macro record in FIX-LOG.md
-- **Change log**: 2.23.0 (2026-11-21): calls _WM_LOG_STATE at CANCEL_START and CANCEL_DONE; behaviour unchanged.
+- **Change log 2026-11-21 (2.23.0)**: now calls _WM_LOG_STATE at CANCEL_START and CANCEL_DONE; behaviour unchanged. checked against pi400 devbox 2026-11-21.
 ### PROBE_CALIBRATE
 - **File / lines**: macros.cfg L421-434 (gcode_macro) - renames the original to PROBE_CALIBRATE_BASE
 - **What it does**: Z offset calibration, please enable bed preheating first
@@ -634,7 +632,6 @@ WonderMaker factory print macros (start/end/pause/resume, heaters, filament load
 ### M104
 - **File / lines**: macros.cfg L546-576 (gcode_macro) - renames the original to M99104
 - **What it does**: Set the tool temperature with tool remapping (box_modify).
-- **Change log**: 2.23.1 (2026-11-21): B-081, while a print runs a standby temperature (1 to 169 C, below the target) for a head that more than one slicer tool maps to (box_modify) is skipped with a message, so a tool change to that head does not wait for a cooldown and a reheat. Everything else unchanged.
 - **Calls**: -
 - **Called by**: G29, LOAD_FILAMENT, M191, NOZZLE_CALIBRATE_TOOL_OFFSET, NOZZLE_PREPARE, PAUSE, POP, RAPID_MODE, RESUME, START_PRINT, UNLOAD_FILAMENT, WM_SCREWS_CAL, _WM_HEAD_LOAD, _WM_NOZZLE_PREPARE
 - **Variables**: -
@@ -2278,14 +2275,15 @@ Installer part: calibration (first run, Z trim, setter, offsets, PID, shaper, me
 - **Tested**: no per-macro record in FIX-LOG.md
 ### WM_OFFSETS_RAPID
 - **File / lines**: rpi_calibration.cfg L259-335 (gcode_macro)
-- **What it does**: App "Extruder Offsets Calibration" - Rapid: G28, then for every tool a nozzle clean at the wipe area (220 C, retract, drip, wipes, part fan, below 100 C) and RAPID_MODE, then PARK_CURRENT_TOOL
-- **Calls**: M106, PARK_CURRENT_TOOL, RAPID_MODE, WIPE_NOZZLE, _WM_CAL_ASK, _WM_CAL_CLEARANCE, _WM_CAL_PRECHECK, _WM_OFFSET_CHECK, _WM_WAIT_TEMP
+- **What it does**: App "Extruder Offsets Calibration" - Rapid: G28, then for every tool RAPID_MODE (no nozzle heating or wipe since 2026-11-21), then PARK_CURRENT_TOOL
+- **Calls**: PARK_CURRENT_TOOL, RAPID_MODE, _WM_CAL_ASK, _WM_CAL_PRECHECK, _WM_OFFSET_CHECK
 - **Called by**: _WM_FIRST_RUN_CAL, _WM_SETTER_FIND_DONE, _WM_SETTER_RAPID
-- **Variables**: clean, clean_temp, retract_mm, drip_s, wipes, soft_wipe, touch_max, xy_limit
+- **Variables**: xy_limit
 - **Uses**: reads printer.save_variables, printer.toolhead
 - **Commands**: all exist (built-in/module commands used: G0, G1, G28, G4, G90, M400, M83, RESPOND, RESTORE_GCODE_STATE, SAVE_GCODE_STATE, SET_HEATER_TEMPERATURE, TURN_OFF_HEATERS) - checked 2026-11-18
 - **Risk**: MOVES THE TOOLHEAD, HEATS (+ through the macros it calls: ACE, LOAD CELL / SETTER)  |  **Tags**: calibration  |  **Fluidd**: RPI Calibration
-- **Tested**: rapid offsets tested 2026-11-17 (240 touches, 0 retries)
+- **Tested**: rapid offsets tested 2026-11-17 (240 touches, 0 retries, with the nozzle clean that was removed 2026-11-21)
+- **Change log**: 2026-11-21 21:45 Toronto (F-211, checked against rpi_calibration.cfg f3964223 on the .35 and pi400): the per-tool nozzle clean block (220 C at the wipe area, retract, drip, 2 + 1 wipes, cool below 100 C) and its variables clean, clean_temp, retract_mm, drip_s, wipes, soft_wipe, touch_max were deleted at your word, after the safety check _WM_OFFSET_CHECK stopped a run (T1 moved X -0.061 Y +0.269, limit 0.20). Old: the nozzle was cleaned hot before every tool and then measured. New: all heads go to 140 C once, then every tool is measured at once; WM_OFFSETS_ACCURATE unchanged on purpose. Backup backup/rpi_calibration.cfg.bak-20261121-rapidclean (96a6907f).
 ### WM_OFFSETS_ACCURATE
 - **File / lines**: rpi_calibration.cfg L336-424 (gcode_macro)
 - **What it does**: App "Extruder Offsets Calibration" - Accurate (TEMP=220). Per tool NOZZLE_PREPARE, you remove the purged debris and click OK, NOZZLE_CALIBRATE_TOOL_OFFSET; then RAPID_MODE for every tool
@@ -3222,8 +3220,8 @@ ACE panel: endless spool
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _WM_ENDLESS_3
 - **File / lines**: rpi_endless.cfg L225-255 (gcode_macro)
-- **Change 2026-11-20 (F-202)**: before RESUME it sets _WM_RTOOL.purge to _WM_ENDLESS.swap_purge (50 mm) when that is longer than the current purge (20), and sets it back to 20 after RESUME. Why: after a swap the spare head's filament was never pushed (B-079), the 20 mm purge was too short to prime it. Checked against the real file rpi_endless.cfg on .35, 2026-11-20.
 - **What it does**: Step 3 of an endless spool swap: RESUME with the spare head, restores tool mapping.
+- **Change 2026-11-20 (F-202)**: before RESUME it sets _WM_RTOOL.purge to _WM_ENDLESS.swap_purge (50 mm) when that is longer than the current purge (20), and sets it back to 20 after RESUME. Why: after a swap the spare head's filament was never pushed (B-079), the 20 mm purge was too short to prime it. Checked against the real file rpi_endless.cfg on .35, 2026-11-20.
 - **Calls**: RESUME, _WM_ENDLESS_4
 - **Called by**: WM_ENDLESS_CONTINUE
 - **Variables**: -
@@ -3948,7 +3946,6 @@ Purge, push and heat spots moved from the wipe area (X-13 Y240) and X-13 Y80 to 
 
 - F-190 2026-11-20: real on .35 and pi400 (rpi_base.cfg md5 6fc1011e). Test file and WM_TEST_HEAD_LINES removed (_WM_TEST_* macros no longer exist).
 - F-192 2026-11-20: _WM_LOAD_SHOW window text shortened (macro name and wipe sentence removed). pi400 done, .35 pending.
-
 - F-202 2026-11-20: _WM_ENDLESS new variable swap_purge (50 mm); _WM_ENDLESS_3 raises the resume purge to it for a swap. .35 (restart 21:42) and pi400 devbox/config (22:00). Backups rpi_endless.cfg.20261120-2140-before-F202 (config/backup on .35), MACROS.md.bak-2026-11-20-f202.
 
 ### Purge while PAUSED change (F-203, 2026-11-20, pi400 only, not tested, checked against pi400 files rpi_base.cfg, 2026-11-20)
@@ -3982,3 +3979,94 @@ Purge, push and heat spots moved from the wipe area (X-13 Y240) and X-13 Y80 to 
 
 ## Change log F-162 final wording (2026-11-21, pi400 devbox only)
 - `_WM_Z_TRIM_WIN` (rpi_calibration.cfg): the top line of the Z trim window was a button "T0 trim now +0.00 mm"; it is now plain text "T0 TRIM IS 0.00 MM" (prompt_text, two decimals, minus sign when negative). Reason: user request, a button that does nothing looked pressable. Backup: backup/rpi_calibration.cfg.20261121-before-F162-topline (config and devbox/config). Checked against pi400 devbox rpi_calibration.cfg md5 d2abe2ec, 2026-11-21.
+### SET_PRESSURE_ADVANCE
+- **File / lines**: rpi_base.cfg, end of the file (gcode_macro with rename_existing _WM_SET_PRESSURE_ADVANCE_REAL)
+- **What it does**: Wrapper of Klipper's SET_PRESSURE_ADVANCE: runs the real command only when ADVANCE or SMOOTH_TIME of that extruder really changes (the real command always flushes the motion queue = the toolhead stops). A call without ADVANCE and SMOOTH_TIME goes straight through. Added 2026-11-21 on the .35 first.
+- **Calls**: _WM_SET_PRESSURE_ADVANCE_REAL
+- **Called by**: the slicer file (Orca wipe tower and filament lines), _CHECK_CHANGE_TOOL outside a print
+- **Risk**: wraps a Klipper built-in  |  **Tags**: tool-change  |  **Fluidd**: visible in the macro list (built-in name)
+- **Tested**: hand test on the idle .35 2026-11-21 (same value silent, change, report-only); not in a print yet. Checked against rpi_base.cfg on the .35, 2026-11-21.
+
+- 2026-11-21 19:4x (checked against rpi_base.cfg on the .35): SET_PRESSURE_ADVANCE wrapper now ignores ADVANCE=0 while a print is printing or paused (the Orca file with PA off would keep the head at 0 for the whole print). Values above 0 still apply; by hand when idle 0 still works. Backup backup/rpi_base.cfg.bak-20261121-pa0print (md5 ab8ba8e6 -> 87c58e33). Lesson: a Jinja comment {# #} in a cfg macro breaks Klipper (the # is cut as a comment).
+
+- 2026-11-21 19:5x (checked against change_macros.cfg on the .35): REVERTED on the .35 at your word, after the print: _WAIT_TOOL_TEMPERATURE skip, _CHECK_CHANGE_TOOL same-tool changes and PA line removal (change_macros.cfg back to c9cf48a8, PA line 0.04 at every tool change is back), SET_PRESSURE_ADVANCE wrapper and _WM_PA_RESTORE removed (rpi_base.cfg 07f7facf), PRINT_END/CANCEL_PRINT restore lines removed, printer.cfg pressure_advance 0.04 -> 0.032. KEPT: B-081 M104 fix (macros.cfg a151bc71). NEW: _CHANGE_TOOL same-tool skip (change_macros.cfg md5 19b8e39d): while printing, target head = active head and nozzle within 2.5 C of target -> only the Changing tool line runs. Why: buffer recorder showed the toolhead buffer falling to 0.1-0.24 s at every T3 to T3 change (19:53:23, 19:54:27, 19:55:46 + 1 stall), the chain runs ~9 SAVE_VARIABLE disk writes. Backups backup/*bak-20261121-final-revert.
+
+- 2026-11-21 20:1x ROLLBACK at your word (back to the state just before the 1 s stop talk): .35 change_macros.cfg back to c9cf48a8 (the same-tool skip in _CHANGE_TOOL removed, backup backup/change_macros.cfg.bak-20261121-skip-rollback = 19b8e39d). Kept: B-081 M104 fix (macros.cfg a151bc71). rpi_base.cfg 07f7facf, printer.cfg PA 0.032. On disk now; Klipper on the .35 loads it at the next restart (a print was running). pi400 devbox change_macros.cfg also back to c9cf48a8 (B-081 stays there too), so devbox = .35.
+
+- 2026-11-21 21:05 (checked against macros.cfg a151bc71, change_macros.cfg c9cf48a8, rpi_base.cfg 07f7facf on the .35 and installer 2.23.1): no macro changed by the 2.23.1 update of the .35, .36, .37 and pi400. Live files equal the repo (rpi_calibration.cfg 96a6907f now equals the repo version). B-082 (same-tool 1 s stop) closed by the user: kept as it is, change_macros.cfg stays original.
+
+- 2026-11-21 21:55 (WM_OFFSETS_RAPID, checked on the pi400 devbox running config rpi_calibration.cfg 13b66d2c): F-211 test on the devbox simulator: macro starts without a nozzle clean and goes straight to RAPID_MODE T0; the run then stops at COLLISION_DETECT_ENABLE (no sensor on the devbox, same stop as with the old macro). Note: the devbox runs ~/printer_data/devbox/config/, not ~/printer_data/config/.
+
+### WM_NOZZLE_CLEAN (F-212, 2026-11-21, pi400 devbox only, not on the .35, not in the repo)
+- **File**: rpi_base.cfg (appended at the end of the file, after the purge block). **What it does**: Fluidd / KlipperScreen prompt window to clean the nozzles by hand with a brush at 240 C. Choose All nozzles or T0..T3, Start; refuses while printing or paused; homes cold first if needed (the homing always uses T0), picks up the first chosen tool, moves to X150 Y1 Z150, heats it to 240 C (the other chosen tools pre-heat to 240 C without waiting), window "HOT, clean with the brush, press Cool nozzle"; Cool nozzle = that heater off + part fan 100% until 140 C (window says keep brushing and wiping), then fan off and Next; Next parks the tool and picks up the next chosen one (already hot); after the last one: Close (heaters, fan off, M84) or Restart (back to the choice window, motors stay on). Cancel, a failure (homing / tool change / move did not finish), 5 min heat-up limit or 10 min cool-down limit: window closed, ALL heaters off, fan off, tool parked (no M84). **Risk**: MOVES THE TOOLHEAD, HEATS TO 240 C. **Fluidd**: WM Ultra Filament (orange, same as WM_PURGE_MENU; added to the Fluidd macros database on the pi400 only).
+### _WM_NCLEAN (hidden state), _WM_NCLEAN_SHOW, _WM_NCLEAN_PICK, _WM_NCLEAN_CLOSE_CHOICE, _WM_NCLEAN_START, _WM_NCLEAN_GO, _WM_NCLEAN_HOT, _WM_NCLEAN_COOL, _WM_NCLEAN_COOLED, _WM_NCLEAN_NEXT, _WM_NCLEAN_CLOSE, _WM_NCLEAN_RESTART, _WM_NCLEAN_ABORT, [delayed_gcode _WM_NCLEAN_POLL] (all hidden)
+- State _WM_NCLEAN: mask (chosen tools as bits), active, phase (0 choice, 1 moving, 2 heating, 3 hot, 4 cooling, 5 cooled, 6 finished), cur, held (a tool is on the carriage), ticks. SHOW draws the window of the current phase; every button runs one helper; the 2 s poll (_WM_NCLEAN_POLL) waits for 239 C / 140 C and is also the watchdog (phase 1 seen by the poll = a step failed -> _WM_NCLEAN_ABORT). Calling WM_NOZZLE_CLEAN while it runs shows the current window again.
+- **Change log**: 2026-11-21 new (F-212). Existing macros were NOT changed. Backup: backup/rpi_base.cfg.bak-20261121-nclean (md5 07f7facf) in devbox/config and config on the pi400. New rpi_base.cfg md5 3426a053. Checked against the dev box running config 2026-11-21. Copy of the new block: 05-notes/nclean-F212.cfg.
+- To do for the repo (when you say push): add WM_NOZZLE_CLEAN to FILAMENT_MENUS in wm_fluidd_categories.py (panel repo) so new installs sort it into WM Ultra Filament.
+- 2026-11-21 22:50 (WM_NOZZLE_CLEAN, F-212, checked against the pi400 devbox rpi_base.cfg md5 9a9b2769): tool buttons without brackets; new hidden _WM_NCLEAN_WAIT (red Please wait bar, does nothing); Cool nozzle button style primary (blue). Backup rpi_base.cfg.bak-20261121-nclean2.
+- 2026-11-21 23:00 (WM_NOZZLE_CLEAN, F-212, checked against the pi400 devbox rpi_base.cfg md5 8f3aa82d): nozzle temperature line in every window; new brush text; start window All+T0..T3 in one row; the 2 s poll _WM_NCLEAN_POLL now also runs in the hot phase (3) and re-shows the window every 4 s in phases 2, 3, 4. Backup rpi_base.cfg.bak-20261121-nclean3.
+- 2026-11-21 23:10 (WM_NOZZLE_CLEAN, F-212, checked against the pi400 devbox rpi_base.cfg md5 9c5ed65c): new hidden _WM_NCLEAN_PARK (Park tool button); cooling window has a grey Park tool (_WM_NCLEAN_WAIT), cooled window Next + Park tool, last tool only Park tool. Backup rpi_base.cfg.bak-20261121-nclean4.
+
+## F-213 changes (2026-11-21)
+- WM_NOZZLE_CLEAN: new param THEN (command run on Skip / Continue calibration).
+- _WM_NCLEAN_SKIP, _WM_NCLEAN_CONTINUE: new secondary macros (Continue: heaters off, fan off, state reset, no M84, runs THEN).
+- _WM_FIRST_RUN_CAL (rpi_calibration.cfg): runs WM_NOZZLE_CLEAN THEN="_WM_FIRST_RUN_CAL CLEANED=1" first.
+- _WM_ZCAL_RUN (rpi_calibration.cfg): step 1 runs WM_NOZZLE_CLEAN THEN="_WM_ZCAL_RUN STEP=1 CLEANED=1" first (this is the start of WM_FULL_OFFSET_CAL).
+
+## F-212 round 6 (2026-11-21)
+- _WM_NCLEAN_SHOW phase 5: Next button removed; Park tool calls _WM_NCLEAN_NEXT when more chosen tools remain, else _WM_NCLEAN_PARK.
+- _WM_NCLEAN_NEXT: now only reached through Park tool.
+
+## B-082 (2026-11-21): _WM_NCLEAN_POLL (delayed_gcode) now only calls new hidden macro _WM_NCLEAN_TICK (watchdog + temperature poll). Reason: a delayed_gcode template is rendered when the timer fires, a macro when it runs.
+
+## F-216 (2026-11-22): _WM_PURGE: when not homed it calls _WM_ACE_HOME T=<tool> (was G28 = T0). Falls back to G28 if _WM_ACE_HOME does not exist.
+
+## F-217 (2026-11-22): WM_OFFSETS_RAPID opens WM_NOZZLE_CLEAN first (THEN="WM_OFFSETS_RAPID CONFIRM=1 CLEANED=1").
+
+## F-212 round 8 (2026-11-22): _WM_NCLEAN_COOL: ACE feed assist off (via _WM_PURGE_ASSIST) and 5 mm retract before the heater goes off.
+- **Change log WM_OFFSETS_RAPID**: 2026-11-22 01:20 Toronto (F-218, checked against rpi_calibration.cfg af995c33 on the .35): Old: all extruders heated to 140 C, then measured. New: no heating; extruder targets set to 0 and TEMPERATURE_WAIT MAXIMUM=80 for every tool after the nozzle clean, then measured. Why: user's word. Backup backup/rpi_calibration.cfg.20261122-0120-before-rapid-cooldown. File now 9312ddf6, Klipper restart pending.
+
+## CHANGE 2026-11-22 (F-219, pi400 devbox, checked against rpi_calibration.cfg 9e34c8df)
+- _WM_OFFSET_CHECK (modified): after a stop it counts stops per tool in _WM_XYSTOP; the second stop with the same X/Y (within 0.15 mm) opens the window "Offsets: T{t} stopped again" and then raises the error through _WM_FAIL. A pass resets the counter.
+- _WM_XYSTOP (new, variables only): c1..c3 stop counts, n1..n3 new measured X Y Z, o1..o3 old X Y Z, k1..k3 keep-Z flags, same_tol 0.15.
+- _WM_XY_USE_NEW T=1..3 (new, button): saves the new X and Y (Z old when kept), resets the counter, asks for an alignment test.
+- _WM_XY_KEEP_OLD T=1..3 (new, button): keeps the old offset, resets the counter.
+- WM_OFFSETS_ACCURATE renamed _WM_OFFSETS_ACCURATE (hidden, nobody calls it from the menu; _WM_CAL_ASK still can). _WM_SETTER_FIND_DONE now calls WM_OFFSETS_RAPID CONFIRM=1 CLEANED=1 (one clean, at the start of step 1).
+- 2026-11-22 03:38 (F-219, checked against rpi_calibration.cfg 83a599b9): _WM_OFFSET_CHECK window gets the line "Use the new value: then run Offsets rapid again (recommended)."; _WM_XY_USE_NEW message now recommends Offsets rapid again before the alignment test.
+
+## CHANGE 2026-11-22 (installer 2.23.2 pushed to main c5506c5, checked against rpi_calibration.cfg in the repo)
+- rpi_calibration.cfg: the F-219 text fix in line 438 (a ';' in a RESPOND message cut the text; now "Run the calibration again."), and in the first-run "HOW TO" window ('; when it stops' became ', and when it stops'). Macro index header (wm_cfg_index.py) regenerated in all repo cfg files. No macro renamed. The .35 still has the older file (83a599b9) until the Update.
+
+## CHANGE 2026-11-22 (WM_ESTEP_CAL and _WM_ESTEP_* , installer 2.24.0 pushed to main d227281, checked against rpi-cfg/rpi_nozzle.cfg)
+- New macro WM_ESTEP_CAL (RPI Calibration, Fluidd colour #e91e63) with the hidden helpers _WM_ESTEP, _WM_ESTEP_START, _POS, _POS2, _PARK, _GUARD, _AFTER_INSERT, _NOFIL, _S1, _HEAT, _HEATWIN, _S2, _MARK, _ZERO, _WAIT, _MOVE, _HOTCHECK, _INSERT, _RUN, _MEASPIC, _S3, _STEP, _SET, _BACK, _CONFIRM, _SAVE, _UNLOAD, _REMOVE, _WIPEPARK, _CANCEL, _FINISH and the delayed_gcode _WM_ESTEP_OFF and _WM_ESTEP_HEATWATCH. They live at the end of rpi_nozzle.cfg in the repo (on the .35 they still sit in rpi_calibration.cfg until the Update). New: wm_estep.py shell command, window pictures estep-prepare/ruler/zero/measure. WM_HEAD_SENSOR_WATCH counts a running calibration as busy.
+
+## CHANGE 2026-11-22 (installer 2.25.0 to 2.25.2 pushed to main, checked against rpi-cfg/rpi_nozzle.cfg at ae69071 and fdb2494)
+- _WM_ESTEP_S3 (hidden, E-step measure window): 2.25.0 guard: old is at least 0.001 and len at least 1, valid only when old > 0, so opening it outside a calibration (old = 0) no longer ends in ZeroDivisionError. Old behaviour: division by zero in the pct line.
+- 2.25.0 put a Jinja comment {# ... #} inside that guard; Klipper cuts a config line at the first '#', so Klipper stopped with "Error loading template _WM_ESTEP_S3". Removed in 2.25.1 (a suite check now refuses any {# in rpi-cfg). The .35 got the same one-line removal by hand (backup config/backup/rpi_nozzle.cfg.bak-20261122-jinjacomment).
+- _WM_ESTEP_CONFIRM (hidden, Save and restart question): 2.25.2: len at least 1 and pct = 0.0 when old is 0 (same guard as S3). On the main RPi4 (.35): yes (checked 2026-11-23 against the live rpi_nozzle.cfg, line 1217 has the guard; the earlier note "Not on the .35 yet" was stale).
+- Checked and unchanged: _WM_ESTEP_SAVE (refuses when t < 0 or value does not fit), _WM_ESTEP_REMOVE, _STEP, _SET (no division).
+- 2026-11-22 F-223 (main RPi4 .35 only, not in the repo, not tested): zr_tools.cfg `_WM_LOAD_SETTINGS` new settings pre_cool, cool_moves, cool_move_mm, cool_move_speed (all off / neutral by default); `_WM_UNLOAD_TIP` old: push, snap at the full temperature, cool by cool_drop, wait, pull. New: push, optional cooling by pre_cool before the snap, snap, cooling target set, optional back and forth cooling moves, wait, pull. Why: long hair on every unloaded tip. Backup backup/zr_tools.cfg.wm-before-tip-20261123-034614. Rollback word "rollback tip". Checked against the live .35 file, 2026-11-22.
+- 2026-11-22 23:22 F-223 values saved on the main RPi4 .35 (their word: "save with a 28 mm snap its the best setting"): `_WM_LOAD_SETTINGS` pre_cool 15, snap_mm 28 (was 20), cool_moves 3, cool_move_mm 8, cool_move_speed 30, pull_speed 60 (was 20). PLA only. Backup backup/zr_tools.cfg.wm-before-tipvalues-20261122-232230. Not in the repo yet. Checked against the live .35 file, 2026-11-22.
+- 2026-11-23 00:33 F-223 part 2 (main RPi4 .35, not in the repo): `_WM_LOAD_SETTINGS` old: single values pre_cool, snap_mm, snap_speed, cool_drop, cool_s, cool_moves, cool_move_mm, cool_move_speed, pull_mm, pull_speed. New: tip_recipes (table "pla", "petg"), tip_materials (material code -> recipe), tip_default "petg". `_WM_UNLOAD_TIP` old: one recipe for every tool. New: reads the material saved for the tool (zr_tN_mat) and uses its recipe; says the recipe in the console. Why: PETG needs a hotter, faster snap than PLA (their tests). Backup backup/zr_tools.cfg.wm-before-tipmaterial-20261123-003335. Checked against the live .35 file, 2026-11-23.
+- 2026-11-23 00:53 F-223: `_WM_LOAD_SETTINGS` tip_recipes now has "abs" (own entry, same numbers as PETG, tested at 260 C) and tip_materials "8": "abs". Old: ABS used tip_default. Why: their choice, so ABS keeps its tip if the default changes. Backup backup/zr_tools.cfg.wm-before-tipabs-20261123-005308. Checked against the live .35 file, 2026-11-23.
+
+## CHANGE 2026-11-23 (F-224 Bed PID windows in the e-step window model; checked against rpi-cfg/rpi_calibration.cfg md5 6cfd996697f6, pi400 dev box, 2026-11-23)
+- WM_BED_PID (visible, RPI Calibration): old: without CONFIRM it opened _WM_CAL_ASK STAGE=bedpid (Start / Cancel). New: opens _WM_BEDPID_START TARGET=<target>. CONFIRM=1 and SAVE=0 behave as before. Why: first window converted to the e-step model.
+- New hidden: _WM_BEDPID_START (window 1, 60 / 80 / 100 C), _WM_BEDPID_RUN (wait window, PID_CALIBRATE, bed off, result), _WM_BEDPID_RESULT (values now and new), _WM_BEDPID_SAVE (SAVE_CONFIG), _WM_BEDPID_CANCEL (_WM_RESTART_KLIPPER, nothing saved).
+- New hidden shared helpers: _WM_WIN (state, variable busy), _WM_WIN_WAIT (TITLE, MSG, MSG2: wait window without buttons, starts the watch), _WM_WIN_DONE, _WM_WIN_STOP (close, heaters off, error), delayed_gcode _WM_WIN_WATCH and _WM_WIN_WATCH_RUN (step died: heaters off, "stopped" window).
+- Not on the main RPi4 (.35) yet; the tuning and result window are not tested on a real bed.
+- 2026-11-23 03:05 F-223 reverse sync (pi400 real config, test pair): zr_tools.cfg `_WM_LOAD_SETTINGS` and `_WM_UNLOAD_TIP` now equal the .35 and the repo (md5 4958e5dd4ed7). Old on the pi400: one tip recipe for every material. New: recipe by material (pla, petg, abs, default petg). Backup backup/zr_tools.cfg.wm-before-f223sync-20261123-030455. Checked against the live .35 file, 2026-11-23.
+
+## 2026-11-23 F-225: motors off (M84) at the end of nozzle clean Continue, Offsets rapid, hot Z and nozzle growth (checked against the pi400 rpi_base.cfg b64bd721 and rpi_calibration.cfg 6808a45a / 59c64078)
+- _WM_NCLEAN_CONTINUE: heaters off, fan off, M84, then runs the calibration (it homes first). Old: NO M84, the printer stayed homed. Why: user asked for a fresh home before Rapid.
+- WM_OFFSETS_RAPID, WM_OFFSETS_Z_HOT, WM_NOZZLE_GROWTH_CAL: M84 after the heaters are turned off (the tool is parked before). Old: the printer stayed homed. The next step homes itself.
+- Pi400 only, not tested, not on the .35, not pushed. Backups printer_data/config/backup/*.pre-m84-20261123-1653 (and devbox/config/backup).
+- 2026-11-23 17:02 F-225 also on the .35 (user's word): same four macros, rpi_base.cfg b64bd721, rpi_calibration.cfg 6808a45a, backups config/backup/*.pre-m84-20261123-1701. Klipper restarted, ready. User testing.
+- 2026-11-23 17:15 F-226: _WM_ZCAL_RUN step 1 no longer does the tool setter position check (_WM_SETTER_GO); it runs WM_OFFSETS_RAPID CONFIRM=1 CLEANED=1 then _WM_ZCAL_DONE STEP=1. WM_FULL_OFFSET_CAL window texts updated. Checked against pi400 and .35 rpi_calibration.cfg 882a9447. Old: position check first (stop at more than 0.3 mm). Why: user asked. Backups *.pre-f226-20261123-171x.
+
+### F-227 (pi400 only, 2026-11-23 17:35 Toronto)
+- WM_FIRST_RUN_CAL: new intro window text (two windows like E-step). _WM_FRC_SAVED (new, hidden): second window.
+- _WM_FIRST_RUN_CAL: new order with G28 between steps, rapid gets CLEANED=1, ends with heaters off, PARK_CURRENT_TOOL, M84.
+
+### F-228 (2026-11-23 18:00 Toronto, pi400 only)
+- WM_FIRST_RUN_CAL: window 1 now Start / Cancel footer + What it does button (old: Start Calibration, What is saved, Stop heaters). _WM_FRC_SAVED: now "What it does". _WM_FIRST_RUN_CAL: _WM_WIN_WAIT before each step, _WM_WIN_DONE at the end. New hidden helpers _WM_WIN* (see F-224). Guard on prompt_end in _WM_CAL_PRECHECK, WM_OFFSETS_Z_HOT, WM_NOZZLE_GROWTH_CAL, WM_NOZZLE_FULL_PID, _WM_SETTER_AUTO, _WM_SETTER_GO. Checked against pi400 rpi_calibration.cfg a7bcb492, 2026-11-23.

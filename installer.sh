@@ -54,7 +54,7 @@
 # ./installer.sh --screen-camera yes|no   the factory camera is plugged into the factory screen board (yes: it is Camera in Fluidd, the Pi's own cameras are Camera 2 ...)
 # ./installer.sh --webcam-setup        ask the camera questions again and rewrite crowsnest.conf (a copy of the old one is kept)
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
-# ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). Add-on only: not asked during the install
+# ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). On by default in a new install (not asked); --shaketune off skips it
 # ./installer.sh --spoolman on|off     Spoolman (filament spool tracking, shown in Fluidd). Add-on only: not asked during the install
 # ./installer.sh --acepro on|off       Anycubic ACE Pro (feeder and dryer): its Klipper driver and config from the project wm-ultra-fluidd-acepro-panel. Asked during the install; add it later with --update --acepro on, remove it with --remove acepro
 # ./installer.sh --status              one read-only page: services, Klipper, Pi health, CAN ids, add-ons, newest backup
@@ -97,7 +97,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 MOONRAKER_CHANGED=0; IMPORT_HOST=""; SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT=""; CAM_RES=""; CAM_FPS=""; CAM_MODE=""; SCREEN_CAM=""; CLI_SCREEN_CAM=""; CLI_CAM_COUNT=""; CLI_CAM_RES=""; CLI_CAM_FPS=""; CLI_CAM_MODE=""; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CAM_COUNT=""; CAM_RES=""; CAM_FPS=""; CAM_MODE=""; SCREEN_CAM=""; CLI_SCREEN_CAM=""; CLI_CAM_COUNT=""; CLI_CAM_RES=""; CLI_CAM_FPS=""; CLI_CAM_MODE=""; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=1; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"

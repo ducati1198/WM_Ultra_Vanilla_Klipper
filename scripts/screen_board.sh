@@ -1138,7 +1138,7 @@ do_update_board_core() {
     [ -n "$new" ] || die_with_fix "the download has no VERSION file." "try again later."
     # since S1.0.0 the screen has its own version: a Pi-only release does not count as a screen update
     local newS oldS; newS="$(head -n1 "$w/SCREEN_VERSION" 2>/dev/null | tr -d '[:space:]')"
-    oldS="$(head -n1 "$KS_DIR/panels/zr_screen_version.txt" 2>/dev/null || head -n1 "$BK/screen_version" 2>/dev/null)"; oldS="$(printf '%s' "$oldS" | tr -d '[:space:]')"
+    oldS=""; [ "${WM_TEST_NO_KS:-0}" != 1 ] && oldS="$(head -n1 "$KS_DIR/panels/zr_screen_version.txt" 2>/dev/null || head -n1 "$BK/screen_version" 2>/dev/null)"; oldS="$(printf '%s' "$oldS" | tr -d '[:space:]')"   # a test with no KlipperScreen has no screen version either
     if [ -n "$newS" ]; then new="$newS"; old="${oldS:-$old}"; fi
     echo "  Installed: ${old:-unknown}    Newest: $new"
     if [ -n "$old" ] && [ "$new" != "$old" ] && [ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | head -1)" = "$new" ]; then   # never go back to an older version

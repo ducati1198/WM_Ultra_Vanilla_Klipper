@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.29.0
+
+- **Shake&Tune is installed by default.** A new install adds Klippain Shake&Tune without asking (`./installer.sh --shaketune off` skips it); an existing install keeps its saved choice. Its five commands are in their own Fluidd macro category **Shake&Tune** (brown, with the Fluidd panel 1.20.0).
+- **First Run Calibration (F-227, F-228): new order and the Bed PID window style.** `WM_FIRST_RUN_CAL` order: nozzle clean by hand, tool setter position, tool offsets (rapid), hot Z offsets, input shaper, bed PID, bed leveling, nozzle PID, nozzle heat growth, with a home between the steps, and at the end heaters off, tool parked, motors off. Offsets rapid no longer opens a second nozzle clean. Windows: start (what it does, Start, Cancel), a red please wait window with the step ("Step 5 of 8"), then the result. New hidden `_WM_FRC_SAVED` (What it does) and the shared window macros `_WM_WIN`, `_WM_WIN_WAIT`, `_WM_WIN_DONE`, `_WM_WIN_STOP`, `_WM_WIN_WATCH(_RUN)` (a step that dies shows a stopped window and turns the heaters off). The first `prompt_end` of `_WM_CAL_PRECHECK`, `WM_OFFSETS_Z_HOT`, `WM_NOZZLE_GROWTH_CAL`, `WM_NOZZLE_FULL_PID`, `_WM_SETTER_AUTO` and `_WM_SETTER_GO` is skipped while the wait window is up.
+- **Motors off after nozzle clean, rapid, hot Z and growth (F-225).** Each ends with the heaters off, the tool parked and the motors off (`M84`); the next step homes fresh. `_WM_NCLEAN_CONTINUE` does it for a nozzle clean started from a calibration.
+- **Full offset calibration (F-226): no tool setter position check in step 1.** Step 1 is the nozzle clean, then Offsets rapid (it homes first), then the result.
+- **Tests:** the board menu check "Update now with no KlipperScreen" no longer depends on the screen version left behind by the check before it (`WM_TEST_NO_KS=1` now also ignores an old screen version).
+
 ## 2.28.0
 
 - **The screen board has its own version, S1.0.0.** New files `SCREEN_VERSION` (`S1.0.0`) and `SCREEN_NEEDS_PI` (the oldest Pi version the screen needs, `2.28.0`) sit next to `VERSION`. The screen numbers are a separate series from the Pi (Pi 2.28.x, screen S1.x), so they cannot be mixed up. The board keeps its version in `~/wm-screen-backup/screen_version` and `~/KlipperScreen/panels/zr_screen_version.txt`; the screen bundle carries both new files.
