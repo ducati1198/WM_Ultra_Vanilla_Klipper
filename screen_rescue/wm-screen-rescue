@@ -11,7 +11,8 @@
 #   wm-screen-rescue usb-check     boot check of USB sticks  (WM-FACTORY = factory restore, WM-RESCUE = open the window)
 #   wm-screen-rescue open          open the rescue window by hand (stops KlipperScreen while it is open)
 #   wm-screen-rescue window        what the service runs (own X, fallbacks)
-#   wm-screen-rescue act NAME      restart-ks | factory | reboot | reset-settings | reinstall-files | details | net | reason
+#   wm-screen-rescue act NAME      restart-ks | factory | factory-software | reboot | reset-settings | reinstall-files | details | net | reason
+#   USB stick flags (boot only):   WM-FACTORY = factory restore, WM-RESCUE = open the window, WM-KLIPPERSCREEN = back to KlipperScreen (wm-screen-mode)  # modeswitch-done
 # Environment (tests): WM_HOME, WM_RESCUE_LOG, WM_RESCUE_DRY=1 (only log what would happen), WM_RESCUE_MEDIA_DIR (a folder that
 # stands in for a mounted stick), WM_RESCUE_USB_WAIT (seconds to wait for a stick).
 # =============================================================================
@@ -78,6 +79,12 @@ restart_ks() {
 act() {
     case "${1:-}" in
         restart-ks) log "action: restart KlipperScreen"; restart_ks ;;
+        factory-software)
+            log "action: use the factory software (switch only, nothing removed)"
+            step 1 2 "Stopping KlipperScreen"; backup_note
+            step 2 2 "Starting the factory software"
+            doit /usr/local/sbin/wm-screen-mode factory keep
+            echo "The factory software is starting. To come back: open http://$(hostname -I | awk '{print $1}'):8099, or use a USB stick named WM-KLIPPERSCREEN." ;;
         reboot) log "action: reboot"; doit systemctl reboot ;;
         factory)
             log "action: factory restore"
@@ -157,6 +164,10 @@ usb_handle() {   # $1 = folder of the mounted stick
         log "USB: WM-RESCUE found"; echo "WM-RESCUE on the stick, $(date '+%F %T'): rescue window opened." >> "$rep"
         mv -f "$flag" "$flag.done" 2>/dev/null; sync; return 11
     fi
+    if flag="$(usb_flag "$d" WM-KLIPPERSCREEN)"; then
+        log "USB: WM-KLIPPERSCREEN found"; echo "WM-KLIPPERSCREEN on the stick, $(date '+%F %T'): going back to KlipperScreen." >> "$rep"
+        mv -f "$flag" "$flag.done" 2>/dev/null; sync; return 12
+    fi
     return 0
 }
 usb_check() {
@@ -180,6 +191,7 @@ usb_check() {
     case $result in
         10) log "USB: starting the factory restore"; factory_restore ;;
         11) log "USB: opening the rescue window"; echo usb > "$REASON_FILE"; doit systemctl start --no-block wm-screen-rescue.service ;;
+        12) log "USB: going back to KlipperScreen"; doit /usr/local/sbin/wm-screen-mode klipperscreen ;;
     esac
     return 0
 }

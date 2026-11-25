@@ -811,11 +811,11 @@ RESCUE_BIN=/usr/local/sbin/wm-screen-rescue; RESCUE_WIN=/usr/local/sbin/wm-rescu
 step_rescue() {
     [ "$RESCUE" = 1 ] || { print_info "Rescue tool skipped (--no-rescue)."; return 0; }
     print_header "Rescue tool (window if KlipperScreen fails, USB stick flag)"
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install $RESCUE_BIN, $RESCUE_WIN, two systemd units and a saved copy of KlipperScreen in $BK${NC}"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install $RESCUE_BIN, $RESCUE_WIN, the screen mode switch (wm-screen-mode, a web page on port 8099), two systemd units and a saved copy of KlipperScreen in $BK${NC}"; return 0; fi
     mkdir -p "$BK/known-good"
     cp -p "$CFG_DIR/KlipperScreen.conf" "$CFG_DIR/zr_screen.conf" "$BK/known-good/" 2>/dev/null
     tar czf "$BK/ks-program.tar.gz" -C "$HOME_DIR" KlipperScreen 2>/dev/null || warn_later "Could not save a copy of KlipperScreen: the rescue window's 'Reinstall files' will not be available."
-    if [ "$TESTING" = 1 ]; then echo "[test] rescue tool: scripts, units, sudoers, usb check" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] rescue tool: scripts, units, sudoers, usb check" >> "$HOME_DIR/.sudo.log"; echo "[test] screen mode switch: wm-screen-mode, web page, sudoers" >> "$HOME_DIR/.sudo.log"; return 0; fi
     sudo install -o root -g root -m 755 "$REPO_DIR/screen_rescue/wm-screen-rescue" "$RESCUE_BIN"
     sudo install -o root -g root -m 755 "$REPO_DIR/screen_rescue/wm-rescue-window.py" "$RESCUE_WIN"
     sudo tee /etc/X11/wm-rescue-fbdev.conf >/dev/null <<'E'
@@ -855,6 +855,13 @@ WantedBy=multi-user.target
 E
     printf '%s ALL=(root) NOPASSWD: %s open\n' "$WM_USER" "$RESCUE_BIN" | sudo tee /etc/sudoers.d/wm-screen-rescue >/dev/null
     sudo chmod 440 /etc/sudoers.d/wm-screen-rescue; sudo visudo -cf /etc/sudoers.d/wm-screen-rescue >/dev/null || { sudo rm -f /etc/sudoers.d/wm-screen-rescue; warn_later "The Rescue entry in ZR Tools was not enabled (sudoers check failed)."; }
+    # F-238 / F-239: the switch between KlipperScreen and the factory software (ZR Tools > More > System > Factory software, the rescue
+    # window, the page http://BOARD:8099, the USB stick WM-KLIPPERSCREEN) and the Reboot screen tile. Nothing is removed by it.
+    sudo install -o root -g root -m 755 "$REPO_DIR/screen_rescue/wm-screen-mode" /usr/local/sbin/wm-screen-mode
+    sudo install -o root -g root -m 755 "$REPO_DIR/screen_rescue/wm-screen-mode-web.py" /usr/local/sbin/wm-screen-mode-web.py
+    sudo install -o root -g root -m 644 "$REPO_DIR/screen_rescue/wm-screen-mode-web.service" /etc/systemd/system/wm-screen-mode-web.service
+    sed "s/^t13dp /$WM_USER /" "$REPO_DIR/screen_rescue/wm-screen-mode.sudoers" | sudo tee /etc/sudoers.d/wm-screen-mode >/dev/null
+    sudo chmod 440 /etc/sudoers.d/wm-screen-mode; sudo visudo -cf /etc/sudoers.d/wm-screen-mode >/dev/null || { sudo rm -f /etc/sudoers.d/wm-screen-mode; warn_later "The Factory software and Reboot screen entries in ZR Tools were not enabled (sudoers check failed)."; }
     sudo systemctl daemon-reload; sudo systemctl enable wm-screen-usb.service >/dev/null 2>&1
     print_success "Rescue tool installed. USB stick: an empty file WM-FACTORY (restore) or WM-RESCUE (window), checked at boot."
 }
@@ -863,6 +870,7 @@ remove_rescue() {
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would remove the rescue tool${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then echo "[test] remove rescue tool" >> "$HOME_DIR/.sudo.log"
     else
+        sudo systemctl stop wm-screen-mode-web.service 2>/dev/null; sudo rm -f /etc/systemd/system/wm-screen-mode-web.service /etc/sudoers.d/wm-screen-mode /usr/local/sbin/wm-screen-mode /usr/local/sbin/wm-screen-mode-web.py
         sudo rm -f /etc/systemd/system/wm-screen-rescue.service /etc/systemd/system/wm-screen-usb.service /etc/sudoers.d/wm-screen-rescue \
                    "$RESCUE_BIN" "$RESCUE_WIN" /etc/X11/wm-rescue-fbdev.conf /run/wm-rescue.reason; sudo systemctl daemon-reload
     fi

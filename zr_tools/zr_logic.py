@@ -382,6 +382,25 @@ def factory_restore_command(script=None):
     return ["sudo", "-n", script or BOARD_SCRIPT, "--factory-restore", "--yes", "--detach"]
 
 
+MODE_SCRIPT = "/usr/local/sbin/wm-screen-mode"                  # root-owned; sudoers allows only "factory once" and "factory keep"  # modeswitch-done
+
+
+def mode_available(script=None, marker=None):
+    """True on the screen board when the switch script is installed (the Factory software tile is shown then)."""
+    return board_mode(marker) and os.path.exists(script or MODE_SCRIPT)
+
+
+def mode_reboot_command(script=None):
+    """Reboot screen: restarts the whole screen board (the Pi is not touched). The script runs itself as its own unit first."""
+    return ["sudo", "-n", script or MODE_SCRIPT, "reboot"]
+
+
+def mode_command(kind, script=None):
+    """kind = once (KlipperScreen is back after a reboot) or keep (the factory software stays). The script runs itself as its own
+    unit, because stopping KlipperScreen would kill it."""
+    return ["sudo", "-n", script or MODE_SCRIPT, "factory", kind]
+
+
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ducati1198/WM_Ultra_Vanilla_Klipper/main/SCREEN_VERSION"   # the screen has its own version since S1.0.0 (the Pi installer has VERSION)
 BOARD_VERSION_FILE = os.path.join(BOARD_DIR, "screen_version")   # written by scripts/screen_board.sh at install and after every update (S1.0.0 style)
 

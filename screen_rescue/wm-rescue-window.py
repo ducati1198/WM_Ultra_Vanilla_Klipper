@@ -36,6 +36,16 @@ progressbar text { color: #ffffff; font-size: 16px; }
 STEP_RE = re.compile(r"^STEP (\d+)/(\d+) (.*)$")
 
 
+def board_ip():
+    """This board's address on the network, for the text that says where to open the page (a plain word when it is not known)."""
+    import socket
+    try:
+        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); sk.connect(("10.255.255.255", 1)); ip = sk.getsockname()[0]; sk.close()
+        return ip
+    except OSError:
+        return "this-board"
+
+
 class Rescue(Gtk.Window):
     def __init__(self, args):
         super().__init__(title="WonderMaker screen rescue")
@@ -107,6 +117,11 @@ class Rescue(Gtk.Window):
             "Reboot the board?", "The board restarts. KlipperScreen starts again by itself if it can.",
             "Yes, reboot", lambda: self.run_and_show("reboot", "Rebooting..."), "stop"), "plain"), 0, 1, 1, 1)
         grid.attach(self.button("More...", lambda: self.stack.set_visible_child_name("more"), "plain"), 1, 1, 1, 1)
+        grid.attach(self.button("Use the factory software", lambda: self.ask(
+            "Use the factory software?",
+            "KlipperScreen stops and the factory software starts. Nothing is removed.\n\nTo come back to KlipperScreen: open "
+            "http://" + board_ip() + ":8099 in a browser, or plug in a USB stick with an empty file named WM-KLIPPERSCREEN and restart the board.",
+            "Yes, use the factory software", lambda: self.run_with_progress("factory-software", "Factory software", False), "warn"), "warn"), 0, 2, 2, 1)  # modeswitch-done
         p.pack_start(grid, True, True, 0)
         self.status = self.label("", "small"); p.pack_start(self.status, False, False, 0)
 
@@ -121,6 +136,14 @@ class Rescue(Gtk.Window):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True, row_homogeneous=True)
         items = [("Show error details", lambda: self.show_text("Error details", self.act("details"))),
                  ("Network status", lambda: self.show_text("Network status", self.act("net"))),
+                 ("USB stick help", lambda: self.show_text("How to use a USB stick",
+                     "WM-KLIPPERSCREEN: back to KlipperScreen from the factory software.\n"
+                     "WM-RESCUE: opens this rescue window.\n"
+                     "WM-FACTORY: full factory restore (removes KlipperScreen).\n\n"
+                     "1. Take a USB stick (FAT32, as most are).\n"
+                     "2. Make an empty file with that name in its main folder (no .txt at the end).\n"
+                     "3. Plug the stick into the board and restart the board.\n"
+                     "The stick is only read while the board starts. The file is renamed .done after it is used.")),
                  ("Reset KlipperScreen settings", lambda: self.ask(
                      "Reset KlipperScreen settings?",
                      "KlipperScreen goes back to its default settings. The Pi address is kept and your current settings are saved first.",
@@ -224,7 +247,7 @@ class Rescue(Gtk.Window):
             self.set_progress(0.75, "Restoring the factory software...")
             self.prog_timer = GLib.timeout_add(1000, self.estimate_tick)
         else:
-            self.set_progress(1.0, "Done. KlipperScreen is starting...")
+            self.set_progress(1.0, "Done. The factory software is starting..." if title == "Factory software" else "Done. KlipperScreen is starting...")
         return False
 
     def estimate_tick(self):

@@ -1,0 +1,151 @@
+#!/bin/bash
+# =============================================================================
+# wm-screen-mode  -  switch the WonderMaker screen board between KlipperScreen and the factory software
+# Nothing is removed: only services are stopped and started. (The full restore is wm-factory-restore --factory-restore.)
+# Installed by scripts/screen_board.sh as /usr/local/sbin/wm-screen-mode (root). Used by:
+#   KlipperScreen  ZR Tools > More > System > Factory software      (sudo wm-screen-mode factory once|keep)
+#   the rescue window  "Use the factory software"                   (wm-screen-mode factory keep, as root)
+#   wm-screen-mode-web.service  the page http://BOARD:8099           (wm-screen-mode klipperscreen)
+#   wm-screen-rescue usb-check  a USB stick named WM-KLIPPERSCREEN   (wm-screen-mode klipperscreen)
+#
+#   wm-screen-mode factory once|keep [--stop-pi-klipper]   once = KlipperScreen comes back at the next reboot
+#                                                          keep = the factory software stays after a reboot
+#   wm-screen-mode klipperscreen [--start-pi-klipper]      back to KlipperScreen (factory software stopped)
+#   wm-screen-mode status                                   prints: mode=klipperscreen|factory|none
+# Environment (tests): WM_HOME, WM_MODE_LOG, WM_MODE_DRY=1 (only log what would happen), WM_MODE_NO_DETACH=1
+# =============================================================================
+set -u
+WM_USER="${WM_USER:-t13dp}"
+HOME_DIR="${WM_HOME:-/home/$WM_USER}"
+BK="$HOME_DIR/wm-screen-backup"
+MODE_FILE="$BK/screen_mode"
+CFG="$HOME_DIR/printer_data/config/KlipperScreen.conf"
+LOG="${WM_MODE_LOG:-/var/log/wm-screen-mode.log}"
+DRY="${WM_MODE_DRY:-0}"
+SELF="$(readlink -f "$0")"
+# Same list as wm-screen-rescue / screen_board.sh: the factory board's services and what state they had.
+FACTORY_DEFAULT="makerbase-client enabled active
+klipper disabled active
+moonraker enabled active
+nginx enabled active
+crowsnest enabled inactive
+makerbase-webcam enabled inactive
+klipper-mcu enabled active
+hostapd disabled inactive"
+WEB_UNIT="wm-screen-mode-web.service"
+
+log() { echo "$(date '+%F %T') $*" >> "$LOG" 2>/dev/null; }
+step() { echo "STEP $1/$2 $3"; log "step $1/$2 $3"; }
+doit() { if [ "$DRY" = 1 ]; then log "[dry] would run: $*"; echo "[test mode] would run: $*"; else "$@"; fi; }
+unit_exists() { systemctl cat "$1.service" >/dev/null 2>&1; }
+factory_list() { if [ -s "$BK/disabled.list" ]; then cat "$BK/disabled.list"; else printf '%s\n' "$FACTORY_DEFAULT"; fi; }
+pi_host() { grep -E '^moonraker_host:' "$CFG" 2>/dev/null | head -1 | sed 's/^moonraker_host:[[:space:]]*//'; }
+
+print_state() {   # $1 = host; prints printing | paused | standby | ... or "unknown"
+    local h="$1" out
+    out="$(curl -s -m 4 "http://$h:7125/printer/objects/query?print_stats=state" 2>/dev/null)" || { echo unknown; return; }
+    echo "$out" | python3 -c 'import sys,json
+try: print(json.load(sys.stdin)["result"]["status"]["print_stats"]["state"])
+except Exception: print("unknown")' 2>/dev/null || echo unknown
+}
+refuse_if_printing() {   # $1 = host, $2 = what to call it
+    local st; st="$(print_state "$1")"
+    case "$st" in printing|paused)
+        echo "A print is running on $2 ($st). Not switching during a print."; log "refused: print $st on $2"; exit 3 ;; esac
+}
+actual_mode() {
+    if systemctl is-active --quiet KlipperScreen; then echo klipperscreen
+    elif systemctl is-active --quiet makerbase-client; then echo factory
+    else echo none; fi
+}
+detach() {   # a switch stops KlipperScreen, which would kill this script (it is started from inside KlipperScreen), so it runs as its own unit
+    [ "${WM_DETACHED:-0}" = 1 ] && return 0
+    [ "${WM_MODE_NO_DETACH:-0}" = 1 ] && return 0
+    log "detaching: $*"
+    exec systemd-run --quiet --no-block --collect --setenv=WM_DETACHED=1 --unit="wm-screen-mode-job-$(date +%s)" "$SELF" "$@"
+}
+pi_service() {   # $1 = start|stop : only when asked (--stop-pi-klipper / --start-pi-klipper)
+    local h; h="$(pi_host)"; [ -n "$h" ] || { log "no Pi address, Klipper on the Pi not changed"; return 0; }
+    log "Klipper on the Pi ($h): $1"; doit curl -s -m 15 -X POST "http://$h:7125/machine/services/$1?service=klipper" >/dev/null 2>&1 || true
+}
+
+# boot setting: once = KlipperScreen enabled, factory services disabled (KlipperScreen is back after a reboot)
+#               keep = KlipperScreen disabled, the factory services enabled as they were at the factory
+set_boot() {
+    local kind="$1" u e a
+    if [ "$kind" = keep ]; then
+        doit systemctl disable KlipperScreen
+        while read -r u e a; do [ -n "$u" ] && unit_exists "$u" && [ "$e" = enabled ] && doit systemctl enable "$u"; done < <(factory_list)
+        doit systemctl enable "$WEB_UNIT"
+    else
+        doit systemctl enable KlipperScreen
+        while read -r u e a; do [ -n "$u" ] && unit_exists "$u" && doit systemctl disable "$u"; done < <(factory_list)
+        doit systemctl disable "$WEB_UNIT"
+    fi
+}
+
+cmd_factory() {
+    local kind="${1:-}"; shift || true
+    case "$kind" in once|keep) ;; *) echo "usage: wm-screen-mode factory once|keep"; exit 2 ;; esac
+    local stoppi=0; for a in "$@"; do [ "$a" = --stop-pi-klipper ] && stoppi=1; done
+    [ -d "$BK" ] || { echo "This is not a screen board with KlipperScreen installed ($BK missing)."; exit 4; }
+    refuse_if_printing "$(pi_host)" "the Pi"
+    [ "$stoppi" = 1 ] && set -- --stop-pi-klipper || set --
+    detach factory "$kind" "$@"
+    log "== factory $kind (was $(actual_mode))"
+    local lines=() u e a i
+    while read -r u e a; do [ -n "$u" ] && unit_exists "$u" && lines+=("$u $e $a"); done < <(factory_list)
+    step 1 4 "Stopping KlipperScreen"
+    [ "$stoppi" = 1 ] && pi_service stop
+    doit systemctl stop wm-screen-rescue.service
+    doit systemctl stop KlipperScreen
+    doit systemctl start "$WEB_UNIT"     # first: the page at http://BOARD:8099 must be there at once, the steps below can take 30 seconds
+    step 2 4 "Starting the factory services"
+    for (( i=${#lines[@]}-1; i>=0; i-- )); do   # the reverse of the stop order, as the factory restore does it
+        read -r u e a <<<"${lines[$i]}"; [ "$u" = hostapd ] && continue
+        [ "$a" = active ] && doit systemctl start "$u"
+    done
+    step 3 4 "Saving the choice ($kind)"
+    set_boot "$kind"
+    echo "factory-$kind" > "$MODE_FILE" 2>/dev/null; chown "$WM_USER" "$MODE_FILE" 2>/dev/null
+    step 4 4 "Done"
+    log "factory $kind done, now $(actual_mode)"
+}
+
+cmd_klipperscreen() {
+    local startpi=0; for a in "$@"; do [ "$a" = --start-pi-klipper ] && startpi=1; done
+    [ -d "$BK" ] || { echo "This is not a screen board with KlipperScreen installed ($BK missing)."; exit 4; }
+    refuse_if_printing 127.0.0.1 "the factory software"
+    [ "$startpi" = 1 ] && set -- --start-pi-klipper || set --
+    detach klipperscreen "$@"
+    log "== klipperscreen (was $(actual_mode))"
+    local u e a
+    step 1 4 "Stopping the factory services"
+    while read -r u e a; do [ -n "$u" ] && unit_exists "$u" && [ "$u" != hostapd ] && doit systemctl stop "$u"; done < <(factory_list)
+    step 2 4 "Saving the choice"
+    set_boot once
+    step 3 4 "Starting KlipperScreen"
+    doit systemctl reset-failed KlipperScreen
+    doit systemctl start KlipperScreen
+    [ "$startpi" = 1 ] && pi_service start
+    echo "klipperscreen" > "$MODE_FILE" 2>/dev/null; chown "$WM_USER" "$MODE_FILE" 2>/dev/null
+    doit systemctl stop --no-block "$WEB_UNIT"
+    step 4 4 "Done"
+    log "klipperscreen done, now $(actual_mode)"
+}
+
+cmd_reboot() {   # the whole screen board restarts; KlipperScreen (or the factory software, as saved) comes back by itself. Does not touch the Pi.
+    detach reboot
+    log "== reboot of the screen board (was $(actual_mode))"
+    sleep 2
+    doit systemctl reboot
+}
+
+case "${1:-}" in
+    reboot) cmd_reboot ;;
+    factory) shift; cmd_factory "$@" ;;
+    klipperscreen) shift; cmd_klipperscreen "$@" ;;
+    status) echo "mode=$(actual_mode)"; echo "saved=$(cat "$MODE_FILE" 2>/dev/null || echo none)"
+            echo "print_pi=$(print_state "$(pi_host)")"; echo "print_local=$(print_state 127.0.0.1)" ;;
+    *) echo "usage: wm-screen-mode factory once|keep | klipperscreen | reboot | status"; exit 1 ;;
+esac

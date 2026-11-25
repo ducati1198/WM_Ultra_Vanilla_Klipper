@@ -434,8 +434,11 @@ class Smoke(unittest.TestCase):
         self.assertEqual(seen, ["_ZR_LOAD T=1", "_ZR_RETRACT T=1"])           # no ACE: regular load, retract
         del seen[:]
         p.st["ace_instance_0"] = {"connection_state": "connected", "slots": [], "dryer_status": {"status": "stop"}}
+        gc = []
+        p._gcode = lambda s: gc.append(s)
         p._act_load(2); p._act_unload(2)
-        self.assertEqual(seen, ["ACE_WM_LOAD T=2", "ACE_WM_UNLOAD T=2"])    # ACE connected
+        self.assertEqual(seen, [])                                           # ACE connected: no screen confirm (F-243),
+        self.assertEqual(gc, ["ACE_WM_LOAD T=2", "ACE_WM_UNLOAD T=2"])       # the macro opens its own Start window
         del seen[:]
         p.st["ace_instance_0"]["connection_state"] = "disconnected"
         p._act_load(0); p._act_unload(0)

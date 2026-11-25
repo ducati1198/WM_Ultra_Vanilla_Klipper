@@ -1,0 +1,2 @@
+# WonderMaker screen board: switch between KlipperScreen and the factory software (the two exact commands only)
+t13dp ALL=(root) NOPASSWD: /usr/local/sbin/wm-screen-mode factory once, /usr/local/sbin/wm-screen-mode factory keep, /usr/local/sbin/wm-screen-mode reboot

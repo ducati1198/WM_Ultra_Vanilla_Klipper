@@ -15,6 +15,9 @@ import colorsys
 import cairo
 import json
 import logging
+import re as _re_zr
+# F-236: green banners that stay (print paused/resumed/cancelled, filament problems, idle timeout, errors)
+_ZR_KEEP_BANNER = _re_zr.compile(r"pause|resum|cancel|tangle|runout|run out|feed assist was lost|no filament|idle timeout|error|fail|stopp|abort|emergency|shutdown", _re_zr.I)
 import math
 import threading
 import time
@@ -237,7 +240,7 @@ class Panel(ViewsMixin, ScreenPanel):
             e.append(("settings", "Tools", self.show_utilities, ("utilities", "cal_cat", "growth")))
         if L.has_ace(self.st):
             e.append(("spool", "ACE", self.show_ace, ("ace", "ace_feed", "ace_endless", "ace_dryer")))
-        more = ("more", "hub", "collision", "extras", "system", "settings", "mapping")
+        more = ("more", "hub", "collision", "extras", "system", "settings", "mapping", "mapgraph")
         e.append(("main", "More", self.show_more, more + (("utilities", "cal_cat") if self.tiny else ())))
         return e
 
@@ -2060,8 +2063,7 @@ class Panel(ViewsMixin, ScreenPanel):
         if not self._require_idle():
             return
         if self._ace_connected():           # ACE feeds the filament to this toolhead
-            self._confirm("Load from ACE", f"Feed ACE slot {i + 1} to toolhead {i + 1} and load it?",
-                          f"ACE_WM_LOAD T={i}", f"ACE loading T{i + 1}")
+            self._gcode(f"ACE_WM_LOAD T={i}")        # F-243: the macro opens its own Start window
             return
         self._confirm("Load filament",
                       f"Press OK: toolhead {i + 1} is picked up and heated at the wipe area to its saved temperature.\n"
@@ -2073,8 +2075,7 @@ class Panel(ViewsMixin, ScreenPanel):
         if not self._require_idle():
             return
         if self._ace_connected():           # ACE pulls the filament back into its slot
-            self._confirm("Unload to ACE", f"Unload toolhead {i + 1} and pull the filament back into ACE slot {i + 1}?",
-                          f"ACE_WM_UNLOAD T={i}", f"ACE unloading T{i + 1}")
+            self._gcode(f"ACE_WM_UNLOAD T={i}")      # F-243: the macro opens its own Start window
             return
         self._confirm("Unload filament",
                       f"Unload filament from toolhead {i + 1}?\n"
@@ -2597,6 +2598,19 @@ class Panel(ViewsMixin, ScreenPanel):
         orig = scr.show_popup_message
 
         def wrapped(*a, **k):
+            # F-236: only the important green banners pop up. A green banner from Klipper (RESPOND / echo:)
+            # that is not on the keep list goes to the notification bell and the log only. Red and orange
+            # banners, and the messages the ZR panel itself shows after a tap, always pop up.
+            try:
+                msg = a[0] if a else k.get("message", "")
+                level = a[1] if len(a) > 1 else k.get("level", 3)
+                from_ws = a[2] if len(a) > 2 else k.get("from_ws", False)
+                if level == 1 and from_ws and not _ZR_KEEP_BANNER.search(str(msg)):
+                    scr.log_notification(msg, level)
+                    logging.info("banner hidden (not important): %s" % msg)
+                    return None
+            except Exception as e:
+                logging.error("ZR: banner filter failed: %s" % e)
             r = orig(*a, **k)
             Panel._center_banner(scr)
             return r

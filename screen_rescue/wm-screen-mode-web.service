@@ -1,0 +1,11 @@
+[Unit]
+Description=WonderMaker: page to go back to KlipperScreen (only while the factory software runs)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/sbin/wm-screen-mode-web.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

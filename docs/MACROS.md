@@ -1,6 +1,6 @@
 # MACROS.md - every macro of the WonderMaker Ultra / Ultra-S on the Raspberry Pi
 
-Generated 2026-11-18 from the live config of the dev Pi (the main RPi4), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
+Generated 2026-11-18 from the live config of the dev Pi (10.11.88.35), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
 Klipper v0.13.0-827-g29d4ec2d6 (upstream master 2026-11-10 + WonderMaker additions, see DIFFERENCES.md), Moonraker newer than 0.11.0, Fluidd v1.38.0 (patched, see FLUIDD.md), Debian 12.  
 Checked against: Klipper docs of the installed version (`reference/klipper-docs-0.13.0-827-g29d4ec2d6/docs/G-Codes.md`, online https://www.klipper3d.org/G-Codes.html), the live command registry of the running Klipper (`/printer/gcode/help`) and the Klipper source on the Pi, 2026-11-18.
 
@@ -50,6 +50,7 @@ WonderMaker factory tool change (lock/unlock, T0-T3)
 - **Risk**: none  |  **Tags**: tool-change  |  **Fluidd**: WM Ultra Tool Change
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _UNLOCK_TOOL
+- **Change 2026-11-24 (F-241)**: wait before unlock G4 P300 -> G4 P1000 (factory), the F-031 speed-up is undone here; the last 15 mm into the dock stay F1000.
 - **File / lines**: change_macros.cfg L7-59 (gcode_macro)
 - **What it does**: Puts the carried tool head back into its dock: moves to the dock position (homing XY first if needed), unlocks, checks it worked.
 - **Calls**: SET_GCODE_OFFSET, UNLOCK, _CHECK_AND_UNLOCK, z_rise
@@ -60,6 +61,7 @@ WonderMaker factory tool change (lock/unlock, T0-T3)
 - **Risk**: MOVES THE TOOLHEAD, ACE (+ through the macros it calls: HEATS)  |  **Tags**: tool-change  |  **Fluidd**: —
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _CHECK_AND_UNLOCK
+- **Change 2026-11-24 (F-241)**: back-off after unlock G0 Y310 F12000 -> F6000 (factory), because the user wants factory dock speed.
 - **File / lines**: change_macros.cfg L60-78 (gcode_macro)
 - **What it does**: After UNLOCK: checks that a head was really released; on failure stores a tool-change error.
 - **Calls**: UNLOCK, UNLOCK_TOOL_FINISH
@@ -100,6 +102,7 @@ WonderMaker factory tool change (lock/unlock, T0-T3)
 - **Risk**: none  |  **Tags**: tool-change  |  **Fluidd**: —
 - **Tested**: no per-macro record in FIX-LOG.md
 ### _LOCK_TOOL
+- **Change 2026-11-24 (F-241)**: grab approach is now F9600 up to 15 mm before the tool, then the last 15 mm at F1000 (new, like the park); back-off after lock F12000 -> F9600 (factory).
 - **File / lines**: change_macros.cfg L123-169 (gcode_macro)
 - **What it does**: Picks a tool head up from its dock (homing XY first if needed), locks it, checks head order.
 - **Calls**: SET_GCODE_OFFSET, _CHECK_AND_LOCK, _CHECK_T_SEQUENCE, z_rise
@@ -2595,15 +2598,24 @@ Installer part: calibration (first run, Z trim, setter, offsets, PID, shaper, me
 - **Risk**: none  |  **Tags**: calibration  |  **Fluidd**: —
 - **Tested**: no per-macro record in FIX-LOG.md
 ### WM_FULL_OFFSET_CAL
-- **File / lines**: rpi_calibration.cfg L1451-1483 (gcode_macro)
-- **What it does**: Guided offset calibration in windows: step 1 X and Y offsets with clean nozzles (WM_OFFSETS_ACCURATE), step 2 hot Z offsets, step 3 nozzle heat growth. After it you print a first layer test and adjust the Z trim
-- **Calls**: -
-- **Called by**: - (entry point: Fluidd / screen / slicer / console)
-- **Variables**: -
-- **Uses**: reads printer.save_variables; sets variables of _WM_ZHOT
-- **Commands**: all exist (built-in/module commands used: RESPOND, SET_GCODE_VARIABLE) - checked 2026-11-18
+- **File / lines**: rpi_calibration.cfg (gcode_macro), changed 2026-11-24 (F-230)
+- **What it does**: First window of the Full offset calibration in the e-step window model: short text, What it does (_WM_ZCAL_INFO), Start (_WM_ZCAL_ALL), Cancel. Old version (guided, one window per step with Skip buttons) removed 2026-11-24 because the user asked for the window model
+- **Calls**: _WM_CAL_PRECHECK, _WM_ZCAL_INFO (button), _WM_ZCAL_ALL (button)
+- **Called by**: - (entry point: Fluidd / screen / console); Back button of _WM_ZCAL_INFO, Overview button of _WM_ZCAL_WIN
+- **Variables**: sets _WM_ZHOT chain 0
+- **Commands**: RESPOND, SET_GCODE_VARIABLE
 - **Risk**: ACE, LOAD CELL / SETTER  |  **Tags**: calibration  |  **Fluidd**: RPI Calibration
-- **Tested**: no per-macro record in FIX-LOG.md
+- **Tested**: windows seen on the pi400 devbox 2026-11-24; real run not tested
+### _WM_ZCAL_INFO
+- **What it does**: What it does window of WM_FULL_OFFSET_CAL: the 3 steps (step 3 says skipped when wm_nozzle_growth_meas > 0), what is saved, Back / Close. New 2026-11-24 (F-230)
+- **Called by**: WM_FULL_OFFSET_CAL (button)
+### _WM_ZCAL_ALL
+- **What it does**: Start of WM_FULL_OFFSET_CAL: nozzle clean (WM_NOZZLE_CLEAN THEN=_WM_ZCAL_ALL CLEANED=1), then _WM_WIN_WAIT + WM_OFFSETS_RAPID CONFIRM=1 CLEANED=1, _WM_WIN_WAIT + WM_OFFSETS_Z_HOT CONFIRM=1, _WM_WIN_WAIT + WM_NOZZLE_GROWTH_CAL T=0 HOT=250 CONFIRM=1 (only when growth is not measured), _WM_WIN_DONE, _WM_ZCAL_ALL_DONE. A step that dies: _WM_WIN_WATCH_RUN shows the stopped window, heaters off. New 2026-11-24 (F-230). The purge location of the offset flows is not touched
+- **Calls**: _WM_CAL_PRECHECK, WM_NOZZLE_CLEAN, _WM_WIN_WAIT, WM_OFFSETS_RAPID, WM_OFFSETS_Z_HOT, WM_NOZZLE_GROWTH_CAL, _WM_WIN_DONE, _WM_ZCAL_ALL_DONE
+- **Called by**: WM_FULL_OFFSET_CAL (button)
+### _WM_ZCAL_ALL_DONE
+- **What it does**: Result window after the whole run: saved X Y Z of T1 to T3, hot Z / growth not saved messages, heat growth value, Next hint, What comes next (_WM_ZCAL_WIN STEP=4), Close. New 2026-11-24 (F-230)
+- **Called by**: _WM_ZCAL_ALL
 ### _WM_ZCAL_WIN
 - **File / lines**: rpi_calibration.cfg L1484-1563 (gcode_macro)
 - **What it does**: Window of one step of WM_FULL_OFFSET_CAL (STEP=1 to 3, 4 is what comes after): what it does, how to, Start
@@ -4070,3 +4082,57 @@ Purge, push and heat spots moved from the wipe area (X-13 Y240) and X-13 Y80 to 
 
 ### F-228 (2026-11-23 18:00 Toronto, pi400 only)
 - WM_FIRST_RUN_CAL: window 1 now Start / Cancel footer + What it does button (old: Start Calibration, What is saved, Stop heaters). _WM_FRC_SAVED: now "What it does". _WM_FIRST_RUN_CAL: _WM_WIN_WAIT before each step, _WM_WIN_DONE at the end. New hidden helpers _WM_WIN* (see F-224). Guard on prompt_end in _WM_CAL_PRECHECK, WM_OFFSETS_Z_HOT, WM_NOZZLE_GROWTH_CAL, WM_NOZZLE_FULL_PID, _WM_SETTER_AUTO, _WM_SETTER_GO. Checked against pi400 rpi_calibration.cfg a7bcb492, 2026-11-23.
+
+## CHANGE 2026-11-24 (F-230 Full offset calibration in the e-step window model; checked against pi400 rpi_calibration.cfg aec8cbef (real config) and 605382c2 (devbox copy), 2026-11-24)
+- WM_FULL_OFFSET_CAL rewritten (short window, What it does, Start, Cancel); new hidden _WM_ZCAL_INFO, _WM_ZCAL_ALL, _WM_ZCAL_ALL_DONE. Old: overview with three guided step windows (_WM_ZCAL_WIN STEP=1..3), a Start per step and a result window per step (_WM_ZCAL_RUN / _WM_ZCAL_DONE). New: one Start runs all steps with a red please wait window ("Step n of N") before each; heat growth is skipped when already measured. Why: the user asked for the window model (mockup approved 2026-11-24 00:00). _WM_ZCAL_WIN (STEP=4 What comes next is still used), _WM_ZCAL_RUN and _WM_ZCAL_DONE stay in the file, no longer reached from the first window (to remove later, ask first). Backups: printer_data/config/backup/rpi_calibration.cfg.pre-f230-20261124-0003 and devbox/config/backup/...-0005. pi400 only; not on the .35, not in the repo.
+- 2026-11-24 00:14 F-230 transferred to the .35 (checked against .35 rpi_calibration.cfg 321fdf34, 2026-11-24). Same macros as the pi400; on the .35 step 3 is skipped because the growth is measured.
+
+
+## Change log: F-231 batch 1 (2026-11-24, pi400 only)
+- New hidden helpers: _WM_WIN_START (TITLE L1 L2 INFO GO), _WM_WIN_INFO (TITLE L1..L4 BACK), _WM_RAPID_INFO, _WM_ZHOT_INFO, _WM_GROWTH_INFO (T HOT), _WM_RAPID_DONE.
+- Changed: WM_OFFSETS_RAPID, WM_OFFSETS_Z_HOT, WM_NOZZLE_GROWTH_CAL (own-window pattern: wait and done windows only when run alone). _WM_CAL_ASK itself unchanged.
+
+## Change log: F-231 batch 2 (2026-11-24, pi400 dev box only)
+- New hidden helpers: _WM_LEVEL_INFO, _WM_SCREWS_INFO, _WM_SHAPER_INFO, _WM_PID_INFO (What it does windows, use _WM_WIN_INFO).
+- Changed: WM_BED_LEVELING, WM_SCREWS_CAL and WM_VIBRATION_COMP now open their start window with _WM_WIN_START (Start green, What it does blue, Cancel dark) instead of _WM_CAL_ASK. WM_NOZZLE_FULL_PID: the temperature window got a What it does button. The work inside the macros is unchanged. _WM_CAL_ASK itself unchanged (still used by the other stages).
+
+## Change log: F-231 batch 3 (2026-11-24, pi400 dev box only)
+- New hidden helpers: _WM_SPEED_INFO, _WM_BEDWARP_INFO (BED, AFTER), _WM_SETUP_INFO (What it does windows, use _WM_WIN_INFO). _WM_WIN_START got an optional LABEL= (name of the green button, default Start).
+- Changed: WM_AUTO_SPEED (start window "Start test"), WM_BED_WARP_MEASURE (Start, shows the chosen BED and AFTER), WM_EXTRUDER_SETUP (button "Set Up") now open _WM_WIN_START with a What it does button. All the old window text is kept in the What it does windows (gripper warning, CAN ids, save window, STOP macro). The work inside the macros is unchanged.
+
+## Change log: F-231 batch 4 (2026-11-24, pi400 dev box only)
+- New hidden helpers: _WM_PROBE_INFO (BED), _WM_ACC_INFO (What it does windows, use _WM_WIN_INFO).
+- Changed: WM_PROBE_CALIBRATE and _WM_OFFSETS_ACCURATE (first window only) now open _WM_WIN_START instead of _WM_CAL_ASK. _WM_CAL_ASK stages probe and offsets MODE=accurate are no longer used by them (stage offsets MODE=rapid is not used either since batch 1; the code stays). Accurate keeps its steps, the per tool Tool head window and its purge location untouched. All old text (BEFORE YOU START, guide link) is kept in the What it does window.
+
+## Change log: F-231 batch 5 (2026-11-24, pi400 dev box only)
+WM_NOZZLE_CHANGE and _WM_UNLOAD_ASK use _WM_WIN_START. New hidden helpers _WM_NCHANGE_INFO and _WM_UNLOAD_INFO. _WM_WIN_START has optional CANCEL=.
+
+## Change log: F-232 timelapse menu (2026-11-24, pi400 dev box only)
+New file rpi_timelapse.cfg: WM_TIMELAPSE (visible, Fluidd Timelapse category), hidden _WM_TL_MAIN, _WM_TL_QUALITY, _WM_TL_MODE, _WM_TL_PARK, _WM_TL_SET, _WM_TL_INFO, gcode_shell_command wm_timelapse (helper wm-tools/wm_timelapse.py). Moves nothing, heats nothing. timelapse.cfg itself untouched.
+
+## Change log: F-232 part 2 (2026-11-24, pi400 dev box)
+rpi_timelapse.cfg: added hidden _WM_TL_STATE, _WM_TL_SHOW, _WM_TL_CLOSE. Close of the timelapse window restarts Klipper after a change (not during a print). Back buttons use _WM_TL_SHOW.
+Change log F-232 part 3 (2026-11-24): Close button renamed Save and restart; new hidden _WM_TL_CANCEL.
+Change log F-232 part 4 (2026-11-24): WM_TIMELAPSE is in the Fluidd Timelapse category (colour #00bcd4) on the pi400. Not on the .35.
+
+## Change log: transferred to the .35 (2026-11-24 06:4x)
+F-231 windows (rpi_calibration.cfg, rpi_nozzle.cfg, rpi_base.cfg) and F-232 timelapse macros (WM_TIMELAPSE and the hidden _WM_TL_*) are live on the .35 as on the pi400.
+
+- Change 2026-11-24 (F-243): window added (What it does / Start), see FIX-LOG F-243. Macro: WM_BED_PID. Checked against installer 2.32.0, 2026-11-24.
+
+- Change 2026-11-24 (F-243): window added (What it does / Start), see FIX-LOG F-243. Macro: WM_NOZZLE_GROWTH. Checked against installer 2.32.0, 2026-11-24.
+
+- Change 2026-11-24 (F-243): window added (What it does / Start), see FIX-LOG F-243. Macro: ACE_WM_LOAD. Checked against installer 2.32.0, 2026-11-24.
+
+- Change 2026-11-24 (F-243): window added (What it does / Start), see FIX-LOG F-243. Macro: ACE_WM_UNLOAD. Checked against installer 2.32.0, 2026-11-24.
+
+- Change 2026-11-24 (F-243): window added (What it does / Start), see FIX-LOG F-243. Macro: WM_RESUME_TOOL. Checked against installer 2.32.0, 2026-11-24.
+
+## CHANGE 2026-11-25 (F-243 details, installer 2.33.0 / panel 1.22.0; checked against rpi-cfg/rpi_calibration.cfg, rpi-cfg/rpi_base.cfg of the installer work copy and config/rpi_ace.cfg of the panel work copy on the pi400, 2026-11-25)
+- New hidden helpers (What it does windows, all call _WM_WIN_INFO): _WM_BEDPID_INFO (rpi_calibration.cfg, TARGET= passed to Back), _WM_GROWTHSET_INFO (rpi_calibration.cfg), _WM_RTOOL_INFO (rpi_base.cfg), _WM_ACELOAD_INFO and _WM_ACEUNLOAD_INFO (rpi_ace.cfg, T= passed to Back).
+- WM_BED_PID: the Start window (_WM_BEDPID_START) has a What it does button in the footer row. Old: Start / Cancel only.
+- WM_RESUME_TOOL: window 1 (_WM_RTOOL_SHOW1) has a What it does button. Old: tool buttons and Cancel only.
+- WM_NOZZLE_GROWTH without VALUE: old: one console line. New: the same line plus a status window (Use measured value, Turn off, What it does, Close).
+- ACE_WM_LOAD / ACE_WM_UNLOAD: old: ran at once. New: run by hand (no CONFIRM, T=0-3, not printing) they open _WM_WIN_START (Start / What it does / Cancel); Start calls the macro again with CONFIRM=1. Callers that pass CONFIRM=1: the ACE watcher, the unload queue, _WM_ACE_ASK_YES (rpi_ace.cfg) and the Load and Unload menus (rpi_base.cfg).
+- 2026-11-25 addition: the window is opened only when the macro _WM_WIN_START exists (printer["gcode_macro _WM_WIN_START"] is defined), so the panel still works on a Pi without the Pi installer (there the macros run at once, as before). Why: the panel project must not need a macro of the installer.
+- Not tested by the user yet.

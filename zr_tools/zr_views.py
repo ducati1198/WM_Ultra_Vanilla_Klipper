@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import socket
+import sys
 import subprocess
 import threading
 import time
@@ -20,6 +21,11 @@ try:
     from panels import zr_logic as L
 except ImportError:                      # tests import it from the same folder
     import zr_logic as L
+
+def _mg_rgb(color_int):
+    color_int = int(color_int or 0) & 0xFFFFFF
+    return (color_int >> 16) & 0xFF, (color_int >> 8) & 0xFF, color_int & 0xFF
+
 
 NTOOLS = 4
 
@@ -95,6 +101,7 @@ class ViewsMixin:
         if not include_main and getattr(self, "tiny", False):     # the Calibrate tab is hidden on a tiny screen
             items.append(("settings", "Calibration", self.show_utilities))
         items += [("shuffle", "Tool map", self.show_mapping),
+                  ("shuffle", "Print map", self.show_map_graph),
                   ("fan", "Fans", lambda: self._open_stock("fan", "Fan")),
                   ("retract", "Pressure", lambda: self._open_stock("pressure_advance", "Pressure advance"))]
         items.append(("filament", "Sensors", lambda: self._open_stock("wm_sensors", "Sensors")))   # all sensors, friendly label and real name
@@ -132,6 +139,179 @@ class ViewsMixin:
     # ------------------------------------------------------------------
     # FILAMENT (the existing tool view: heat, load, unload, purge, colour/material/PA editor)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # F-237: PRINT MAP page: a graphic of the filament in the file -> the toolhead that prints it
+    # ------------------------------------------------------------------
+    def show_map_graph(self):
+        self.view = "mapgraph"
+        self._clear()
+        self.root.pack_start(self._header("Print map"), False, False, 0)
+        self.w["mg_note"] = self._label("", "zr_small")
+        self.root.pack_start(self.w["mg_note"], False, False, 0)
+        da = Gtk.DrawingArea()
+        da.connect("draw", self._mg_draw)
+        self.w["mg_area"] = da
+        self.root.pack_start(da, True, True, 0)
+        self._mg_rows = []
+        self._mg_file = None
+        self._mg_sig = None
+        self._mg_load()
+        self._mg_refresh(force=True)
+        self.root.show_all()
+
+    def _mg_filename(self):
+        ps = self.st.get("print_stats") or {}
+        if ps.get("state") in ("printing", "paused") and ps.get("filename"):
+            return ps.get("filename"), True
+        return str(self._vars().get("wm_map_file") or ""), False
+
+    def _mg_load(self):
+        name, running = self._mg_filename()
+        self._mg_file = name
+        self._mg_running = running
+        self._mg_rows = []
+        if not name:
+            return
+        try:
+            self._screen._ws.api.get_file_metadata(name, self._mg_meta_cb)
+        except Exception as e:
+            logging.error("ZR: print map metadata failed: %s" % e)
+
+    def _mg_meta_cb(self, result, method, params):
+        meta = result if isinstance(result, dict) and "error" not in result else {}
+        GLib.idle_add(self._mg_meta_done, (params or {}).get("filename"), meta)
+
+    def _mg_meta_done(self, name, meta):
+        if self.view != "mapgraph" or name != self._mg_file:
+            return False
+        self._mg_rows = sys.modules[type(self).__module__].file_colours(meta)
+        self._mg_sig = None
+        self._mg_refresh(force=True)
+        return False
+
+    def _mg_refresh(self, force=False):
+        name, running = self._mg_filename()
+        if name != self._mg_file or running != self._mg_running:
+            self._mg_load()
+        heads = tuple((self._tool_info(h)["color"], self._mat_name(h), bool(self._map_head(h)[1])) for h in range(4))
+        sig = (tuple(self._mapping()), heads, name, running, len(self._mg_rows))
+        if sig == self._mg_sig and not force:
+            return
+        self._mg_sig = sig
+        note = self.w.get("mg_note")
+        if note is not None:
+            if running:
+                note.set_text("Printing: %s" % self._map_base(name))
+            elif name:
+                note.set_text("No print running. The map of the next print (%s)." % self._map_base(name))
+            else:
+                note.set_text("No print running. This is the toolhead map for the next print.")
+        area = self.w.get("mg_area")
+        if area is not None:
+            area.queue_draw()
+
+    def _mg_draw(self, widget, cr):
+        W, H = widget.get_allocated_width(), widget.get_allocated_height()
+        rows = {r["tool"]: r for r in (self._mg_rows or [])}
+        tools = sorted(rows) if rows else list(range(4))
+        mp = self._mapping()
+        n = max(1, len(tools))
+        fs = max(11.0, min(20.0, H / 17.0))
+        top = fs * 2.0
+        rowh = min(70.0, (H - top - 6) / max(4, n) - 8)
+        gap = 8.0
+        lw = W * 0.38
+        rw = W * 0.38
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(fs * 0.85)
+        cr.set_source_rgb(0.6, 0.64, 0.7)
+        cr.move_to(2, fs * 1.1)
+        cr.show_text("IN THE FILE")
+        t = "ON THE TOOLHEADS"
+        cr.move_to(W - cr.text_extents(t).x_advance - 2, fs * 1.1)
+        cr.show_text(t)
+
+        def card(x, y, w, h):
+            r = 9
+            cr.new_sub_path()
+            cr.arc(x + w - r, y + r, r, -1.5708, 0)
+            cr.arc(x + w - r, y + h - r, r, 0, 1.5708)
+            cr.arc(x + r, y + h - r, r, 1.5708, 3.1416)
+            cr.arc(x + r, y + r, r, 3.1416, 4.7124)
+            cr.close_path()
+            cr.set_source_rgb(0.15, 0.17, 0.2)
+            cr.fill_preserve()
+            cr.set_source_rgb(0.25, 0.28, 0.32)
+            cr.set_line_width(1)
+            cr.stroke()
+
+        left = {}
+        for i, tl in enumerate(tools):
+            y = top + i * (rowh + gap)
+            card(0, y, lw, rowh)
+            c = rows[tl]["color"] if tl in rows else None
+            rr, gg, bb = _mg_rgb(c) if c is not None else (0x40, 0x40, 0x40)
+            rad = rowh * 0.28
+            cr.set_source_rgb(rr / 255.0, gg / 255.0, bb / 255.0)
+            cr.arc(rad + 14, y + rowh / 2, rad, 0, 6.2832)
+            cr.fill()
+            cr.set_source_rgb(1, 1, 1)
+            cr.set_line_width(1.2)
+            cr.arc(rad + 14, y + rowh / 2, rad, 0, 6.2832)
+            cr.stroke()
+            mat = (rows[tl].get("mat") if tl in rows else "") or ""
+            cr.set_font_size(fs)
+            cr.select_font_face("Sans", 0, 1)
+            cr.set_source_rgb(0.93, 0.94, 0.96)
+            cr.move_to(rad * 2 + 26, y + rowh / 2 + (0 if rowh < 44 else -2))
+            cr.show_text(("T%d" % tl) + ((" \u00b7 " + mat) if mat else ""))
+            if rowh >= 44:
+                cr.select_font_face("Sans", 0, 0)
+                cr.set_font_size(fs * 0.85)
+                cr.set_source_rgb(0.6, 0.64, 0.7)
+                cr.move_to(rad * 2 + 26, y + rowh / 2 + fs * 1.0)
+                cr.show_text("Filament %d" % (tl + 1))
+            left[tl] = (lw, y + rowh / 2, (rr, gg, bb))
+        right = {}
+        for h in range(4):
+            hh = rowh * 0.85
+            y = top + h * (rowh + gap) + (rowh - hh) / 2
+            card(W - rw, y, rw, hh)
+            info = self._tool_info(h)
+            has = bool(self._map_head(h)[1])
+            cr.select_font_face("Sans", 0, 1)
+            cr.set_font_size(fs)
+            cr.set_source_rgb(0.93, 0.94, 0.96)
+            cr.move_to(W - rw + 12, y + hh / 2 + fs * 0.35)
+            cr.show_text("T%d \u00b7 %s" % (h, (self._mat_name(h) or "Other") if has else "Empty"))
+            rr, gg, bb = _mg_rgb(info["color"]) if has else (0x30, 0x30, 0x30)
+            cr.set_source_rgb(rr / 255.0, gg / 255.0, bb / 255.0)
+            cr.arc(W - 22, y + hh / 2, hh * 0.24, 0, 6.2832)
+            cr.fill()
+            right[h] = (W - rw, y + hh / 2)
+        cr.set_line_cap(1)
+        for tl in tools:
+            try:
+                h = int(mp[tl])
+            except (IndexError, TypeError, ValueError):
+                h = tl
+            if h not in right or tl not in left:
+                continue
+            x0, y0, col = left[tl]
+            x1, y1 = right[h]
+            cr.set_source_rgb(col[0] / 255.0, col[1] / 255.0, col[2] / 255.0)
+            cr.set_line_width(max(3.0, rowh * 0.07))
+            if h == tl:
+                cr.set_dash([])
+            else:
+                cr.set_dash([0.1, 9.0])
+            cr.move_to(x0, y0)
+            mid = (x0 + x1) / 2.0
+            cr.curve_to(mid, y0, mid, y1, x1, y1)
+            cr.stroke()
+        cr.set_dash([])
+        return False
+
     # ------------------------------------------------------------------
     # F-235: MOVE page (home buttons, X Y Z jog, coordinates, motors off)
     # ------------------------------------------------------------------
@@ -654,13 +834,11 @@ class ViewsMixin:
 
     def _ace_load(self):
         if self._ace_idle_gate():
-            self._confirm("Load from ACE", "Feed slot T%d to the toolhead and load it?" % (self.ace_slot + 1),
-                          "ACE_WM_LOAD T=%d" % self.ace_slot, "ACE loading T%d" % (self.ace_slot + 1))
+            self._gcode("ACE_WM_LOAD T=%d" % self.ace_slot)   # F-243: the macro opens its own Start window
 
     def _ace_unload(self):
         if self._ace_idle_gate():
-            self._confirm("Unload to ACE", "Unload toolhead T%d and pull the filament back into the ACE?" % (self.ace_slot + 1),
-                          "ACE_WM_UNLOAD T=%d" % self.ace_slot, "ACE unloading T%d" % (self.ace_slot + 1))
+            self._gcode("ACE_WM_UNLOAD T=%d" % self.ace_slot) # F-243: the macro opens its own Start window
 
     def _ace_assist(self):
         a = L.ace_state(self.st)["slots"][self.ace_slot]["assist"]
@@ -800,6 +978,9 @@ class ViewsMixin:
                      ("shutdown", "Shut down the Pi", self._sys_shutdown)]
             if L.rescue_available():
                 tiles.insert(1, ("settings", "Rescue", self._sys_rescue))
+            if L.mode_available():     # modeswitch-done
+                tiles.insert(1, ("shuffle", "Factory software", self._sys_modeswitch))
+                tiles.insert(3, ("refresh", "Reboot screen", self._sys_reboot_screen))
         else:
             tiles = [("sd", "Backup settings", self._sys_backup),
                      ("refresh", "Reboot", self._sys_reboot),
@@ -900,6 +1081,86 @@ class ViewsMixin:
                            "KlipperScreen is removed, the factory services are turned back on and the board reboots.\n"
                            "The screen turns black: wait about 5 minutes for the WonderMaker app to appear.",
                            self._run_factory_restore)
+
+    def _sys_reboot_screen(self):
+        """Reboot screen: the whole screen board restarts. A print on the Pi keeps running, so there is no idle check."""
+        self._ask_page3("Reboot screen",
+                        "Reboot the screen board?\n"
+                        "The screen goes black and starts again in about a minute. KlipperScreen comes back by itself.\n"
+                        "A print on the Pi keeps running.",
+                        [("Reboot now", "zr_btn_green", self._run_reboot_screen),
+                         ("Cancel", "zr_btn", lambda: None)], no=None)
+
+    def _run_reboot_screen(self):
+        try:
+            subprocess.Popen(L.mode_reboot_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            self._screen.show_popup_message("Rebooting the screen board. The screen goes black for about a minute.", 1)
+        except OSError as e:
+            self._screen.show_popup_message("Could not reboot: %s" % e)
+
+    def _sys_modeswitch(self):
+        """Factory software: only a switch, nothing is removed (Factory mode, next to it, is the full restore)."""
+        if not self._require_idle():
+            return
+        self._ask_page3("Factory software",
+                        "KlipperScreen stops and the screen goes black for about 20 seconds. Nothing is removed.\n"
+                        "Not possible during a print. Printer on the Pi: stop its Klipper first.\n"
+                        "To come back: open http://%s:8099 in a browser, or use a USB stick named WM-KLIPPERSCREEN." % self._my_ip(),
+                        [("Until next reboot", "zr_btn_green", lambda: self._run_mode("once")),
+                         ("Stay after reboot", "zr_btn_primary", self._modeswitch_keep)])
+
+    def _modeswitch_keep(self):
+        """Stay after reboot: first say how to get back (the page on the board and the USB stick), then switch on Switch now."""
+        self._ask_page3("Stay after reboot",
+                        "The factory software stays on, also after a reboot.\n"
+                        "Way back 1: open http://%s:8099 in a browser and press Back to KlipperScreen.\n"
+                        "Way back 2: USB stick with an empty file named WM-KLIPPERSCREEN in the board, then restart the board." % self._my_ip(),
+                        [("Switch now", "zr_btn_green", lambda: self._run_mode("keep")),
+                         ("Cancel", "zr_btn", lambda: None)], no=None)
+
+    def _ask_page3(self, title, text, choices, no="Cancel"):
+        """Like the confirm page, with two choices side by side and Cancel below them."""
+        self.view = "ask"
+        self._clear()
+        self.root.pack_start(self._header(title), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(12)
+        card.pack_start(self._label(text, None, wrap=True), False, False, 0)
+        body.pack_start(card, False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        for label, css, func in choices:
+            b_ = self._button(None, label, "color3", lambda f=func: (self.back(), f()))
+            b_.get_style_context().add_class(css)
+            b_.set_size_request(-1, 78)
+            row.pack_start(b_, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        if no:
+            nb = self._button(None, no, "color3", self.back)
+            nb.set_size_request(-1, 60)
+            body.pack_start(nb, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
+        self.root.show_all()
+
+    def _my_ip(self):
+        """The address of this board on the network, for the text that says where to open the page. Falls back to a plain word."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except OSError:
+            return "this-board"
+
+    def _run_mode(self, kind):
+        try:
+            subprocess.Popen(L.mode_command(kind), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            self._screen.show_popup_message("Switching to the factory software. The screen goes black for about 20 seconds.", 1)
+        except OSError as e:
+            self._screen.show_popup_message("Could not switch: %s" % e)
 
     def _sys_rescue(self):
         self._confirm_call("Rescue window",
@@ -1040,12 +1301,24 @@ class ViewsMixin:
             self._screen.show_popup_message("Could not start the restore: %s" % e)
 
     def _sys_reboot(self):
+        """Reboot the Pi: same window style as Reboot screen. Not possible during a print."""
         if self._require_idle():
-            self._confirm_call("Reboot", "Reboot the Pi?", lambda: self._screen._ws.send_method("machine.reboot"))
+            self._ask_page3("Reboot the Pi",
+                            "Reboot the Pi?\n"
+                            "Klipper and Fluidd stop and start again in about a minute.\n"
+                            "Not possible during a print.",
+                            [("Reboot now", "zr_btn_green", lambda: self._screen._ws.send_method("machine.reboot")),
+                             ("Cancel", "zr_btn", lambda: None)], no=None)
 
     def _sys_shutdown(self):
+        """Shut down the Pi: same window style, red button. Not possible during a print."""
         if self._require_idle():
-            self._confirm_call("Shut down", "Shut the Pi down?", lambda: self._screen._ws.send_method("machine.shutdown"))
+            self._ask_page3("Shut down the Pi",
+                            "Shut down the Pi?\n"
+                            "Everything stops. To start it again, switch the printer power off and on.\n"
+                            "Not possible during a print.",
+                            [("Shut down now", "zr_btn_red", lambda: self._screen._ws.send_method("machine.shutdown")),
+                             ("Cancel", "zr_btn", lambda: None)], no=None)
 
     # ------------------------------------------------------------------
     # SCREEN SETTINGS (layout, density, theme)
@@ -1094,6 +1367,8 @@ class ViewsMixin:
             self._refresh_system()
         elif self.view == "growth":
             self._refresh_growth()
+        elif self.view == "mapgraph":
+            self._mg_refresh()
         elif self.view in ("hub", "more"):
             pass
 

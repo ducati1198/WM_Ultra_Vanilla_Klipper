@@ -663,5 +663,33 @@
   "new": "    {% endif %}\n    # B-081: two slicer tools can print with the same head (tool map after Resume tool or an endless spool swap). The slicer cools the\n    # tool it leaves (M104 S140 Tx) and that would cool the head the next tool change uses: it then waits for the cooldown and heats it\n    # again. While a print runs, a standby temperature (1-169 C, below the target) for a head that more than one slicer tool maps to is skipped.\n    {% set sv = printer.save_variables.variables %}\n    {% set hname = 'extruder' if t == 0 else 'extruder' ~ t %}\n    {% set ns = namespace(n=0) %}\n    {% for L in range(4) %}\n        {% if sv.get('box_modify_t' ~ L, L)|int == t %}\n            {% set ns.n = ns.n + 1 %}\n        {% endif %}\n    {% endfor %}\n    {% if 'T' in params and s > 0 and s < 170 and ns.n > 1 and hname in printer and printer[hname].target|float > s and printer.print_stats.state == \"printing\" %}\n        RESPOND MSG=\"Cooldown of slicer tool T{T + 1} skipped: head {t + 1} also prints another slicer tool\"\n    {% else %}\n        {% if t == 0 %}\n            SET_HEATER_TEMPERATURE HEATER=extruder TARGET={s}\n        {% else %}\n            SET_HEATER_TEMPERATURE HEATER=extruder{t} TARGET={s}\n        {% endif %}\n        {% if \"gcode_macro _WM_LIVEZ_HEAT\" in printer %}\n            _WM_LIVEZ_HEAT T={t} S={s}\n        {% endif %}\n    {% endif %}",
   "old": "    {% endif %}\n    {% if t == 0 %}\n        SET_HEATER_TEMPERATURE HEATER=extruder TARGET={s}\n    {% else %}\n        SET_HEATER_TEMPERATURE HEATER=extruder{t} TARGET={s}\n    {% endif %}\n    {% if \"gcode_macro _WM_LIVEZ_HEAT\" in printer %}\n        _WM_LIVEZ_HEAT T={t} S={s}\n    {% endif %}",
   "version": "2.23.1"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 1,
+  "new": "            M400\n            G4 P1000\n",
+  "old": "            M400\n            G4 P300\n",
+  "version": "2.33.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 2,
+  "new": "        UNLOCK\n        G0 Y310 F6000\n        M400",
+  "old": "        UNLOCK\n        G0 Y310 F12000\n        M400",
+  "version": "2.33.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 3,
+  "new": "        G0 X{position_x} Y310 F12000\n        G0 Y{position_y+0.4-15} F9600\n        G0 Y{position_y+0.4} F1000\n        M400",
+  "old": "        G0 X{position_x} Y310 F12000\n        G0 Y{position_y+0.4} F9600\n        M400",
+  "version": "2.33.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 4,
+  "new": "\n        G0 Y310 F9600\n        G0 Y270 F12000",
+  "old": "\n        G0 Y310 F12000\n        G0 Y270 F12000",
+  "version": "2.33.0"
  }
 ]
