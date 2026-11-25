@@ -1,6 +1,6 @@
 # MACROS.md - every macro of the WonderMaker Ultra / Ultra-S on the Raspberry Pi
 
-Generated 2026-11-18 from the live config of the dev Pi (10.11.88.35), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
+Generated 2026-11-18 from the live config of the dev Pi (the main RPi4), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
 Klipper v0.13.0-827-g29d4ec2d6 (upstream master 2026-11-10 + WonderMaker additions, see DIFFERENCES.md), Moonraker newer than 0.11.0, Fluidd v1.38.0 (patched, see FLUIDD.md), Debian 12.  
 Checked against: Klipper docs of the installed version (`reference/klipper-docs-0.13.0-827-g29d4ec2d6/docs/G-Codes.md`, online https://www.klipper3d.org/G-Codes.html), the live command registry of the running Klipper (`/printer/gcode/help`) and the Klipper source on the Pi, 2026-11-18.
 
@@ -4135,4 +4135,4 @@ F-231 windows (rpi_calibration.cfg, rpi_nozzle.cfg, rpi_base.cfg) and F-232 time
 - WM_NOZZLE_GROWTH without VALUE: old: one console line. New: the same line plus a status window (Use measured value, Turn off, What it does, Close).
 - ACE_WM_LOAD / ACE_WM_UNLOAD: old: ran at once. New: run by hand (no CONFIRM, T=0-3, not printing) they open _WM_WIN_START (Start / What it does / Cancel); Start calls the macro again with CONFIRM=1. Callers that pass CONFIRM=1: the ACE watcher, the unload queue, _WM_ACE_ASK_YES (rpi_ace.cfg) and the Load and Unload menus (rpi_base.cfg).
 - 2026-11-25 addition: the window is opened only when the macro _WM_WIN_START exists (printer["gcode_macro _WM_WIN_START"] is defined), so the panel still works on a Pi without the Pi installer (there the macros run at once, as before). Why: the panel project must not need a macro of the installer.
-- Not tested by the user yet.
+- Tested by the user 2026-11-25 8:20 am Toronto (their word).
