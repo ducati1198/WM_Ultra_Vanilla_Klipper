@@ -12,7 +12,21 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/fstmp"; export WM_TEST_TMP="$T/fstmp"   # the free-space helper must never see (and erase) the real /tmp, which holds this very copy of the tests
 PASS=0; FAIL=0
 check() { [ -z "${WM_ONLY:-}" ] || echo "$1" | grep -Eq -- "$WM_ONLY" || return 0   # WM_ONLY=regex runs only the checks whose name matches (to rerun failures)
-    if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; [ -z "${WM_FAIL_LOG:-}" ] || echo "$1" >> "$WM_FAIL_LOG"; fi; }
+    if eval "$2" >"$T/.check.out" 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; tail -n 6 "$T/.check.out" 2>/dev/null | cut -c1-300 | sed 's/^/        | /'; [ -z "${WM_FAIL_LOG:-}" ] || echo "$1" >> "$WM_FAIL_LOG"; fi; }   # a FAIL shows the last lines the check printed
+# Guards (2026-11-25). repo_guard: no test may change the repository copy under test (the installer's own repair step once put factory/ back
+# to the last commit in the middle of a run). real_sum: no test may touch the real home of the machine the suite runs on (a panel test once
+# re-linked the drivers in ~/klipper/klippy/extras to its throwaway copy, and the real Klipper stopped).
+REAL_HOME="${WM_REAL_HOME:-$HOME}"
+real_sum() { { find "$REAL_HOME/klipper/klippy/extras" -maxdepth 1 -type l -printf '%f>%l\n' 2>/dev/null | sort; ls "$REAL_HOME/klipper/klippy/extras" 2>/dev/null | wc -l; ls "$REAL_HOME/printer_data/config" 2>/dev/null | grep -v '^backup$' | wc -l; md5sum "$REAL_HOME/printer_data/config/moonraker.conf" 2>/dev/null; } | md5sum | cut -c1-12; }
+REAL_SUM0="$(real_sum)"
+repo_sum() { git -C "$ROOT" status --porcelain 2>/dev/null | md5sum | cut -c1-12; }
+repo_guard() {
+    [ -d "$ROOT/.git" ] || return 0
+    local s; s="$(repo_sum)"
+    if [ -z "${REPO_SUM:-}" ]; then REPO_SUM="$s"
+    elif [ "$s" != "$REPO_SUM" ]; then FAIL=$((FAIL+1)); echo "  FAIL a test changed the repository copy, in the section: ${CUR_SEC:-start}"; git -C "$ROOT" status --porcelain | head -n 6 | sed 's/^/        | /'; REPO_SUM="$s"; fi
+}
+sec() { repo_guard; echo "$1"; CUR_SEC="$1"; }
 
 mkstage() {  # make a fake WonderMaker tree and stage folder
     local s="$1" h="$T/src_home"; rm -rf "$h"
@@ -27,7 +41,9 @@ mkstage() {  # make a fake WonderMaker tree and stage folder
 mkdir -p "$T/stubpanel"; python3 -c "import zipfile;z=zipfile.ZipFile('$T/stubpanel/fluidd-stub.zip','w');z.writestr('index.html','<html>fluidd panel</html>');z.close()"
 inst() { local h="$1"; shift; WM_TEST_PANEL_DIR="${WM_TEST_PANEL_DIR:-$T/stubpanel}" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1; }
 
-echo "== basics"
+sec "== basics"
+check "the suite runs on a committed tree: no uncommitted change in factory/ (the installer's repair step would put it back in this copy)" "[ ! -d $ROOT/.git ] || [ -z \"\$(git -C $ROOT status --porcelain -- factory)\" ]"
+check "quick check (tools/quick_check.sh) passes" "bash $ROOT/tools/quick_check.sh"
 check "bash syntax installer" "bash -n $ROOT/installer.sh"
 check "bash syntax scripts" "for f in $ROOT/scripts/*.sh $ROOT/zr_tools/install_zr_tools.sh; do bash -n \$f || exit 1; done"
 check "--version prints" "bash $ROOT/installer.sh --version | grep -q wm_ultra_vanilla_klipper"
@@ -40,7 +56,7 @@ check "both service files can be enabled at boot" "grep -q 'WantedBy=multi-user.
 check "klipper.service restores saved_variables.cfg before start and backs it up after stop" "grep -q 'ExecStartPre=-.*wm_sv_guard.sh restore' $ROOT/config/klipper.service && grep -q 'ExecStopPost=-.*wm_sv_guard.sh backup' $ROOT/config/klipper.service"
 check "wm-sv-guard timer and service files exist" "grep -q 'OnUnitActiveSec=10min' $ROOT/config/wm-sv-guard.timer && grep -q 'wm_sv_guard.sh backup' $ROOT/config/wm-sv-guard.service"
 
-echo "== saved_variables safeguard (wm_sv_guard.sh)"
+sec "== saved_variables safeguard (wm_sv_guard.sh)"
 SG="$T/sg"; mkdir -p "$SG/printer_data/config" "$SG/printer_data/logs"
 mksv() { { echo "[Variables]"; echo "box_modify_t0 = 0"; echo "t0_position = (1.0, 2.0)"; for i in $(seq 1 60); do echo "filler_value_$i = $i"; done; } > "$1"; }
 sg() { HOME="$SG" bash "$ROOT/scripts/wm_sv_guard.sh" "$@"; }
@@ -55,7 +71,7 @@ before="\$(md5sum < $SG/printer_data/config/saved_variables.cfg)"; sg restore; c
 check "guard: the log has the restore lines" "grep -q RESTORED $SG/printer_data/logs/wm_sv_guard.log"
 check "guard: a wrong argument is refused" "! sg nope"
 
-echo "== install from stage folder"
+sec "== install from stage folder"
 mkstage "$T/stage"; H="$T/h1"; mkdir -p "$H"
 OUT="$(inst "$H" --from-stage "$T/stage")"; RC=$?
 check "install exits 0" "[ $RC = 0 ]"
@@ -70,17 +86,17 @@ check "klipper disabled during install, enabled only at the end" "grep -n 'syste
 check "can0 rule installed" "grep -q 'install -m 644 .*99-wm-can0.rules' $H/.sudo.log"
 check "manifest written" "grep -q 'FILE /etc/systemd/system/moonraker.service' $H/wm-rpi-backup/installed.manifest"
 
-echo "== run again: existing folders are moved, not deleted"
+sec "== run again: existing folders are moved, not deleted"
 echo "mine" > "$H/printer_data/config/mine.cfg"
 inst "$H" --from-stage "$T/stage" >/dev/null
 check "previous printer_data saved" "ls $H/wm-rpi-backup/old-*/printer_data/config/mine.cfg"
 
-echo "== without the panel"
+sec "== without the panel"
 H2="$T/h2"; mkdir -p "$H2"; printf 'n\nn\nn\nn\ny\n' > "$T/ans"
 WM_HOME="$H2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-stage "$T/stage" < "$T/ans" >/dev/null 2>&1
 check "panel declined: old fluidd kept" "grep -q old $H2/fluidd/index.html"
 
-echo "== touchscreen"
+sec "== touchscreen"
 H3="$T/h3"; mkdir -p "$H3"
 WM_TEST_SCREEN=1024x600 WM_TEST_TOUCH=1 inst "$H3" --from-stage "$T/stage" > "$T/scr.out"
 check "screen: panel files in KlipperScreen" "[ -f $H3/KlipperScreen/panels/zr_tools.py ] && [ -f $H3/KlipperScreen/panels/zr_views.py ] && [ -f $H3/KlipperScreen/panels/zr_logic.py ]"
@@ -110,7 +126,7 @@ check "nginx step lets nginx reach the home folder (Fluidd 403 fix)" "grep -q 'c
 check "polkit rule step runs (Fluidd PolKit warning fix)" "grep -q 'polkit rules' $H7/.sudo.log"
 check "screen: bad value fails" "! bash $ROOT/installer.sh --screen maybe"
 check "--screen-test is read-only" "WM_TEST_SCREEN=800x480 WM_TEST_TOUCH=0 bash $ROOT/installer.sh --screen-test | grep -q 'compact'"
-echo "== gcode shell command extension"
+sec "== gcode shell command extension"
 check "bundled gcode_shell_command.py compiles and registers RUN_SHELL_COMMAND" "python3 -m py_compile $ROOT/config/gcode_shell_command.py && grep -q RUN_SHELL_COMMAND $ROOT/config/gcode_shell_command.py"
 check "--shell-command needs on or off" "! bash $ROOT/installer.sh --shell-command maybe"
 mkstage "$T/stage_sc"; HS="$T/hs"; mkdir -p "$HS"
@@ -137,7 +153,7 @@ OUT="$(inst "$HS" --update --shell-command off)"
 check "--shell-command off leaves the file alone and is remembered" "grep -rq 'WANT_SHELLCMD=0' $HS 2>/dev/null"
 check "--help mentions --shell-command" "bash $ROOT/installer.sh --help | grep -q shell-command"
 
-echo "== remote access add-ons (Obico, OctoApp, OctoEverywhere)"
+sec "== remote access add-ons (Obico, OctoApp, OctoEverywhere)"
 check "--obico needs on or off" "! bash $ROOT/installer.sh --obico maybe"
 check "--octoapp needs on or off" "! bash $ROOT/installer.sh --octoapp maybe"
 check "--octoeverywhere needs on or off" "! bash $ROOT/installer.sh --octoeverywhere maybe"
@@ -161,7 +177,7 @@ OUT="$(printf 'y\n' | WM_HOME="$HR" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh
 check "--uninstall leaves the add-ons and says how to remove them" "[ -d $HR/moonraker-obico ] && echo \"$OUT\" | grep -q 'NOT removed'"
 check "the maker installers' own repos are the ones used" "grep -q 'TheSpaghettiDetective/moonraker-obico' $ROOT/installer.sh && grep -q 'crysxd/OctoApp-Plugin' $ROOT/installer.sh && grep -q 'QuinnDamerell/OctoPrint-OctoEverywhere' $ROOT/installer.sh"
 
-echo "== menu and --remove"
+sec "== menu and --remove"
 M() { printf "$1" | WM_TEST_NO_FETCH=1 WM_HOME="$2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" "${@:3}" 2>&1; }
 check "--menu on a home with no install says not installed" "mkdir -p $T/mempty && M '0\n' $T/mempty --menu | grep -q 'Not installed yet'"
 check "--menu shows every section" "M '0\n' $HR --menu | grep -q 'Install or reinstall' && M '0\n' $HR --menu | grep -q 'Backup and restore' && M '0\n' $HR --menu | grep -q 'Add-ons'"
@@ -187,7 +203,7 @@ check "--remove shell-command removes the file" "M 'y\n' $HR --remove shell-comm
 check "--webcam off is accepted with --update" "inst $HR --update --webcam off | grep -q 'Update finished'"
 
 
-echo "== PolKit warning (PackageKit)"
+sec "== PolKit warning (PackageKit)"
 : > "$HR/.sudo.log"; rm -f "$HR/.polkit_fixed"
 OUT="$(WM_TEST_POLKIT_WARN=1 M '0\n' $HR --menu)"
 check "menu open: Moonraker's PolKit warning is detected and fixed" "echo \"$OUT\" | grep -q 'PolKit warning fixed' && grep -q 'apt-get install -y packagekit' $HR/.sudo.log && grep -q 'systemctl restart moonraker' $HR/.sudo.log"
@@ -208,7 +224,7 @@ rm -f "$HR/.polkit_fixed"
 check "--check mentions it without changing anything" "WM_TEST_POLKIT_WARN=1 M '' $HR --check | grep -q 'PolKit' && [ ! -f $HR/.polkit_fixed ]"
 check "install and update end with the PolKit look" "grep -q 'polkit_check_and_fix' $ROOT/installer.sh && sed -n '/^self_test()/,/^}/p' $ROOT/installer.sh | grep -q polkit_check_and_fix"
 
-echo "== restore from a numbered list"
+sec "== restore from a numbered list"
 RS="$T/rs"; mkdir -p "$RS"; mkstage "$T/stage_rs"; inst "$RS" --from-stage "$T/stage_rs" --screen off >/dev/null
 M '' "$RS" --backup >/dev/null; sleep 1; M '' "$RS" --backup >/dev/null
 OUT="$(M '5\n2\n0\n0\n0\n' $RS --menu)"
@@ -218,7 +234,7 @@ check "choosing a number restores that backup" "M '5\n2\n1\ny\n0\n0\n' $RS --men
 check "an unknown number is explained" "M '5\n2\n99\n0\n0\n' $RS --menu | grep -q 'Choose a number from the list'"
 check "with no backups the page says so" "mkdir -p $T/rs0 && cp -a $RS/. $T/rs0/ && rm -rf $T/rs0/ultra-backup/settings && M '5\n2\n0\n0\n' $T/rs0 --menu | grep -q 'no backups in that folder'"
 
-echo "== uninstall section (--remove)"
+sec "== uninstall section (--remove)"
 mkun() { local h="$1"; rm -rf "$h"; mkdir -p "$h"; mkstage "$T/stage_un"; inst "$h" --from-stage "$T/stage_un" --screen off --webcam on --timelapse on >/dev/null; printf '[server]\nport: 7125\n\n[timelapse]\noutput_path: ~/printer_data/timelapse\n\n[update_manager]\n' > "$h/printer_data/config/moonraker.conf"; }
 UN="$T/un"; mkun "$UN"
 check "uninstall: webcam asks first" "M 'n\n' $UN --remove webcam | grep -q 'Nothing changed' && [ -d $UN/crowsnest ]"
@@ -251,7 +267,7 @@ check "menu: the Uninstall page has All programs and Erase everything" "M '6\n0\
 check "uninstall: --help lists every name" "bash $ROOT/installer.sh --help | grep -q 'octoeverywhere, fluidd, moonraker, klipper, data, system'"
 
 
-echo "== start Klipper again, and clean up installer files"
+sec "== start Klipper again, and clean up installer files"
 check "menu: Advanced has Start Klipper again" "M '7\n0\n0\n' $HR --menu | grep -q 'Start Klipper again'"
 : > "$HR/.sudo.log"
 check "menu: Start Klipper again enables it at boot and starts it" "M '7\n2\n0\n0\n' $HR --menu | grep -q 'Klipper enabled and started' && grep -q 'systemctl enable klipper' $HR/.sudo.log && grep -q 'systemctl restart klipper' $HR/.sudo.log"
@@ -273,7 +289,7 @@ RC="$T/repocopy"; rm -rf "$RC"; cp -a "$ROOT" "$RC"
 check "clean-up: the installer folder is deleted only after DELETE (on a copy)" "printf '10\nnope\n0\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup >/dev/null 2>&1; [ -f $RC/installer.sh ] && printf '10\nDELETE\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup | grep -q 'installer folder was deleted' && [ ! -e $RC ]"
 check "clean-up: --help lists it" "bash $ROOT/installer.sh --help | grep -q 'cleanup (installer files'"
 
-echo "== plan lists every optional program"
+sec "== plan lists every optional program"
 PO="$T/plan"; mkdir -p "$PO"; mkstage "$T/stage_plan"
 OUT="$(WM_TEST_PANEL_DIR=$T/stubpanel WM_HOME=$PO WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --dry-run --from-stage $T/stage_plan --model ultra-s --obico on --octoapp on --octoeverywhere off --screen off 2>&1 </dev/null)"
 check "plan names obico, octoapp and octoeverywhere with their answers" "echo \"$OUT\" | grep -q 'obico  *yes' && echo \"$OUT\" | grep -q 'octoapp  *yes' && echo \"$OUT\" | grep -q 'octoeverywhere  *no'"
@@ -281,7 +297,7 @@ check "plan names every other optional program" "for n in 'panel (Fluidd)' webca
 check "every saved WANT_ answer is in the plan list (add new programs to PLAN_OPTIONS; WANT_NETMGR is kept only so old saved answers still load, F-234)" "for v in \$(sed -n '/^save_answers()/,/^}/p' $ROOT/installer.sh | grep -o 'WANT_[A-Z]*' | sort -u | grep -v WANT_NETMGR); do grep -q \"|\$v\\\"\" $ROOT/installer.sh || { echo missing \$v; exit 1; }; done"
 
 
-echo "== 2.27.0 (F-215): KlipperScreen only on the screen board"
+sec "== 2.27.0 (F-215): KlipperScreen only on the screen board"
 inst2() { local h="$1"; shift; env -u WM_KS_ON_PI WM_TEST_PANEL_DIR="${WM_TEST_PANEL_DIR:-$T/stubpanel}" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1; }
 F5="$T/f215a"; rm -rf "$F5"; mkdir -p "$F5"; mkstage "$T/stage_f215"
 OUT="$(inst2 "$F5" --from-stage "$T/stage_f215" --screen on)"
@@ -310,9 +326,9 @@ printf '[printer WonderMaker]\nmoonraker_host: 10.9.9.9\nmoonraker_port: 7125\n\
 check "B-084: a board install keeps an existing KlipperScreen.conf: own menu entry, [main], saved screen settings; new Pi address; missing ZR Tools entries added once; a backup is made; run twice = same" "grep -q '^moonraker_host: 10.1.2.3' $K4/cfg/KlipperScreen.conf && ! grep -q '10.9.9.9' $K4/cfg/KlipperScreen.conf && grep -q '^\[menu __main my_own\]' $K4/cfg/KlipperScreen.conf && grep -q '^auto_open_extrude: False' $K4/cfg/KlipperScreen.conf && grep -q '^#~# auto_open_extrude = False' $K4/cfg/KlipperScreen.conf && [ \$(grep -c '^\[menu __print zr_tools\]' $K4/cfg/KlipperScreen.conf) = 1 ] && [ \$(grep -c '^\[menu __splashscreen zr_tools\]' $K4/cfg/KlipperScreen.conf) = 1 ] && [ \$(grep -n '^\[menu __print zr_tools\]' $K4/cfg/KlipperScreen.conf | cut -d: -f1) -lt \$(grep -n '^#~# ' $K4/cfg/KlipperScreen.conf | head -1 | cut -d: -f1) ] && cmp -s $K4/one $K4/cfg/KlipperScreen.conf && ls $K4/cfg/backup/KlipperScreen.conf.wm-before-install-* >/dev/null"
 K5="$T/b084n"; rm -rf "$K5"; mkdir -p "$K5/cfg" "$K5/bk"; ( DRY=0; CFG_DIR="$K5/cfg"; BK="$K5/bk"; PI_HOST=10.1.2.3; source "$K4/f.sh"; write_ks_conf )
 check "B-084: a first board install writes the Pi address and the six ZR Tools menu entries (print menu included)" "grep -q '^moonraker_host: 10.1.2.3' $K5/cfg/KlipperScreen.conf && [ \$(grep -c '^\[menu ' $K5/cfg/KlipperScreen.conf) = 6 ] && grep -q '^\[menu __print zr_tools\]' $K5/cfg/KlipperScreen.conf && [ -f $K5/cfg/zr_screen.conf ]"
-echo "== F-223: unload tip recipe by material"
+sec "== F-223: unload tip recipe by material"
 check "F-223: the unload tip recipe is chosen by the material saved for the toolhead (PLA, PETG, ABS, default), never cooler than min_extrude_temp + 5" "python3 -I $ROOT/tests/test_tip_recipes.py"
-echo "== NetworkManager option"
+sec "== NetworkManager option"
 NM="$T/nm"; rm -rf "$NM"; mkdir -p "$NM"; mkstage "$T/stage_nm"; mkdir -p "$NM/.svc"; touch "$NM/.svc/dhcpcd.enabled"
 inst "$NM" --from-stage "$T/stage_nm" --screen on >/dev/null
 check "NetworkManager is never installed by the installer (F-234)" "! grep -q 'install -y network-manager' $NM/.sudo.log && grep -q 'WANT_NETMGR=0' $NM/wm-rpi-backup/install.conf"
@@ -327,13 +343,13 @@ check "--remove network-manager does nothing when the installer did not switch i
 : > "$NM/.sudo.log"
 
 
-echo "== Obico uses its own installer"
+sec "== Obico uses its own installer"
 O2="$T/o2"; rm -rf "$O2"; mkdir -p "$O2"; mkstage "$T/stage_o2"; inst "$O2" --from-stage "$T/stage_o2" --screen off >/dev/null; printf "[server]\n" > "$O2/printer_data/config/moonraker.conf"; inst "$O2" --update --obico on >/dev/null
 check "Obico is installed with its plain ./install.sh (no server flags, no server question)" "grep -q 'obico install.sh$' $O2/.sudo.log"
 printf '[server]\nurl = http://x\n' > "$O2/printer_data/config/moonraker-obico.cfg"
 check "--remove obico sets the settings file aside so a new install asks again" "M 'y\n' $O2 --remove obico | grep -q 'set aside' && [ ! -f $O2/printer_data/config/moonraker-obico.cfg ] && ls $O2/printer_data/config/moonraker-obico.cfg.wm-removed-*"
 
-echo "== uninstall uses the add-on's own uninstaller"
+sec "== uninstall uses the add-on's own uninstaller"
 UO="$T/uo"; mkun "$UO"; printf '\n[update_manager crowsnest]\ntype: git_repo\npath: ~/crowsnest\n\n[update_manager KlipperScreen]\ntype: git_repo\npath: ~/KlipperScreen\n\n[other]\nx: 1\n' >> "$UO/printer_data/config/moonraker.conf"
 : > "$UO/.sudo.log"
 M 'y\n' $UO --remove webcam >/dev/null
@@ -349,14 +365,14 @@ check "OctoApp and OctoEverywhere: their own ./uninstall.sh is the first step" "
 check "Obico: the steps from its own uninstall list are done (service, reset-failed, include lines)" "sed -n '/^do_remove_addon_core()/,/^}/p' $ROOT/installer.sh | grep -q 'reset-failed' && sed -n '/^do_remove_addon_core()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker-obico-update.cfg' && sed -n '/^do_remove_addon_core()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker_obico_macros.cfg'"
 
 
-echo "== leftovers and administrator rights"
+sec "== leftovers and administrator rights"
 check "files that cannot be deleted as the user are deleted with sudo" "sed -n '/^rm_path()/,/^}/p' $ROOT/installer.sh | grep -q 'SUDO rm -rf'"
 CS="$T/cs"; mkun "$CS"; mkdir -p "$CS/wm-stage"; echo x > "$CS/wm-stage/k.tgz"
 check "clean-up lists the copy from the old board and needs DELETE for it" "M '4\nno\n0\n' $CS --remove cleanup | grep -q 'Nothing changed' && [ -d $CS/wm-stage ] && M '4\nDELETE\n0\n' $CS --remove cleanup | grep -q 'Deleted: Software copied from the old board' && [ ! -e $CS/wm-stage ]"
 check "OctoApp removal also deletes its installer log and config files" "mkdir -p $OA/printer_data/config && touch $OA/octoeverywhere-installer.log $OA/printer_data/config/octoeverywhere.conf $OA/printer_data/config/octoeverywhere-system.cfg && mkdir -p $OA/octoeverywhere $OA/octoeverywhere-env && M 'y\n' $OA --remove octoeverywhere >/dev/null && [ ! -e $OA/octoeverywhere-installer.log ] && [ ! -e $OA/printer_data/config/octoeverywhere.conf ] && [ ! -e $OA/printer_data/config/octoeverywhere-system.cfg ] && [ ! -e $OA/octoeverywhere-env ]"
 
 
-echo "== log of every run"
+sec "== log of every run"
 LG="$T/lg"; rm -rf "$LG"; mkdir -p "$LG"; mkstage "$T/stage_lg"
 WM_FORCE_LOG=1 inst "$LG" --from-stage "$T/stage_lg" --screen off >/dev/null; sleep 1
 LF="$(ls -1t $LG/wm-install-logs/installer-install-*.log 2>/dev/null | head -1)"
@@ -389,7 +405,7 @@ PY
 check "at a terminal the run is recorded through script, shown normally, and the log path is printed" "grep -q 'Log of this run' $LG/pty.out && ls $LG/wm-install-logs/installer-backup-*.log && grep -q 'Backup of your printer settings' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1) && ! grep -q \$'\\x1b' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1)"
 check "clean-up lists the logs with a y/n" "mkdir -p $LG/wm-install-logs && echo x > $LG/wm-install-logs/installer-x.log && M '3\nn\n0\n' $LG --remove cleanup | grep -q 'Installer logs' && M '3\ny\n0\n' $LG --remove cleanup | grep -q 'Deleted: Installer logs' && [ ! -e $LG/wm-install-logs ]"
 
-echo "== settings import from the old board"
+sec "== settings import from the old board"
 IM="$T/imp"; mkdir -p "$IM/old" "$IM/home/printer_data/config"
 cat > "$IM/old/printer.cfg" <<'CFG'
 [mcu]
@@ -418,7 +434,7 @@ check "import: applies the SAVE_CONFIG block, comments the override, keeps canbu
 check "import: only calibration variables are copied" "grep -q 't0_offset = (0.1, 0.2, 0.3)' $IM/home/printer_data/config/saved_variables.cfg && grep -q 'current_extruder = 0' $IM/home/printer_data/config/saved_variables.cfg"
 check "import: --from-board is refused" "! bash $ROOT/installer.sh --from-board 1.2.3.4 >/dev/null 2>&1"
 
-echo "== check-updates and zr_tools.cfg backup"
+sec "== check-updates and zr_tools.cfg backup"
 mkdir -p "$T/cu"; ( cd "$T/cu" && git init -q --bare origin.git && git clone -q origin.git work 2>/dev/null && cd work && git config user.email t@t && git config user.name t && echo 1.0.0 > VERSION && git add -A && git commit -q -m first && git push -q origin HEAD:main 2>/dev/null; git branch -q -M main; git push -q -u origin main 2>/dev/null; cd .. && git clone -q origin.git copy && cd copy && git checkout -q main 2>/dev/null; cd ../work && echo 1.1.0 > VERSION && git commit -q -am "new thing" && git push -q origin main )
 cp "$ROOT/installer.sh" "$T/cu/copy/installer.sh"
 mkdir -p "$T/cu/copy/scripts"; cp "$ROOT/scripts/lib_free_space.sh" "$T/cu/copy/scripts/"
@@ -440,7 +456,7 @@ check "chamber light python tests" "python3 -I -W ignore $ROOT/tests/test_chambe
 check "KlipperScreen updating page patch" "python3 -I -W ignore $ROOT/tests/test_ks_update.py"
 check "python files compile" "for f in $ROOT/zr_tools/*.py; do python3 -I -m py_compile \$f || exit 1; done"
 
-echo "== dry run changes nothing"
+sec "== dry run changes nothing"
 H4="$T/h4"; mkdir -p "$H4"
 inst "$H4" --dry-run --from-stage "$T/stage" > "$T/dry.out"
 check "dry run: nothing unpacked" "[ ! -d $H4/klipper ]"
@@ -450,7 +466,7 @@ check "dry run: no sudo log" "[ ! -s $H4/.sudo.log ]"
 check "install: wm_sv_guard.sh copied and executable" "[ -x $H/printer_data/scripts/wm_sv_guard.sh ]"
 check "install: guard timer enabled and started" "grep -q 'systemctl enable wm-sv-guard.timer' $H/.sudo.log && grep -q 'systemctl start wm-sv-guard.timer' $H/.sudo.log"
 check "install: guard service files installed" "grep -q 'wm-sv-guard.service' $H/.sudo.log && grep -q 'wm-sv-guard.timer' $H/.sudo.log"
-echo "== check / enable / disable / uninstall"
+sec "== check / enable / disable / uninstall"
 check "--check passes on installed home" "WM_HOME=$H WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --check"
 mkdir -p "$T/empty"; check "--check fails on empty home" "! WM_HOME=$T/empty WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --check"
 inst "$H" --disable-klipper >/dev/null; check "--disable-klipper" "grep -q 'systemctl disable klipper' $H/.sudo.log"
@@ -461,11 +477,11 @@ check "uninstall removes service file" "grep -q 'rm -f /etc/systemd/system/klipp
 check "uninstall stops and removes the saved_variables safeguard timer" "grep -q 'rm -f /etc/systemd/system/wm-sv-guard.timer' $H/.sudo.log"
 check "uninstall keeps user folders" "[ -d $H/klipper/klippy ] && [ -f $H/printer_data/config/printer.cfg ]"
 
-echo "== missing / broken stage"
+sec "== missing / broken stage"
 mkdir -p "$T/bad"; check "incomplete stage refused" "! inst $T/h5 --from-stage $T/bad"
 check "wrong user refused outside test mode" "! WM_HOME=$T/h6 bash $ROOT/installer.sh --from-stage $T/stage </dev/null"
 
-echo "== factory files from the repository (no printer)"
+sec "== factory files from the repository (no printer)"
 (cd "$ROOT/factory/ultra-s" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
 check "factory sources are plain folders, committed" "[ -f $ROOT/factory/ultra-s/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/ultra-s/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/ultra-s/klipper/klippy/klippy.py"
 check "ZR_PURGE is gone from zr_tools.cfg and the touchscreen (F-104), ZR_LOAD, ZR_RETRACT and ZR_UNLOAD use the shared tip step" "! grep -q 'ZR_PURGE\|_act_purge' $ROOT/zr_tools/zr_tools.cfg $ROOT/zr_tools/INSTALL.md && ! grep -q '_act_purge\|\"ZR_PURGE\"' $ROOT/zr_tools/zr_tools.py && grep -q 'gcode_macro _WM_UNLOAD_TIP' $ROOT/zr_tools/zr_tools.cfg && grep -q 'gcode_macro _ZR_LOAD' $ROOT/zr_tools/zr_tools.cfg"
@@ -523,7 +539,7 @@ RC2="$T/repocopy"; mkdir -p "$RC2"; cp -a "$ROOT/scripts" "$ROOT/config" "$ROOT/
 check "modules with matching checksum accepted" "bash $RC2/scripts/stage_from_repo.sh ultra-s $T/st_ok $T/mods && [ \"\$(cat $T/st_ok/modules_ok)\" = 1 ] && tar xzOf $T/st_ok/klipper.tgz klipper/klippy/extras/hx711.cpython-39-aarch64-linux-gnu.so | grep -q 'fake hx711'"
 check "damaged repo files refused" "cp -a $ROOT/factory $T/damaged_f && echo x >> $T/damaged_f/ultra-s/moonraker/README.md && mkdir -p $T/dm && cp -a $ROOT/scripts $ROOT/config $T/dm/ && rm -rf $T/dm/factory && cp -a $T/damaged_f $T/dm/factory && ! bash $T/dm/scripts/stage_from_repo.sh ultra-s $T/st_dm"
 
-echo "== crowsnest, timelapse, pinned environments"
+sec "== crowsnest, timelapse, pinned environments"
 check "addon pins are full commit ids" "grep -qE '^crowsnest\\|https://github.com/mainsail-crew/crowsnest\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt && grep -qE '^moonraker-timelapse\\|.*\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt"
 check "klippy requirements all pinned" "! grep -vE '^#|==' $ROOT/config/klippy-requirements.txt | grep -q ."
 check "moonraker requirements all pinned" "! grep -vE '^#|==' $ROOT/config/moonraker-requirements.txt | grep -q ."
@@ -533,13 +549,13 @@ check "crowsnest installed (unattended) in test log" "grep -q 'make install (cro
 check "crowsnest.conf placed" "[ -f $HG/printer_data/config/crowsnest.conf ]"
 check "ffmpeg requested for timelapse" "grep -q 'apt-get install -y ffmpeg' $HG/.sudo.log"
 check "moonraker.asvc lists crowsnest" "grep -q crowsnest $HG/printer_data/moonraker.asvc"
-echo "== Fluidd update: the Update button applies the installer"
+sec "== Fluidd update: the Update button applies the installer"
 check "update manager: the installer entry says the Update button applies the update" "grep -A8 '^\[update_manager wm_ultra_vanilla_klipper\]' $HG/printer_data/config/moonraker.conf | grep -q 'The Update button downloads the new installer and applies it'"
 check "update button: the watcher units are installed and enabled" "grep -q 'install -m 644 .*/etc/systemd/system/wm-pi-update.path' $HG/.sudo.log && grep -q 'install -m 644 .*/etc/systemd/system/wm-pi-update.service' $HG/.sudo.log && grep -q 'systemctl enable --now wm-pi-update.path' $HG/.sudo.log"
 check "update button: the path unit watches this folder's git log, the service runs pi_update.sh as the user" "grep -q '^PathModified=.*/.git/logs/HEAD' $HG/.wm-units/wm-pi-update.path && grep -q '^ExecStart=/bin/bash .*/scripts/pi_update.sh' $HG/.wm-units/wm-pi-update.service && grep -q '^User=' $HG/.wm-units/wm-pi-update.service && grep -q '^Type=oneshot' $HG/.wm-units/wm-pi-update.service"
 check "update button: both units are recorded for the uninstall" "grep -q 'wm-pi-update.path' $HG/wm-rpi-backup/installed.manifest && grep -q 'wm-pi-update.service' $HG/wm-rpi-backup/installed.manifest"
 check "update manager: a second run does not duplicate the entry" "inst $HG --update --only-addon webcam --webcam on >/dev/null; [ \$(grep -c '^\[update_manager wm_ultra_vanilla_klipper\]' $HG/printer_data/config/moonraker.conf) = 1 ]"
-echo "== F-242 installer folder without capital letters"
+sec "== F-242 installer folder without capital letters"
 MG="$T/mg"; rm -rf "$MG"; mkdir -p "$MG"; cp -a "$HG" "$MG/home" 2>/dev/null; MH="$MG/home"; rm -rf "$MH/WM_Ultra_Vanilla_Klipper" "$MH/wm_ultra_vanilla_klipper"; cp -al "$ROOT" "$MH/WM_Ultra_Vanilla_Klipper"
 printf '\n[update_manager WM_Ultra_Vanilla_Klipper]\ntype: git_repo\npath: %s/WM_Ultra_Vanilla_Klipper\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\n' "$MH" > "$MG/old_entry.txt"
 python3 - "$MH/printer_data/config/moonraker.conf" "$MG/old_entry.txt" <<'PY'
@@ -573,7 +589,7 @@ printf 'VERSION=0.0.1\n' > "$PU/wm-rpi-backup/install.conf"
 check "update button: a print running means the update is not applied, and the log says so" "rm -f $PU/ran; WM_TEST_PRINT_STATE=printing piu env; [ ! -e $PU/ran ] && grep -q 'a print is active (printing)' $PU/wm-pi-update.log"
 check "update button: a newer folder version is applied (installer --update --yes command runs)" "rm -f $PU/ran; WM_TEST_PRINT_STATE=standby piu env; [ -e $PU/ran ] && grep -q 'applying the installer update 0.0.1' $PU/wm-pi-update.log"
 check "update button: nothing installed yet means nothing happens" "rm -f $PU/ran; rm -f $PU/wm-rpi-backup/install.conf; WM_TEST_PRINT_STATE=standby piu env; [ ! -e $PU/ran ]"
-echo "== update everything: Fluidd panel, screen boards, doctor"
+sec "== update everything: Fluidd panel, screen boards, doctor"
 mkdir -p "$PU/wm-ultra-fluidd-acepro-panel"; echo 9.9.9 > "$PU/wm-ultra-fluidd-acepro-panel/VERSION"
 printf 'VERSION=%s\n' "$(cat $ROOT/VERSION)" > "$PU/wm-rpi-backup/install.conf"; rm -f "$PU/ran" "$PU/wm-pi-update.log"
 pipanel() { HOME="$PU" WM_PI_UPDATE_DELAY=0 WM_PI_UPDATE_SKIP_SUDO=1 WM_PI_UPDATE_CMD="echo panel-ran >> $PU/ran" WM_TEST_PRINT_STATE="${1:-standby}" bash $ROOT/scripts/pi_update.sh --panel; }
@@ -662,7 +678,7 @@ check "webcam: --dry-run --webcam-setup changes nothing" "inst $WCK --dry-run --
 WCQ="$T/wcq"; mkdir -p "$WCQ"; inst "$WCQ" --from-github --model ultra-s --screen off --cameras 1 --cam-resolution 1080p --cam-fps 30 >/dev/null
 check "webcam: --webcam-setup asks the questions again after 1 camera was saved, and writes the second camera (B-060)" "printf '2\\n1\\n10\\ny\\n' | WM_TEST_CAMERAS='[{\"kind\":\"usb\",\"path\":\"/dev/v4l/by-id/usb-A-video-index0\",\"name\":\"A\"},{\"kind\":\"usb\",\"path\":\"/dev/v4l/by-id/usb-B-video-index0\",\"name\":\"B\"}]' WM_HOME=$WCQ WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --webcam-setup >/dev/null 2>&1; [ \$(grep -c '^\[cam ' $WCQ/printer_data/config/crowsnest.conf) = 2 ] && grep -q '^\[webcam Camera 2\]' $WCQ/printer_data/config/moonraker.conf"
 
-echo "== camera on the screen board (the factory camera plugs into the screen board)"
+sec "== camera on the screen board (the factory camera plugs into the screen board)"
 SCP="$T/scp"; mkdir -p "$SCP/printer_data/config"; echo '{"url": "http://board-1.local:8080"}' > "$SCP/printer_data/config/rpi_screen_camera.json"; cp "$ROOT/config/nginx_upstreams.conf" "$T/scp_up.conf"
 WM_NGINX_UPSTREAMS="$T/scp_up.conf" inst "$SCP" --from-github --model ultra-s --screen off --cameras 1 --cam-resolution 720p --cam-fps 30 > "$T/scp.out"
 check "screen camera: the question is not asked without a terminal, the answer yes is saved" "grep -q '^SCREEN_CAM=yes' $SCP/wm-rpi-backup/install.conf"
@@ -678,7 +694,7 @@ WM_NGINX_UPSTREAMS="$T/scn_up.conf" inst "$SCN" --from-github --model ultra-s --
 check "screen camera: no camera announced means no question, cameras as before (Camera on this Pi, /webcam/ unchanged)" "grep -q '^SCREEN_CAM=no' $SCN/wm-rpi-backup/install.conf && grep -q '^\[cam 1\]' $SCN/printer_data/config/crowsnest.conf && grep -q 'mjpgstreamer1 { server 127.0.0.1:8080; }' $T/scn_up.conf"
 check "screen camera: --screen-camera yes without an announced camera is refused with the fix" "inst $SCN --webcam-setup --screen-camera yes --cameras 1 | grep -q 'announced a camera yet'"
 check "screen camera: an existing crowsnest.conf with a camera on 8080 gets a warning" "printf '[cam 1]\nmode: ustreamer\nport: 8080\ndevice: /dev/video9\n' > $SCP/printer_data/config/crowsnest.conf; WM_NGINX_UPSTREAMS=$T/scp_up.conf inst $SCP --update --only-addon webcam --webcam on --screen-camera yes | grep -q 'camera on port 8080'"
-echo "== model is applied to every source"
+sec "== model is applied to every source"
 H8="$T/h8"; mkdir -p "$H8"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; mkstage "$T/stage_s"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; tar czf "$T/stage_s/data.tgz" -C "$T/src_home" --exclude=printer_data/gcodes printer_data fluidd TM_T1
 inst "$H8" --from-stage "$T/stage_s" --model ultra > /dev/null
 check "ultra chosen with a stage that has zru-s on: switched off, backup kept" "grep -q '^# \\[include zru-s.cfg\\]' $H8/printer_data/config/printer.cfg && [ -f $H8/printer_data/config/printer.cfg.wm-model-bak ]"
@@ -687,7 +703,7 @@ check "ultra-s chosen: zru-s on" "grep -q '^\\[include zru-s.cfg\\]' $H9/printer
 H10="$T/h10"; mkdir -p "$H10"; printf '1\ny\ny\ny\nn\ny\n' | WM_HOME="$H10" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-github > "$T/ask.out" 2>&1
 check "installer asks for the model when not given" "grep -q 'Which printer do you have' $T/ask.out && [ \"\$(cat $H10/printer_data/wm-model)\" = ultra ]"
 
-echo "== first start, checks, canbus_uuid"
+sec "== first start, checks, canbus_uuid"
 printf 'Found canbus_uuid=000000000000, Application: Klipper\nFound canbus_uuid=000000000001, Application: Klipper\n' > "$T/can_ok.txt"
 printf 'Found canbus_uuid=bb1122334455, Application: Klipper\nFound canbus_uuid=000000000001, Application: Klipper\n' > "$T/can_new.txt"
 G1="$T/g1"; mkdir -p "$G1"; inst "$G1" --from-github --model ultra-s > "$T/g1.out"
@@ -727,7 +743,7 @@ WM_TEST_CANQUERY="$T/can_t2.txt" WM_HOME="$G7" WM_INSTALLER_TEST=1 WM_ASSUME_YES
 check "--can-ids says all fine when every id answers" "grep -q 'Every id in the config answers' $T/canids2.out"
 check "--can-ids set T1 writes the id (lower case) and keeps a copy" "WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T1 AABBCCDDEEFF >/dev/null 2>&1 && grep -qx 'canbus_uuid: aabbccddeeff' $C7/wm_zru_thr1.cfg"
 check "--can-ids set refuses an unknown board name and a bad id" "! WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T9 aabbccddeeff >/dev/null 2>&1 && ! WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T1 xyz >/dev/null 2>&1 && grep -qx 'canbus_uuid: aabbccddeeff' $C7/wm_zru_thr1.cfg"
-echo "== CAN boards found by their firmware name (2.20.0), Extruder Setup is forced"
+sec "== CAN boards found by their firmware name (2.20.0), Extruder Setup is forced"
 CM="$T/cm"; mkdir -p "$CM"
 fw() { printf '"%s":["Klipper","%s"]' "$1" "$2"; }
 { echo '{'; fw aa0000000001 KLP_MCU_WM_ZRU_20260408_185504; echo ,; fw ae0000000002 KLP_HUB_WM_ZRU_20251114_151549; echo ,; fw ad0000000003 KLP_EXT_WM_ZRU_20251114_151429; echo ,; fw af0000000004 KLP_CELL_WM_ZRU_RPI_V2_20261117; echo ,
@@ -790,11 +806,11 @@ rm "$G6/printer_data/config/macros.cfg" 2>/dev/null; sed -i 's/^# \[include zru-
 check "validator: missing include is an error" "! WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G6 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --first-start"
 check "--hw-test changes nothing and lists the checks" "WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --hw-test | grep -q 'main board found on USB'"
 
-echo "== print guard"
+sec "== print guard"
 check "update refused while printing" "! WM_TEST_PRINT_STATE=printing WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --repair"
 check "--force goes on" "WM_TEST_PRINT_STATE=printing WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --repair --force"
 
-echo "== backup, restore"
+sec "== backup, restore"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --backup "$T/bk" >/dev/null 2>&1
 BK="$(ls $T/bk/wm-backup-*.tgz | head -1)"
 check "backup file made, private" "[ -f $BK ] && [ \"\$(stat -c %a $BK)\" = 600 ]"
@@ -812,7 +828,7 @@ check "2.25.0 (F-222): --rollback with no backup from before an update stops wit
 check "2.25.0 (F-222): an update checks your own values and says they are untouched" "inst $HR --update | grep -q 'Your settings: untouched'"
 check "2.25.0 (F-222): wm_protect.py puts back a changed saved variable, rotation_distance and SAVE_CONFIG block, and leaves new values alone" "python3 -I $ROOT/tests/test_protect.py 2>&1 | tail -1 | grep -q '^0 failed'"
 
-echo "== repair, update, undo"
+sec "== repair, update, undo"
 rm -f "$G2/.sudo.log"
 inst "$G2" --repair >/dev/null
 check "repair reinstalls service, nginx and can0 files" "grep -q 'moonraker.service' $G2/.sudo.log && grep -q 'nginx' $G2/.sudo.log && grep -q '99-wm-can0.rules' $G2/.sudo.log"
@@ -834,7 +850,7 @@ check "undo puts the moved-aside fluidd back and does not overwrite it with the 
 check "undo puts mine.cfg back" "[ -f $UH/printer_data/config/mine.cfg ]"
 check "undo keeps what it replaced" "ls -d $UH/wm-rpi-backup/undone-*"
 
-echo "== doctor and support bundle"
+sec "== doctor and support bundle"
 check "doctor passes on a good install" "WM_TEST_SCREEN=1024x600 WM_TEST_TOUCH=1 WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
 D='WM_HOME='"$G2"' WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash '"$ROOT"'/installer.sh --doctor'
 check "doctor: calibration macros are ok on a good install" "eval \"$D\" 2>&1 | grep -q 'calibration macros rpi_calibration.cfg (included in printer.cfg, same as rpi-cfg)'"
@@ -902,7 +918,7 @@ check "match: doctor notices a missing wm_canids.py" "yes n | WM_HOME=$G2 WM_INS
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
 check "match: --rpi-cfg puts wm_canids.py back" "cmp $ROOT/scripts/wm_canids.py $G2/printer_data/wm-tools/wm_canids.py"
 
-echo "== 2.8.0: Z offset tools, unload menu, safety check, virtual pins, chamber light, macro patches"
+sec "== 2.8.0: Z offset tools, unload menu, safety check, virtual pins, chamber light, macro patches"
 CF2="$G2/printer_data/config"
 check "rpi-cfg 2.10.0: rpi_base.cfg and rpi_calibration.cfg are installed and included once, the old separate files are not" "(for f in rpi_base.cfg rpi_calibration.cfg; do cmp $ROOT/rpi-cfg/\$f $CF2/\$f && [ \$(grep -c \"^\\[include \$f\\]\" $CF2/printer.cfg) = 1 ] || exit 1; done) && ! grep -qE 'include rpi_(homing|bed_soak|zoffset|virtual_pins|unload|safety|tool_leds|print_end|head_sensors|mcu|mcu_temps|light)\.cfg' $CF2/printer.cfg"
 check "rpi-cfg 2.10.0: rpi_base.cfg is included above rpi_calibration.cfg (Klipper must read [wm_virtual_pins] first)" "[ \$(grep -n '^\\[include rpi_base.cfg\\]' $CF2/printer.cfg | cut -d: -f1) -lt \$(grep -n '^\\[include rpi_calibration.cfg\\]' $CF2/printer.cfg | cut -d: -f1) ]"
@@ -950,7 +966,7 @@ check "macro patches: lines you changed yourself are left alone and reported (ex
 fi
 check "macro patches: the update runs the step, after the printer.cfg merge" "grep -q 'step_cfgmerge; step_macro_patches;' $ROOT/installer.sh"
 
-echo "== 2.9.0: head sensors and load queue, speed test, faster homing and tool change, idle timeout, live Z, screen changes"
+sec "== 2.9.0: head sensors and load queue, speed test, faster homing and tool change, idle timeout, live Z, screen changes"
 check "rpi-cfg 2.9.0: the head sensor queue (in rpi_base.cfg) and the speed test (now inside rpi_nozzle.cfg, 2.21.1) are installed and included once, before the SAVE_CONFIG block" "grep -q '^\\[delayed_gcode WM_HEAD_SENSOR_WATCH\\]' $CF2/rpi_base.cfg && cmp $ROOT/rpi-cfg/rpi_nozzle.cfg $CF2/rpi_nozzle.cfg && grep -q '^\\[auto_speed\\]' $CF2/rpi_nozzle.cfg && [ \$(grep -c '^\\[include rpi_nozzle.cfg\\]' $CF2/printer.cfg) = 1 ] && [ ! -e $CF2/rpi_auto_speed.cfg ] && ! grep -q 'include rpi_auto_speed' $CF2/printer.cfg && ! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -qE 'include rpi_(base|nozzle)'"
 check "speed test: the Save script is copied to wm-tools" "cmp $ROOT/scripts/wm_speed_limits.py $G2/printer_data/wm-tools/wm_speed_limits.py"
 check "speed test: the module is in both factory folders and their checksum lists" "(for m in ultra ultra-s; do for f in auto_speed.py autospeed/__init__.py autospeed/funcs.py autospeed/main.py autospeed/move.py autospeed/wrappers.py autospeed/LICENSE; do grep -q \"klipper/klippy/extras/\$f\\$\" $ROOT/factory/\$m/SHA256SUMS && [ -f $ROOT/factory/\$m/klipper/klippy/extras/\$f ] || exit 1; done; done)"
@@ -1078,11 +1094,11 @@ check "support bundle has no password or private IP" "! tar xzOf $SB | grep -Eq 
 check "support bundle report has the USB tree and serial port sections" "tar xzOf $SB | grep -q \"usb tree\" && tar xzOf $SB | grep -q \"serial ports Klipper's python sees\""
 check "support bundle has no calibration database or gcodes" "! tar tzf $SB | grep -Eq 'database|gcodes|\\.gcode'"
 
-echo "== pre-flight"
+sec "== pre-flight"
 check "no internet: install refused before changing anything" "! WM_TEST_NO_NET=1 WM_HOME=$T/pf WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --from-github --model ultra && [ ! -d $T/pf/klipper ]"
 check "under-voltage is reported" "WM_TEST_THROTTLED=0x50005 WM_TEST_CANQUERY=$T/can_ok.txt inst $T/pf2 --from-github --model ultra | grep -q 'under-voltage'"
 
-echo "== panel comes from the panel repository"
+sec "== panel comes from the panel repository"
 mkdir -p "$T/pnl"; python3 - "$T/pnl/fluidd-new.zip" <<'PY'
 import sys, zipfile
 z = zipfile.ZipFile(sys.argv[1], "w"); z.writestr("index.html", "<html>NEWEST-PANEL</html>"); z.close()
@@ -1106,13 +1122,13 @@ PY
 WM_TEST_PANEL_DIR="$T/pnlbad" inst "$P2" --update > "$T/p2w.out" 2>&1
 check "update: a damaged panel zip leaves the old Fluidd untouched and says so" "grep -q NEWEST-PANEL $P2/fluidd/index.html && [ ! -e $P2/fluidd.new ] && grep -q 'NOT updated' $T/p2w.out"
 
-echo "== screen removal on the Pi"
+sec "== screen removal on the Pi"
 inst2 "$H3" --update > "$T/rm.out" 2>&1   # F-234: no --screen-remove any more; the update removes it
 check "screen-remove: folder and service gone" "[ ! -d $H3/KlipperScreen ] && grep -q 'systemctl disable KlipperScreen' $H3/.sudo.log"
 check "screen-remove: answers keep only the macros" "grep -q WANT_SCREEN=macros $H3/wm-rpi-backup/install.conf"
 check "screen-remove: Klipper stays (macros kept)" "[ -f $H3/printer_data/config/zr_tools.cfg ] && [ -d $H3/klipper ]"
 
-echo "== screen board script (factory screen as KlipperScreen)"
+sec "== screen board script (factory screen as KlipperScreen)"
 SB="$ROOT/scripts/screen_board.sh"
 sb() { local h="$1"; shift; WM_TEST_SERVICES="${WM_TEST_SERVICES-makerbase-client klipper moonraker nginx crowsnest janus hostapd klipper-mcu makerbase-webcam}" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$SB" "$@" 2>&1; }
 check "board script syntax" "bash -n $SB"
@@ -1137,14 +1153,14 @@ printf '#### This is a typical default config.\n[crowsnest]\nno_proxy: false\n[c
 check "board camera: crowsnest's own default file is replaced, a copy is kept" "WM_V4L_BYID_DIR=$T/sbc_v4l sb $SBC --camera >/dev/null; grep -q 'wm-screen-camera' $SBC/printer_data/config/crowsnest.conf && ls $SBC/printer_data/config/crowsnest.conf.wm-before-screen-camera-* >/dev/null"
 check "board camera: the board service announces the camera (rpi_screen_camera.json) and has the --camera option" "grep -q 'rpi_screen_camera.json' $ROOT/zr_tools/wm-chamber-light-http && grep -q -- '--camera' $SB"
 
-echo "== 2.19.0: ZR Tools screen changes (F-137)"
+sec "== 2.19.0: ZR Tools screen changes (F-137)"
 check "F-137: KlipperScreen changes apply once and never twice, the panel files compile and carry the new design" "python3 -I $ROOT/tests/test_f137.py $ROOT"
 SPL="$T/spl"; mkdir -p "$SPL/printer_data/config"; printf '[printer WonderMaker]\nmoonraker_host: x\n\n#~# --- Do not edit below this line. This section is saved automatically. ---\n#~# [main]\n#~# language = en\n' > "$SPL/printer_data/config/KlipperScreen.conf"
 check "F-137: the Connecting screen menu gets ZR Tools once, above KlipperScreen's own saved section" "sed -n '/^ks_splash_zr_menu()/,/^}/p' $SB > $T/spl_fn.sh; CFG_DIR=$SPL/printer_data/config; . $T/spl_fn.sh; ks_splash_zr_menu; ks_splash_zr_menu; [ \$(grep -c '__splashscreen zr_tools' \$CFG_DIR/KlipperScreen.conf) = 1 ] && awk '/__splashscreen zr_tools/{a=NR} /^#~# ---/{b=NR} END{exit !(a<b)}' \$CFG_DIR/KlipperScreen.conf && grep -q '#~# language = en' \$CFG_DIR/KlipperScreen.conf"
 check "F-137: a new board install writes the ZR Tools entry for the Connecting screen" "grep -q 'menu __splashscreen zr_tools' $SB"
 
 
-echo "== menu: Update now reopens the menu on the new version"
+sec "== menu: Update now reopens the menu on the new version"
 UN="$T/un"; mkdir -p "$UN/new" "$UN/home/printer_data/config" "$UN/bh/printer_data/config" "$UN/bh/KlipperScreen"
 cp -a "$ROOT/." "$UN/new/"; rm -rf "$UN/new/.git"; echo 9.9.9 > "$UN/new/VERSION"; echo S9.9.9 > "$UN/new/SCREEN_VERSION"
 cp -a "$UN/new" "$UN/oldpi"; echo "$(cat $ROOT/VERSION)" > "$UN/oldpi/VERSION"
@@ -1153,7 +1169,7 @@ cp -a "$UN/new" "$UN/oldb"; echo "$(cat $ROOT/VERSION)" > "$UN/oldb/VERSION"
 check "board menu: Update now reopens on the new version even when there is nothing to back up" "printf '2\n2\ny\n0\n0\n' | WM_TEST_REFRESH_REPO=1 WM_HOME=$UN/bh WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldb/scripts/screen_board.sh --menu 2>&1 | grep -q 'installer 9.9.9'"
 
 check "board menu: Update now with no KlipperScreen updates the installer files and reopens on the new version" "rm -f $UN/bh/KlipperScreen/panels/zr_screen_version.txt $UN/bh/wm-screen-backup/screen_version; rm -rf $UN/oldb2; cp -a $UN/new $UN/oldb2; echo 1.0.0 > $UN/oldb2/VERSION; echo S1.0.0 > $UN/oldb2/SCREEN_VERSION; printf '2\n2\ny\n0\n0\n' | WM_TEST_NO_KS=1 WM_TEST_REFRESH_REPO=1 WM_HOME=$UN/bh WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldb2/scripts/screen_board.sh --menu 2>&1 | tee $UN/nok.out | grep -q 'installer 9.9.9' && grep -q 'not installed on this board yet' $UN/nok.out && ! grep -q \"Can't continue\" $UN/nok.out"
-echo "== free up disk space (screen board)"
+sec "== free up disk space (screen board)"
 FSB="$T/fsb"; FST="$T/fst"; mkdir -p "$FSB/.cache/pip" "$FSB/printer_data/config" "$FSB/printer_data/logs" "$FSB/printer_data/gcodes" "$FST/tmp.AAA/scripts" "$FST/tmp.keep" "$FSB/wm_ultra_vanilla_klipper"
 dd if=/dev/zero of="$FSB/.cache/pip/x" bs=1M count=3 2>/dev/null; dd if=/dev/zero of="$FST/tmp.AAA/pad" bs=1M count=3 2>/dev/null
 echo 1.0.0 > "$FST/tmp.AAA/VERSION"; touch "$FST/tmp.AAA/scripts/screen_board.sh"; echo mine > "$FST/tmp.keep/file"; echo gcode > "$FSB/printer_data/gcodes/a.gcode"
@@ -1175,7 +1191,7 @@ check "board script never calls a missing helper" "! grep -q 'command not found'
 check "install: still too little space after the cleanup stops with the --free-space hint" "printf 'n\n' | WM_TEST_FREE_OFFER=1 WM_TEST_DISK_MB=1000 WM_TEST_TMP=$FST WM_HOME=$T/fsi2 WM_INSTALLER_TEST=1 bash $SB --install --pi 192.0.2.5 --no-reboot 2>&1 | grep -q 'free-space'"
 check "install: no terminal and not enough space stops without asking" "! WM_TEST_DISK_MB=1000 WM_HOME=$T/fsi3 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --install --pi 192.0.2.5 --no-reboot >/dev/null 2>&1"
 
-echo "== free up disk space (Pi installer)"
+sec "== free up disk space (Pi installer)"
 PFB="$T/pfb"; PFT="$T/pft"; mkdir -p "$PFB/.cache/pip" "$PFB/printer_data/logs" "$PFB/printer_data/gcodes" "$PFT/tmp.AAA/scripts" "$PFT/tmp.keep"
 dd if=/dev/zero of="$PFB/.cache/pip/x" bs=1M count=3 2>/dev/null; dd if=/dev/zero of="$PFT/tmp.AAA/pad" bs=1M count=3 2>/dev/null
 echo 1.0.0 > "$PFT/tmp.AAA/VERSION"; touch "$PFT/tmp.AAA/scripts/screen_board.sh"; echo mine > "$PFT/tmp.keep/file"; echo gcode > "$PFB/printer_data/gcodes/a.gcode"; echo old > "$PFB/printer_data/logs/klippy.log.1"; dd if=/dev/zero of="$PFB/printer_data/logs/klippy.log.1" bs=1M count=2 2>/dev/null
@@ -1195,7 +1211,7 @@ mkdir -p "$T/pfi2/.cache/pip"; dd if=/dev/zero of="$T/pfi2/.cache/pip/x" bs=1M c
 printf 'y\n1\ny\n' | WM_TEST_FREE_OFFER=1 WM_TEST_DISK_MB=2499 WM_TEST_TMP=$PFT WM_HOME=$T/pfi2 WM_INSTALLER_TEST=1 timeout 100 bash $ROOT/installer.sh --from-github --model ultra-s > $T/pfi2.out 2>&1
 check "Pi install: not enough space offers the cleanup, warns, then goes on" "grep -q 'Only 2499 MB free' $T/pfi2.out && grep -q 'This will ERASE' $T/pfi2.out && grep -q 'Disk space ok' $T/pfi2.out"
 
-echo "== ZR Tools on the Pi, and the clock fix"
+sec "== ZR Tools on the Pi, and the clock fix"
 mkpi() { local h="$1"; mkdir -p "$h/printer_data/config"; printf '[include mainsail.cfg]\n\n[save_variables]\nfilename: /tmp/v.cfg\n\n#*# <---- SAVE_CONFIG ---->\n' > "$h/printer_data/config/printer.cfg"; }
 PZ="$T/pz"; mkpi "$PZ"
 zr() { WM_TEST_NO_FETCH=1 WM_HOME="$PZ" WM_INSTALLER_TEST=1 "$@" bash "$ROOT/installer.sh" --zr-tools 2>&1; }
@@ -1280,7 +1296,7 @@ check "board: dry run changes nothing" "[ ! -d $B4/KlipperScreen ] && [ ! -s $B4
 B5="$T/b5"; mkdir -p "$B5/printer_data/config"; sb "$B5" --pi wmpi.local >/dev/null; printf 'y\n' | WM_HOME="$B5" WM_INSTALLER_TEST=1 bash "$SB" --uninstall-klipperscreen > "$T/b5u.out" 2>&1
 check "board uninstall-klipperscreen: removes it AND re-enables the factory services" "[ ! -d $B5/KlipperScreen ] && [ -e $B5/.svc/makerbase-client.enabled ] && [ -e $B5/.svc/klipper.enabled ] && [ -e $B5/.svc/moonraker.enabled ]"
 
-echo "== screen rescue tool (window after 3 failed starts, USB flag)"
+sec "== screen rescue tool (window after 3 failed starts, USB flag)"
 RS="$ROOT/screen_rescue/wm-screen-rescue"
 check "rescue: scripts have valid syntax" "bash -n $RS && python3 -m py_compile $ROOT/screen_rescue/wm-rescue-window.py; rm -rf $ROOT/screen_rescue/__pycache__"
 check "rescue: KlipperScreen unit stops retrying after 3 starts in 2 minutes and opens the rescue window" "grep -q 'StartLimitIntervalSec=120' $SB && grep -q 'StartLimitBurst=3' $SB && grep -q 'OnFailure=wm-screen-rescue.service' $SB"
@@ -1341,14 +1357,14 @@ check "2.31.0 (F-235): the screen has a Move page (home, jog, coordinates, Go to
 B6="$T/b6"; mkdir -p "$B6/printer_data/config"; sb "$B6" --pi wmpi.local >/dev/null; sb "$B6" --pi wmpi.local >/dev/null
 check "board: running twice keeps the ORIGINAL saved state" "grep -q 'makerbase-client enabled active' $B6/wm-screen-backup/disabled.list"
 
-echo "== screen board pre-check (runs on the Mac)"
+sec "== screen board pre-check (runs on the Mac)"
 PC="$ROOT/scripts/screen_board_precheck.sh"; mkdir -p "$T/pc"
 check "precheck syntax" "bash -n $PC"
 check "precheck reads package and service lists from screen_board.sh" "(cd $T/pc && bash $PC --local-test | grep -q SUMMARY)"
 check "precheck writes a scrubbed report" "ls $T/pc/screen_board_precheck_*.txt >/dev/null && ! grep -q TM88888 $T/pc/screen_board_precheck_*.txt"
 check "precheck is read-only (no sudo, no service changes in its code)" "! grep -E 'systemctl (stop|start|disable|enable|restart)|apt-get (install|upgrade|remove)[^|]*[^s] ' $PC | grep -v -E '^[[:space:]]*#|-s install|Still to do|sudo systemctl' | grep -q ."
 check "precheck needs a board address" "! bash $PC"
-echo "== Mac preflight script"
+sec "== Mac preflight script"
 PF="$ROOT/scripts/screen_board_preflight_mac.sh"
 check "preflight syntax" "bash -n $PF"
 check "preflight needs the board address" "! bash $PF"
@@ -1406,7 +1422,7 @@ check "add-on only says so" "echo \"\$OUT\" | grep -q 'Only this add-on'"
 check "full update still updates everything" "inst $OA --update | grep -q 'Updated: services, nginx'"
 
 # --- backup before update, Status, Network and system, Spoolman ---
-echo "== 1.15.1 fixes"
+sec "== 1.15.1 fixes"
 HR="$G1"; mkdir -p "$HR/crowsnest"
 OUT="$(inst "$HR" --doctor)"
 check "doctor: no camera means the webcam service waits, not a problem" "echo \"$OUT\" | grep -q 'waiting for a camera'"
@@ -1421,7 +1437,7 @@ check "klipper wait stops early on error" "grep -qF -e '-ge 2' $ROOT/installer.s
 check "system files are removed quietly" "grep -q 'not loaded' $ROOT/installer.sh"
 check "info line mentions Spoolman" "grep -q 'Shake&Tune and Spoolman are not part' $ROOT/installer.sh"
 
-echo "== backup before update / status / system page / Spoolman"
+sec "== backup before update / status / system page / Spoolman"
 mkstage "$T/stage_ns"; NS="$T/ns"; mkdir -p "$NS"; inst "$NS" --from-stage "$T/stage_ns" --screen off >/dev/null
 printf "[server]\n" > "$NS/printer_data/config/moonraker.conf"; printf "klippy_apis/printer/restart\nSpoolman_x\n" > "$NS/printer_data/moonraker.asvc"
 inst "$NS" --update >/dev/null
@@ -1453,7 +1469,7 @@ mkdir -p "$NS/.local/share/spoolman"; echo db > "$NS/.local/share/spoolman/spool
 check "--remove spoolman asks first and keeps everything on no" "M 'n\n' $NS --remove spoolman | grep -q 'Nothing changed' && [ -d $NS/Spoolman ]"
 check "--remove spoolman removes it, drops its config sections, keeps the database" "M 'y\nn\n' $NS --remove spoolman | grep -q 'Spoolman removed' && [ ! -e $NS/Spoolman ] && ! grep -q 'spoolman' $NS/printer_data/config/moonraker.conf && ! grep -qx Spoolman $NS/printer_data/moonraker.asvc && [ -f $NS/.local/share/spoolman/spoolman.db ]"
 
-echo "== Pi model, tty group, board temperatures and the host MCU"
+sec "== Pi model, tty group, board temperatures and the host MCU"
 PS="$T/ps"; rm -rf "$PS"; mkdir -p "$PS/printer_data/config" "$PS/.svc" "$PS/klipper/klippy/extras"; touch "$PS/.svc/klipper.active" "$PS/.svc/klipper-mcu.active"
 for m in "" " HUB" " EX_T" " T0" " T1" " CELL"; do printf '[mcu%s]\nserial: x\n' "$m" > "$PS/printer_data/config/b${m// /_}.cfg"; done
 printf '[mcu rpi]\nserial: /tmp/x\n' > "$PS/printer_data/config/zz_old.cfg.bak"
@@ -1493,7 +1509,7 @@ check "Doctor knows the host MCU service and the tty group" "grep -q 'klipper-mc
 check "--help lists --pi-sensors" "bash $ROOT/installer.sh --help | grep -q -- '--pi-sensors'"
 check "docs/HOST_MCU.md describes [mcu rpi], the tty group and the rollback" "grep -q 'mcu rpi' $ROOT/docs/HOST_MCU.md && grep -q 'tty' $ROOT/docs/HOST_MCU.md && grep -qi 'put back as they were' $ROOT/docs/HOST_MCU.md"
 
-echo "== ACE Pro (install question, add-on, doctor, removal)"
+sec "== ACE Pro (install question, add-on, doctor, removal)"
 STUBACE="$T/acestub"; mkdir -p "$STUBACE/extras/ace" "$STUBACE/config"; echo VERSION > /dev/null; echo 9.9.9 > "$STUBACE/VERSION"; mkdir -p "$STUBACE/.git"
 cat > "$STUBACE/installer.sh" <<'STUBEOF'
 #!/bin/bash
@@ -1541,7 +1557,7 @@ rm -f "$NS/wm-ultra-fluidd-acepro-panel/installer.sh"
 check "--remove acepro still works when the project's installer is gone, and can delete the saved copies" "M 'y\ny\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/rpi_ace*.cfg 2>/dev/null && ! grep -q 'wm_ace' $NS/printer_data/config/printer.cfg && [ ! -L $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/acepro-backup ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ]"
 unset WM_TEST_ACEPRO_SRC
 
-echo "== screen board menu"
+sec "== screen board menu"
 MB="$T/mb"; mkdir -p "$MB"
 mb() { local in="$1"; shift; printf "$in" | WM_TEST_SERVICES="makerbase-client klipper moonraker nginx" WM_HOME="$MB" WM_INSTALLER_TEST=1 bash "$SB" "$@" 2>&1; }
 check "board menu: lists every entry and exits with 0" "mb '0\n' --menu | grep -q 'Install KlipperScreen' && mb '0\n' --menu | grep -q 'Backup and restore' && mb '0\n' --menu | grep -q 'Dry run'"
@@ -1598,7 +1614,7 @@ check "board --remove installer deletes the downloaded folder" "muf --remove ins
 check "board: no options at a terminal opens the menu" "printf '0\n' | WM_TEST_MENU_DEFAULT=1 WM_HOME=$MB WM_INSTALLER_TEST=1 bash $SB 2>&1 | grep -q 'Install KlipperScreen + ZR Tools'"
 check "board: --install skips the menu" "! printf '0\n' | WM_TEST_MENU_DEFAULT=1 WM_HOME=$MB WM_INSTALLER_TEST=1 bash $SB --install --yes 2>&1 | grep -q 'Choose:'"
 
-echo "== update without git / dry run in the menu"
+sec "== update without git / dry run in the menu"
 GL="$T/gl"; mkdir -p "$GL"; cp -a "$ROOT"/. "$GL"/ 2>/dev/null; rm -rf "$GL/.git"; echo 99.0.0 > "$T/gl_new_version"
 GN="$T/gl_new"; rm -rf "$GN"; mkdir -p "$GN"; cp -a "$ROOT"/. "$GN"/ 2>/dev/null; rm -rf "$GN/.git"; echo 99.0.0 > "$GN/VERSION"; echo marker > "$GN/NEWFILE"
 GH="$T/glh"; mkdir -p "$GH"
@@ -1611,7 +1627,7 @@ check "--check-updates works without git (version compare)" "WM_TEST_NEW_VERSION
 check "menu: main page has Dry run of the install" "M '0\n' $HR --menu | grep -q 'Dry run of the install'"
 check "menu: dry run entry shows the plan and changes nothing" "rm -rf $T/dr; mkdir -p $T/dr; M '8\n\n0\n' $T/dr --menu | grep -q 'DRY RUN' && [ ! -d $T/dr/klipper ]"
 
-echo "== damaged factory files"
+sec "== damaged factory files"
 RF="$T/rf"; rm -rf "$RF"; mkdir -p "$RF"; git clone -q "$ROOT" "$RF" 2>/dev/null && cp "$ROOT/installer.sh" "$RF/installer.sh" 2>/dev/null && mkdir -p "$RF/scripts" && cp "$ROOT/scripts/lib_free_space.sh" "$RF/scripts/"
 rm -f "$RF"/factory/ultra-s/klipper/klippy/extras/air.py
 RFH="$T/rfh"; mkdir -p "$RFH"
@@ -1620,7 +1636,7 @@ check "install notices missing factory files, restores them and goes on" "WM_ASS
 check "menu: Update now on an empty Pi explains instead of failing" "rm -rf $T/ue; mkdir -p $T/ue; M '2\n2\n\n0\n0\n' $T/ue --menu | grep -q 'Nothing is installed on this Pi yet' "
 check "--update on an empty Pi says what to do" "WM_HOME=$T/ue WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --update </dev/null 2>&1 | grep -q 'nothing is installed by this installer yet'"
 
-echo "== Wi-Fi power saving off and the Wi-Fi watchdog (B-041)"
+sec "== Wi-Fi power saving off and the Wi-Fi watchdog (B-041)"
 WF="$T/wifi"; mkdir -p "$WF/printer_data/config"
 wifi() { WM_TEST_WIFI_DEV="$1" WM_TEST_NM="$2" WM_HOME="$WF" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --wifi 2>&1 </dev/null; }
 rm -f "$WF/.sudo.log"; OUTW="$(wifi wlan0 1)"
@@ -1647,7 +1663,7 @@ mkdir -p "$WF/.wifiwd"; echo old > "$WF/.wifiwd/wm-wifi-watchdog"; rm -f "$WF/.s
 check "Wi-Fi: a dry run only says it would delete the old watchdog" "WM_TEST_WIFI_DEV=wlan0 WM_TEST_NM=1 WM_HOME=$WF WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --wifi --dry-run </dev/null 2>&1 | grep -q 'would stop and delete the old wm-wifi-watchdog' && [ -e $WF/.wifiwd/wm-wifi-watchdog ] && [ ! -f $WF/.sudo.log ]"
 rm -rf "$WF/.wifiwd"; rm -f "$WF/.sudo.log"
 
-echo "== troubleshooting logs, black box and the support bundle (item 30, F-107, F-022)"
+sec "== troubleshooting logs, black box and the support bundle (item 30, F-107, F-022)"
 LGX="$T/logsx"; mkdir -p "$LGX/printer_data/config" "$LGX/printer_data/logs"
 logsrun() { WM_HOME="$LGX" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1 </dev/null; }
 rm -f "$LGX/.sudo.log"; OUTL="$(logsrun --logs)"
@@ -1686,7 +1702,7 @@ for MD in ultra ultra-s; do
 check "macros $MD: _WM_LOG_STATE exists and PAUSE, RESUME and CANCEL_PRINT each call it twice" "F=$ROOT/factory/$MD/config/macros.cfg; grep -q '^\[gcode_macro _WM_LOG_STATE\]' \$F && for w in PAUSE_START PAUSE_PARKED RESUME_START RESUME_DONE CANCEL_START CANCEL_DONE; do grep -q \"_WM_LOG_STATE WHAT=\$w\\\$\" \$F || exit 1; done"
 done
 
-echo "== one folder for every backup (item 36)"
+sec "== one folder for every backup (item 36)"
 UBX="$T/ubx"; mkdir -p "$UBX/printer_data/config" "$UBX/wm-backups" "$UBX/acepro-backup" "$UBX/fluidd_backup_a" "$UBX/fluidd_backup_b" "$UBX/wm-rpi-backup" "$UBX/repo/.git"
 for n in a b c; do echo $n > "$UBX/printer_data/config/rpi_base.cfg.wm-before-$n-2026111${#n}-100000"; sleep 0.01; done
 touch -d "2026-11-10" "$UBX/printer_data/config/rpi_base.cfg.wm-before-a-20261111-100000"; touch -d "2026-11-11" "$UBX/printer_data/config/rpi_base.cfg.wm-before-b-20261111-100000"
@@ -1706,7 +1722,7 @@ check "ultra backup: python tests (moves, limits, records, disk guard)" "python3
 check "macro index: python tests (index, no doubling, backup, rpi_pi.cfg rewrite keeps it)" "python3 -I -W ignore $ROOT/tests/test_cfg_index.py"
 check "macro index: the repo copies of the config files carry an up-to-date index" "python3 -I $ROOT/scripts/wm_cfg_index.py file $ROOT/rpi-cfg/rpi_base.cfg $ROOT/rpi-cfg/rpi_calibration.cfg $ROOT/rpi-cfg/rpi_nozzle.cfg $ROOT/zr_tools/zr_tools.cfg; [ \$? = 0 ]"
 
-echo "== touchscreen board status for the Fluidd Toolheads card"
+sec "== touchscreen board status for the Fluidd Toolheads card"
 check "screen board service: GET /status with version, latest, CPU, memory; uploaded every 60 s as wm_screen_status.json" "python3 -I - $ROOT/zr_tools/wm-chamber-light-http <<'PY'
 import importlib.machinery, importlib.util, sys
 l = importlib.machinery.SourceFileLoader('w', sys.argv[1]); sp = importlib.util.spec_from_loader('w', l); m = importlib.util.module_from_spec(sp); l.exec_module(m)
@@ -1718,7 +1734,7 @@ src = open(sys.argv[1]).read()
 assert 'wm_screen_status.json' in src and 'def status_loop' in src and 'self.path.rstrip(\"/\") == \"/status\"' in src
 PY"
 
-echo "== progress bars"
+sec "== progress bars"
 PB="$T/pb"; rm -rf "$PB"; mkdir -p "$PB"
 OUT="$(inst "$PB" --from-github --model ultra-s)"
 check "pi install: every step shows a bar with its number and percent" "echo \"$OUT\" | grep -q 'Step 1 of 14' && echo \"$OUT\" | grep -q 'Step 7 of 14' && echo \"$OUT\" | grep -q '  0%' && echo \"$OUT\" | grep -qE '█.*░.*[0-9]+%'"
@@ -1732,7 +1748,7 @@ check "pi update shows its bar from 0 to 100 percent" "echo \"$OUT\" | grep -q '
 OUT="$(WM_HOME=$T/pb2 WM_TEST_SERVICES='makerbase-client klipper' WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi 192.0.2.10 --no-reboot 2>&1 </dev/null)"
 check "board install: bar from step 1 of 7 to 100 percent" "echo \"$OUT\" | grep -q 'Install step 1 of 7' && echo \"$OUT\" | grep -q 'Install step 7 of 7' && echo \"$OUT\" | grep -q '100%  All 7 steps finished'"
 
-echo "== board update page and reboot question"
+sec "== board update page and reboot question"
 UP="$T/upn"; mkdir -p "$UP/zr_tools" "$UP/scripts"; echo 99.0.0 > "$UP/VERSION"; printf '# Changelog\n\n## 99.0.0\n\n- brand new thing\n\n## %s\n\n- old thing\n' "$(cat $ROOT/VERSION)" > "$UP/CHANGELOG.md"
 UPH="$T/uph"; mkdir -p "$UPH"
 check "board --check-updates lists what is new and stops at the installed version" "O=\$(WM_TEST_UPDATE_DIR=$UP WM_HOME=$UPH WM_INSTALLER_TEST=1 bash $SB --check-updates 2>&1 </dev/null); echo \"\$O\" | grep -q 'brand new thing' && ! echo \"\$O\" | grep -q 'old thing' && echo \"\$O\" | grep -q 'Newest: 99.0.0'"
@@ -1751,7 +1767,7 @@ RUF="$T/ruf"; rm -rf "$RUF"; mkdir -p "$RUF/scripts" "$RUF/zr_tools"; cp "$SB" "
 echo "[x]" > "$RUH/printer_data/config/KlipperScreen.conf"
 check "board --update also refreshes the installer folder it runs from" "WM_TEST_REFRESH_REPO=1 WM_ASSUME_YES=1 WM_TEST_UPDATE_DIR=$UP WM_HOME=$RUH WM_INSTALLER_TEST=1 bash $RUF/scripts/screen_board.sh --update </dev/null 2>&1 | grep -q 'Updated to 99.0.0' && grep -q 99.0.0 $RUF/VERSION"
 
-echo "== klipper restart after install and update"
+sec "== klipper restart after install and update"
 KR="$T/kr"; mkstage "$T/stage_kr"; mkdir -p "$KR"; inst "$KR" --from-stage "$T/stage_kr" --screen off >/dev/null
 : > "$KR/.sudo.log"; touch "$KR/.svc/klipper.active"
 OUT="$(inst "$KR" --update)"
@@ -1766,7 +1782,7 @@ check "board install restarts klipper on the Pi through moonraker" "WM_ASSUME_YE
 check "board update restarts klipper on the Pi and KlipperScreen" "WM_TEST_UPDATE_DIR=$UPD WM_ASSUME_YES=1 WM_HOME=$BK2 WM_INSTALLER_TEST=1 bash $SB --update </dev/null 2>&1 | grep -q 'Klipper on the Pi restarted' && grep -q 'restart klipper on' $BK2/.sudo.log && grep -q 'restart KlipperScreen' $BK2/.sudo.log"
 check "board --dry-run restarts nothing on the Pi" "WM_ASSUME_YES=1 WM_HOME=$T/bk3 WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --dry-run </dev/null 2>&1 | grep -qv 'Klipper on the Pi restarted'"
 
-echo "== bars: weights, update, uninstall; doctor waits and re-checks"
+sec "== bars: weights, update, uninstall; doctor waits and re-checks"
 check "pi install: bar percent grows and never goes backwards" "echo \"$(inst $T/pbw --from-github --model ultra-s)\" | grep -o '[0-9]*%' | tr -d '%' | awk 'NR>1 && \$1<prev {bad=1} {prev=\$1} END{exit bad}'"
 PW="$T/pw"; rm -rf "$PW"; mkdir -p "$PW/KlipperScreen/panels" "$PW/printer_data/config"; echo "[x]" > "$PW/printer_data/config/KlipperScreen.conf"
 check "board update shows its bar from 0 to 100 percent" "O=\$(WM_TEST_UPDATE_DIR=$UPD WM_ASSUME_YES=1 WM_HOME=$PW WM_INSTALLER_TEST=1 bash $SB --update </dev/null 2>&1); echo \"\$O\" | grep -q 'Update step 1 of 6' && echo \"\$O\" | grep -q '100%  Update finished'"
@@ -1907,7 +1923,7 @@ echo 'KLIPPER_ARGS="/k/klippy.py '"$DBH"'/printer_data/devbox/config/printer.cfg
 check "dev box: the Doctor says dev mode is on" "yes n | WM_HOME=$DBH WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'Dev box mode is ON'"
 check "dev box: --pid-cfg and --cfg-merge say it too" "WM_HOME=$DBH WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --pid-cfg 2>&1 </dev/null | grep -q 'Dev box mode is ON' && WM_HOME=$DBH WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --cfg-merge 2>&1 </dev/null | grep -q 'Dev box mode is ON'"
 
-echo "== vanilla Klipper and Moonraker (wm_ultra_vanilla_klipper)"
+sec "== vanilla Klipper and Moonraker (wm_ultra_vanilla_klipper)"
 if [ -d "$ROOT/.git" ]; then
 for m in ultra ultra-s; do
 check "$m: every file in SHA256SUMS and modules.sha256 is tracked by git (the bundled Klipper's .gitignore hides *.so)" "cd $ROOT && ! (awk '{print \"factory/$m/\" \$2}' factory/$m/SHA256SUMS; awk '{print \"factory/$m/klipper/\" \$2}' factory/$m/modules.sha256) | sort -u | comm -23 - <(git ls-files | sort) | grep -q ."
@@ -1939,7 +1955,7 @@ check "a Pi with WonderMaker's own Klipper is refused, nothing is moved" "! inst
 RW3="$T/rw3"; rm -rf "$RW3"; mkdir -p "$RW3/klipper/klippy/extras"; echo x > "$RW3/klipper/klippy/klippy.py"; echo x > "$RW3/klipper/klippy/extras/wm_mcu_tweaks.py"
 check "a Pi that already has this installer's Klipper is not refused (a reinstall moves the old folders aside)" "inst $RW3 --from-github --model ultra-s --dry-run >$T/rw3.out 2>&1; ! grep -q 'already runs WonderMaker' $T/rw3.out"
 for m in ultra ultra-s; do check "$m: RESUME prints \"Print resumed\" and hands feed assist back to the watcher (ACE only)" "grep -q 'RESPOND MSG=\"Print resumed\"' $ROOT/factory/$m/config/macros.cfg && grep -q 'VARIABLE=manual VALUE=-2' $ROOT/factory/$m/config/macros.cfg"; done
-echo "== load cell board (CELL): firmware V2 from wm-load-cell-mcu"
+sec "== load cell board (CELL): firmware V2 from wm-load-cell-mcu"
 CS="$T/cellstub"; rm -rf "$CS"; mkdir -p "$CS/zr-ultra/firmware"; echo 'echo menu' > "$CS/install.sh"; echo 'echo flash' > "$CS/zr-ultra/2_flash_app_can.sh"; echo KLP_CELL_WM_ZRU_RPI_V2_20261117 > "$CS/zr-ultra/firmware/LATEST"
 cellinst() { local h="$1" v="$2"; shift 2; WM_TEST_CELL_DIR="$CS" WM_TEST_CELL_VERSION="$v" WM_TEST_PANEL_DIR="$T/stubpanel" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" </dev/null 2>&1; }
 CH="$T/cellh"; rm -rf "$CH"; mkdir -p "$CH"
@@ -1958,7 +1974,7 @@ check "load cell: an update never touches the load cell board" "! cellinst $CI K
 check "load cell: the step comes after the first start and before Done, and the Advanced menu has it" "l(){ grep -n \"\$1\" $ROOT/installer.sh | tail -1 | cut -d: -f1; }; a=\$(l 'do_first_start auto || true'); b=\$(l '^step_load_cell '); c=\$(l '^print_header \"Done\"'); [ \"\$a\" -lt \"\$b\" ] && [ \"\$b\" -lt \"\$c\" ] && grep -q 'menu_item 7 \"Load cell board\"' $ROOT/installer.sh && grep -q 'menu_run --load-cell' $ROOT/installer.sh"
 check "load cell: --help lists --load-cell and --no-load-cell" "bash $ROOT/installer.sh --help | grep -q -- '--load-cell' && grep -q -- '--no-load-cell' $ROOT/installer.sh"
 
-echo "== 2.20.1: state at the end, saved_variables temp file, Fluidd categories after start, ModemManager, doctor checks"
+sec "== 2.20.1: state at the end, saved_variables temp file, Fluidd categories after start, ModemManager, doctor checks"
 SH2="$T/sg2"; mkdir -p "$SH2/printer_data/config" "$SH2/printer_data/logs"; mksv "$SH2/printer_data/config/saved_variables.cfg"
 for i in 1 2 3 4 5 6; do HOME="$SH2" bash "$ROOT/scripts/wm_sv_guard.sh" backup & done; wait
 check "guard: six backups at the same moment leave no temp file and one good copy" "[ ! -e $SH2/printer_data/config/saved_variables.cfg.wm-good.tmp ] && ! ls $SH2/printer_data/config/saved_variables.cfg.wm-good.tmp.* >/dev/null 2>&1 && cmp -s $SH2/printer_data/config/saved_variables.cfg $SH2/printer_data/config/saved_variables.cfg.wm-good"
@@ -1973,11 +1989,15 @@ check "doctor: checks the Fluidd categories, Klipper state, ACE Pro on USB and t
 PANEL_INST="${WM_PANEL_REPO:-/home/claude/wm-ultra-fluidd-acepro-panel}/installer.sh"
 if [ -f "$PANEL_INST" ]; then check "panel: --fluidd-categories waits for Klipper" "grep -q 'fluiddcat) step_fluidd_categories 60' $PANEL_INST"; else echo "  skip panel: --fluidd-categories waits for Klipper (panel repository not on this machine, set WM_PANEL_REPO)"; fi
 
-echo "== 2.20.1 (light watcher, F-142): chamber light by itself (wm-light.path), First Run Calibration without Extruder Setup"
+sec "== 2.20.1 (light watcher, F-142): chamber light by itself (wm-light.path), First Run Calibration without Extruder Setup"
 check "light watcher: --light writes wm-light.path (watches rpi_chamber_light.json) and wm-light.service (--light --yes)" "grep -q 'PathChanged=.*printer_data/config/rpi_chamber_light.json' $G2/.wm-units/wm-light.path && grep -q 'Unit=wm-light.service' $G2/.wm-units/wm-light.path && grep -q 'installer.sh --light --yes' $G2/.wm-units/wm-light.service && grep -q 'Type=oneshot' $G2/.wm-units/wm-light.service"
 check "light watcher: the dry run installs nothing" "rm -rf $G2/.wm-units; WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --light --dry-run </dev/null 2>&1 | grep -q 'would install wm-light.path' && [ ! -e $G2/.wm-units/wm-light.path ]"
 check "light watcher: the doctor checks it and the uninstall removes it" "grep -q 'wm-light.path is not running' $ROOT/installer.sh && grep -q 'systemctl disable wm-light.path' $ROOT/installer.sh"
 check "first run calibration: no Extruder Setup stage, setter position stage first, no second Save and Restart" "! grep -q '_WM_FIRST_RUN_CAL_REST' $ROOT/rpi-cfg/rpi_calibration.cfg && ! grep -q 'WM_EXTRUDER_SETUP' <(sed -n '/gcode_macro _WM_FIRST_RUN_CAL\]/,/gcode_macro _WM_FIRST_RUN_CAL_DONE/p' $ROOT/rpi-cfg/rpi_calibration.cfg) && ! grep -q 'variable_full' $ROOT/rpi-cfg/rpi_nozzle.cfg"
 check "first run calibration: the macros still render and behave" "python3 $ROOT/tests/rpi_cfg_render.py | tail -3 | grep -q 'macros render'"
+
+repo_guard
+if [ "$(real_sum)" = "$REAL_SUM0" ]; then PASS=$((PASS+1)); echo "  ok   the real home of this machine was not touched (Klipper's driver links, config file list, moonraker.conf)"
+else FAIL=$((FAIL+1)); echo "  FAIL the real home of this machine changed during the run (Klipper's driver links, config file list or moonraker.conf): a test did not use its fake home, or the printer was used during the run"; find "$REAL_HOME/klipper/klippy/extras" -maxdepth 1 -type l -printf '        | %f -> %l\n' 2>/dev/null; fi
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
