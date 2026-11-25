@@ -18,6 +18,7 @@ qc "macro index: rpi-cfg and zr_tools.cfg carry an up-to-date index (fix: python
 qc "macro patch list: up to date with the factory files (same check as the suite)" "c=\$(grep -o 'tools/make_macro_patches.py [0-9a-f]* [0-9.]* --check' tests/run_tests.sh | head -n1); [ -n \"\$c\" ] && { [ ! -d .git ] || python3 \$c; }"
 qc "screen bundle: up to date (fix: bash scripts/make_screen_bundle.sh)" "bash scripts/make_screen_bundle.sh --check"
 qc "screen python tests" "python3 -I -W ignore tests/test_screen.py"
+qc "file merge tests (scripts/wm_filemerge.py)" "python3 -I -W ignore tests/test_filemerge.py"
 qc "no private addresses in repo files" "! grep -rIlE '10\.11\.88\.|192\.168\.1\.' . --exclude-dir=.git --exclude-dir=klipper --exclude-dir=moonraker --exclude=*.patch"
 if [ -d .git ] && [ -n "$(git status --porcelain -- factory 2>/dev/null)" ]; then
     echo "  NOTE factory/ has uncommitted changes. Commit them before the long suite: the installer's repair step puts factory/ back to the last commit inside the test copy."

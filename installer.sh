@@ -554,10 +554,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         if { [ "$f" = rpi_base.cfg ] || [ "$f" = rpi_calibration.cfg ]; } && [ -d "$ex" ] && [ ! -f "$ex/wm_virtual_pins.py" ]; then print_warning "$f not installed: the driver wm_virtual_pins.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_calibration.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/wm_tool_touch.py" ]; then print_warning "$f not installed: the driver wm_tool_touch.py is missing from Klipper's extras"; continue; fi
         if [ "$f" = rpi_nozzle.cfg ] && [ -d "$ex" ] && [ ! -f "$ex/auto_speed.py" ]; then print_warning "$f not installed: the speed test module auto_speed.py is missing from Klipper's extras"; continue; fi
-        if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
-            cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
-        fi
-        cp "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"
+        filemerge_one "$cd/$f" "$SCRIPT_DIR/rpi-cfg/$f" "rpi-cfg/$f" || { print_warning "$f could not be merged: left as it is"; continue; }   # 3-way: your edits stay, WonderMaker's changes come in
         if [ "$f" = rpi_nozzle.cfg ]; then   # the Save button of the speed test writes max_accel and max_velocity into printer.cfg with this script
             mkdir -p "$HOME_DIR/printer_data/wm-tools" && cp "$SCRIPT_DIR/scripts/wm_speed_limits.py" "$HOME_DIR/printer_data/wm-tools/wm_speed_limits.py" && chmod +x "$HOME_DIR/printer_data/wm-tools/wm_speed_limits.py"
         fi
@@ -663,6 +660,31 @@ if names:
     except Exception:
         pass
 ' 2>/dev/null
+}
+filemerge_py() { echo "$SCRIPT_DIR/scripts/wm_filemerge.py"; }
+filemerge_one() {   # LIVE NEW REPO-PATH: bring WonderMaker's changes in one config file into the Pi file with a 3-way merge (baseline: ~/printer_data/wm-baseline). Your own edits stay.
+    local live="$1" new="$2" rel="$3" out rc
+    [ -f "$(filemerge_py)" ] || { cp "$new" "$live"; return $?; }
+    out="$(python3 -I "$(filemerge_py)" "$live" "$new" "$(cfgmerge_base_dir)" --name "$(basename "$new")" --git-repo "$SCRIPT_DIR" --git-path "$rel" --write --stamp "$STAMP" 2>&1)"; rc=$?
+    [ -n "$out" ] && echo "$out" | sed 's/^/        /'
+    case "$rc" in
+        0|10) return 0 ;;
+        11)   warn_later "$(basename "$new"): some of your own lines were kept where WonderMaker changed the same lines, or no starting point was found (listed in the update output). Copy of the old file: $(basename "$live").wm-before-merge-$STAMP"; return 0 ;;
+        *)    return 1 ;;
+    esac
+}
+macro_files_list() { echo "macros.cfg change_macros.cfg offset_calibrate.cfg extruder0.cfg extruder1.cfg extruder2.cfg extruder3.cfg hub.cfg"; }
+step_macro_files() {   # --update: WonderMaker's changes in its macro files (factory/<model>/config) into the Pi files, 3-way, your edits stay
+    print_header "WonderMaker's macro files"
+    why "A new install gets the macro files of this repository. On an update this compares three files for each of macros.cfg, change_macros.cfg, offset_calibrate.cfg, extruder0-3.cfg and hub.cfg: the version WonderMaker gave you last time, the new version, and yours. WonderMaker's changes are added; lines you changed yourself stay. Where you and WonderMaker changed the same lines, yours stay and WonderMaker's are listed. A copy of every changed file is kept."
+    local cd="$HOME_DIR/printer_data/config" n="$SCRIPT_DIR/factory/$(model_now)/config" f
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would merge this version's changes into macros.cfg, change_macros.cfg, offset_calibrate.cfg, extruder0-3.cfg and hub.cfg${NC}"; return 0; fi
+    [ -f "$(filemerge_py)" ] && [ -d "$cd" ] && [ -d "$n" ] || { print_info "nothing to compare"; return 0; }
+    for f in $(macro_files_list); do
+        [ -f "$n/$f" ] && [ -f "$cd/$f" ] || continue
+        filemerge_one "$cd/$f" "$n/$f" "factory/$(model_now)/config/$f" || print_warning "$f could not be merged: left as it is"
+    done
+    print_success "WonderMaker's macro files are up to date"
 }
 macro_patches_py() { echo "$SCRIPT_DIR/scripts/wm_macro_patches.py"; }
 step_macro_patches() {   # --update: the fixes of this version inside WonderMaker's macro files (macros.cfg, change_macros.cfg, ...) on a Pi that is already installed
@@ -2971,7 +2993,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_patches; step_pidcfg; step_wm_modules; step_wifi; step_logs; step_blackbox; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_files; step_pidcfg; step_wm_modules; step_wifi; step_logs; step_blackbox; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -3459,7 +3481,7 @@ do_doctor() {
     local rf; for rf in $(rpicfg_list); do
         if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's $(rpicfg_role "$rf" name) file $rf is missing" "$(rpicfg_role "$rf" effect). It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
         elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf ($(rpicfg_role "$rf" name))" "Klipper does not load it: $(rpicfg_role "$rf" effect)."; offer_fix "add the include line for $rf" step_rpicfg
-        elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
+        elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing brings WonderMaker's changes into it and keeps your own edits (3-way merge); a copy of your file is kept as $rf.wm-before-merge-<time>."; offer_fix "bring WonderMaker's changes into $rf (your edits stay)" step_rpicfg
         else doc_ok "$(rpicfg_role "$rf" name) $rf (included in printer.cfg, same as rpi-cfg)"; fi
         if [ "$rf" = rpi_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
             if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind _WM_NOZZLE_TYPE) is in place"
