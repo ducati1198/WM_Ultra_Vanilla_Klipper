@@ -920,6 +920,7 @@ check "match: --rpi-cfg puts wm_canids.py back" "cmp $ROOT/scripts/wm_canids.py 
 
 sec "== 2.8.0: Z offset tools, unload menu, safety check, virtual pins, chamber light, macro patches"
 CF2="$G2/printer_data/config"
+sed -i '/^# my edit/d' "$CF2/rpi_calibration.cfg"   # the two test edits above stay in the file now (3-way merge); take them out before the next checks compare with the repository file
 check "rpi-cfg 2.10.0: rpi_base.cfg and rpi_calibration.cfg are installed and included once, the old separate files are not" "(for f in rpi_base.cfg rpi_calibration.cfg; do cmp $ROOT/rpi-cfg/\$f $CF2/\$f && [ \$(grep -c \"^\\[include \$f\\]\" $CF2/printer.cfg) = 1 ] || exit 1; done) && ! grep -qE 'include rpi_(homing|bed_soak|zoffset|virtual_pins|unload|safety|tool_leds|print_end|head_sensors|mcu|mcu_temps|light)\.cfg' $CF2/printer.cfg"
 check "rpi-cfg 2.10.0: rpi_base.cfg is included above rpi_calibration.cfg (Klipper must read [wm_virtual_pins] first)" "[ \$(grep -n '^\\[include rpi_base.cfg\\]' $CF2/printer.cfg | cut -d: -f1) -lt \$(grep -n '^\\[include rpi_calibration.cfg\\]' $CF2/printer.cfg | cut -d: -f1) ]"
 check "rpi-cfg 2.8.0: the new includes sit before the SAVE_CONFIG block" "! sed -n '/SAVE_CONFIG/,\$p' $CF2/printer.cfg | grep -qE 'include rpi_(base|calibration|homing|pi)'"
