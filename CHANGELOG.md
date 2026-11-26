@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.35.0 (not released yet)
+## 2.35.0
 
 - **Your own changes file: `wm_my_overrides.cfg`.** It sits in `printer_data/config`, is created with only comments, and its include line is always the last one above the SAVE_CONFIG block of `printer.cfg`. Klipper reads includes in order, so a section written there wins over WonderMaker's file; only the lines you write change. An update never changes it. `./installer.sh --my-overrides` creates it and puts the include back last; `--doctor` checks it.
 - **One update at a time.** `./installer.sh --update`, `--update-all` and `--update-boards` take the same lock as Fluidd's Update button. A hand-run update and Fluidd's no longer run together (on 2026-11-26 they did, and the board update said "already exists"). The second one waits (up to 15 minutes) and says why; a board whose update is already running is reported as running, not as an error.
