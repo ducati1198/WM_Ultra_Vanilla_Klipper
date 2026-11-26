@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.34.0
+
+- **Updates keep your edits (3-way merge).** The macro files and the `rpi_*.cfg` files are merged three ways: what WonderMaker installed last time, the new version, and your file. Your changes stay, ours arrive, and a line you and we both changed is a conflict you are asked about. The old text patch list (it reverted the F-241 dock speed) is retired. The old copy of every merged file goes in the `backup` folder next to it.
+- **Automatic return.** If Klipper was ready before an update and does not come back after the restart, your settings are put back by themselves, the update says so and keeps a safety copy. `--no-auto-rollback` turns this off.
+- **One release number.** The file `RELEASE` is the same in the installer and the Fluidd panel. `--status` and the end of an update list the Pi, the panel and the screen boards against it.
+- **Board in test.** `screen_board.sh --in-test on|off|status` and `installer.sh --board test-on|test-off|test-status` keep an update away from a screen board you are testing.
+- **Config check before the restart.** `--check-config` (and every update) asks Klipper in batch mode whether the new config loads. An error is a warning that names the error. The developer tool `tools/devbox/devbox.py check` does the same.
+- **Cool nozzle (F-244, `WM_NOZZLE_CLEAN`).** Cool nozzle pulls the filament back 10 mm (was 5 mm).
+- Screen S1.3.0 is unchanged (the screen bundle now carries the `RELEASE` file).
+
 ## 2.33.0
 
 - **Screen S1.3.0.** On the screen board:
