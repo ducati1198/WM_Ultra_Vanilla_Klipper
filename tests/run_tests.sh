@@ -26,7 +26,8 @@ repo_guard() {
     if [ -z "${REPO_SUM:-}" ]; then REPO_SUM="$s"
     elif [ "$s" != "$REPO_SUM" ]; then FAIL=$((FAIL+1)); echo "  FAIL a test changed the repository copy, in the section: ${CUR_SEC:-start}"; git -C "$ROOT" status --porcelain | head -n 6 | sed 's/^/        | /'; REPO_SUM="$s"; fi
 }
-sec() { repo_guard; echo "$1"; CUR_SEC="$1"; }
+SEC_T0=$(date +%s); : > "$T/.sectimes"
+sec() { repo_guard; local n; n=$(date +%s); [ -n "${CUR_SEC:-}" ] && echo "$((n-SEC_T0)) s  $CUR_SEC" >> "$T/.sectimes"; SEC_T0=$n; echo "$1"; CUR_SEC="$1"; }   # the time of each section is listed at the end (to see where the minutes go)
 
 mkstage() {  # make a fake WonderMaker tree and stage folder
     local s="$1" h="$T/src_home"; rm -rf "$h"
@@ -2020,4 +2021,5 @@ repo_guard
 if [ "$(real_sum)" = "$REAL_SUM0" ]; then PASS=$((PASS+1)); echo "  ok   the real home of this machine was not touched (Klipper's driver links, config file list, moonraker.conf)"
 else FAIL=$((FAIL+1)); echo "  FAIL the real home of this machine changed during the run (Klipper's driver links, config file list or moonraker.conf): a test did not use its fake home, or the printer was used during the run"; find "$REAL_HOME/klipper/klippy/extras" -maxdepth 1 -type l -printf '        | %f -> %l\n' 2>/dev/null; fi
 
+echo; echo "slowest sections:"; sort -rn "$T/.sectimes" | head -n 12 | sed "s/^/  /"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
