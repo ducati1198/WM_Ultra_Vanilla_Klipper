@@ -1,5 +1,5 @@
 """Tests for tools/devbox (dev mode). No Klipper, no Pi: a fake data folder and stand-in Klipper objects."""
-import importlib.util, os, shutil, sys, tempfile, types, unittest
+import importlib.util, os, shlex, shutil, subprocess, sys, tempfile, types, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tools", "devbox")
@@ -26,6 +26,28 @@ def write(path, text):
 
 
 class Tool(unittest.TestCase):
+    def _check(self, folder):
+        r = subprocess.run([sys.executable, "-I", os.path.join(TOOL, "devbox.py"), "check", folder], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return r.returncode, r.stdout.decode()
+
+    def test_check_without_a_config_is_not_counted(self):
+        d = tempfile.mkdtemp(dir=TMP)
+        self.assertEqual(self._check(d)[0], 2)
+
+    @unittest.skipUnless(os.path.exists(os.path.expanduser("~/klipper/klippy/klippy.py")) and os.path.exists(os.path.expanduser("~/printer_data/config/printer.cfg")),
+                         "needs Klipper and a real config on this machine")
+    def test_check_tells_a_good_config_from_a_broken_one_and_changes_nothing(self):
+        real = os.path.expanduser("~/printer_data/config")
+        before = subprocess.run("cd %s && find . -type f -not -path './backup/*' | sort | xargs md5sum | md5sum" % shlex.quote(real), shell=True, stdout=subprocess.PIPE).stdout
+        self.assertEqual(self._check(real)[0], 0)
+        bad = os.path.join(tempfile.mkdtemp(dir=TMP), "c"); shutil.copytree(real, bad, ignore=shutil.ignore_patterns("backup"))
+        with open(os.path.join(bad, "printer.cfg"), "a") as f:
+            f.write("\n[include nothere.cfg]\n")
+        rc, out = self._check(bad)
+        self.assertEqual(rc, 1, out); self.assertIn("nothere.cfg", out)
+        after = subprocess.run("cd %s && find . -type f -not -path './backup/*' | sort | xargs md5sum | md5sum" % shlex.quote(real), shell=True, stdout=subprocess.PIPE).stdout
+        self.assertEqual(before, after)
+
     def test_dictionary_choice(self):
         self.assertEqual(D.dict_for(""), "main")
         self.assertEqual([D.dict_for(n) for n in ("T0", "T3", "EX_T", "HUB", "CELL", "SOMETHING")],

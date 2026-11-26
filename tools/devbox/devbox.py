@@ -9,14 +9,15 @@ nearly every macro work as on a printer, except for real motion, endstops, probi
   python3 devbox.py on        switch dev mode on  (restarts Klipper)
   python3 devbox.py off       switch back to the real printer (restarts Klipper)
   python3 devbox.py status    is dev mode on, is Klipper ready, current simulated temperatures
+  python3 devbox.py check [FOLDER]   load a config folder with Klipper's batch mode and report a config error (changes nothing; also used by the installer before a restart)
   python3 devbox.py smoke     run a list of G-code commands and report which ones work
   python3 devbox.py gcode "M104 S200" ...   send G-code to Klipper (through Moonraker)
   python3 devbox.py --help
 
 Options for on:  --speed N (heating speed, default 2)   --yes (do not ask)   --force (even if a real printer seems connected)
-Nothing here is used by the installers. See README-DEVBOX.md.
+Only the check command is used by the installer (before a restart); the dev mode itself never is. See README-DEVBOX.md.
 """
-import argparse, json, os, re, shlex, shutil, subprocess, sys, time, urllib.error, urllib.request, zlib
+import argparse, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request, zlib
 
 TOOL_VERSION = "0.1.0"
 HOME = os.path.expanduser("~")
@@ -199,10 +200,10 @@ def extract_dicts(out_dir, quiet=False):
     return got
 
 
-def mcu_names():
+def mcu_names(folder=None):
     """names of all [mcu NAME] sections in the config folder ('' = the main MCU)"""
     names, seen = [], set()
-    for root, _, files in os.walk(CFG):
+    for root, _, files in os.walk(folder or CFG):
         for fn in files:
             if not fn.endswith(".cfg") or ".before-" in fn or ".zrbak" in fn:
                 continue
@@ -553,6 +554,60 @@ def cmd_gcode(a):
     sys.exit(rc)
 
 
+def cmd_check(a):
+    """check: load a config folder with Klipper's batch mode (no printer, no service touched) and report the first config error.
+    Klipper reads the config, runs every module's setup and every macro template, with fake MCUs that use the protocol dictionaries of
+    the firmware in this repository. The folder is copied first and the copy is changed so that nothing reaches the real machine (the
+    ACE driver would otherwise tell Moonraker its lanes). Exit: 0 loads fine, 1 config error, 2 could not run the check."""
+    cfg = os.path.abspath(a.config or CFG)
+    py = os.path.join(HOME, "klippy-env", "bin", "python")
+    py = py if os.path.exists(py) else sys.executable
+    klippy = os.path.join(KLIPPER, "klippy", "klippy.py")
+    if not os.path.isfile(os.path.join(cfg, "printer.cfg")) or not os.path.exists(klippy):
+        say("%s cannot check: no printer.cfg in %s or no Klipper at %s" % (INFO, cfg, KLIPPER)); sys.exit(2)
+    tmp = tempfile.mkdtemp(prefix="wm-cfgcheck-")
+    try:
+        dicts = os.path.join(tmp, "dict"); cdir = os.path.join(tmp, "config"); out = os.path.join(tmp, "out")
+        try:
+            extract_dicts(dicts, quiet=True)
+        except SystemExit:
+            say("%s cannot check: no MCU firmware (protocol dictionaries) in this installer folder" % INFO); sys.exit(2)
+        shutil.copytree(cfg, cdir, ignore=shutil.ignore_patterns(*COPY_IGNORE, "backup"))
+        for root, _, files in os.walk(cdir):   # nothing may reach the real printer from this run
+            for fn in files:
+                if fn.endswith(".cfg"):
+                    p = os.path.join(root, fn); t = open(p, errors="replace").read()
+                    n = re.sub(r"(?m)^(moonraker_lane_sync_enabled\s*:).*$", r"\1 False", t)
+                    if n != t:
+                        open(p, "w").write(n)
+        os.makedirs(out); open(os.path.join(tmp, "in.gcode"), "w").close()
+        cmd = [py, klippy, os.path.join(cdir, "printer.cfg"), "-i", os.path.join(tmp, "in.gcode"), "-o", os.path.join(out, "mcu"),
+               "-l", os.path.join(tmp, "log"), "-d", os.path.join(dicts, "main.json")]
+        for n in mcu_names(cdir):
+            if n:
+                cmd += ["-d", "%s=%s" % (n, os.path.join(dicts, dict_for(n) + ".json"))]
+        try:
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout, cwd=KLIPPER)
+        except subprocess.TimeoutExpired:
+            say("%s the check did not finish in %d s: not counted" % (INFO, a.timeout)); sys.exit(2)
+        log = ""
+        try:
+            log = open(os.path.join(tmp, "log"), errors="replace").read()
+        except OSError:
+            pass
+        if r.returncode == 0:
+            say("%s Klipper batch mode loaded %s without a config error" % (OK, cfg)); sys.exit(0)
+        msg = ""
+        for line in reversed((log or r.stdout.decode(errors="replace")).splitlines()):
+            if re.match(r"^(configparser\.Error|klippy\.\w+|\w*Error|Error)\b|^Section |^Option |Unknown|Unable|Error", line.strip()):
+                msg = line.strip(); break
+        if not msg:
+            msg = "Klipper exited with code %d" % r.returncode
+        say("%s config error: %s" % (BAD, msg)); sys.exit(1)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def cmd_dicts(a):
     extract_dicts(a.out or os.path.join(DEV, "dict"))
 
@@ -566,6 +621,7 @@ def main():
     s = sub.add_parser("status"); s.set_defaults(f=cmd_status)
     s = sub.add_parser("smoke"); s.add_argument("--timeout", type=int, default=180); s.set_defaults(f=cmd_smoke)
     s = sub.add_parser("gcode"); s.add_argument("commands", nargs="+"); s.add_argument("--timeout", type=int, default=180); s.set_defaults(f=cmd_gcode)
+    s = sub.add_parser("check"); s.add_argument("config", nargs="?"); s.add_argument("--timeout", type=int, default=120); s.set_defaults(f=cmd_check)
     s = sub.add_parser("dicts"); s.add_argument("out", nargs="?"); s.set_defaults(f=cmd_dicts)
     a = p.parse_args()
     if not a.cmd:

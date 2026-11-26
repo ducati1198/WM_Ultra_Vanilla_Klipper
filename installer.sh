@@ -61,6 +61,7 @@
 # ./installer.sh --system-info         read-only: host name, time zone, clock, addresses, Wi-Fi
 # ./installer.sh --set-timezone NAME   for example America/Toronto (asks first)
 # ./installer.sh --set-hostname NAME   the name.local address of this Pi (asks first)
+# ./installer.sh --check-config        load the config in ~/printer_data/config with Klipper batch mode (no printer, nothing restarted) and report the first config error; an update does the same before it restarts Klipper
 # ./installer.sh --no-auto-rollback    with --update: do NOT put your settings back by itself when Klipper does not come back after the update (the default is to put them back)
 # ./installer.sh --no-backup           with --update: skip the automatic backup that is otherwise saved first (the newest 5 are kept in ~/ultra-backup/settings)
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
@@ -255,6 +256,7 @@ while [ $# -gt 0 ]; do
         --acepro)       case "${2:-}" in on|yes|1) WANT_ACEPRO=1 ;; off|no|0) WANT_ACEPRO=0 ;; *) print_error "--acepro needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE acepro"; CLI_ACEPRO="$WANT_ACEPRO"; shift ;;
         --no-backup)    NO_BACKUP=1 ;;
         --no-auto-rollback) NO_AUTO_ROLLBACK=1 ;;
+        --check-config) MODE=checkconfig ;;
         --status)       MODE=status ;;
         --system-info)  MODE=sysinfo ;;
         --set-timezone) MODE=settz; ARG1="${2:-}"; shift ;;
@@ -2974,6 +2976,21 @@ do_rollback() {   # F-222: undo the last update's settings: restore the newest b
     echo "The newest backup from before an update: $f"
     ARG1="$f"; do_restore
 }
+config_batch_check() {   # 0 = Klipper loads the config, 1 = config error (the message is printed), 2 = the check could not run. Reads the config, changes nothing, does not touch the running Klipper
+    if [ "$TESTING" = 1 ]; then case "${WM_TEST_CHECKCONFIG:-}" in ok) echo "ok   (test) Klipper batch mode loaded the config"; return 0 ;; fail) echo "FAIL config error: (test) Option 'gcode' in section 'gcode_macro _TEST' must be specified"; return 1 ;; esac; fi
+    [ -f "$SCRIPT_DIR/tools/devbox/devbox.py" ] || { echo "cannot check: tools/devbox/devbox.py is missing"; return 2; }
+    HOME="$HOME_DIR" DEVBOX_DATA="$HOME_DIR/printer_data" DEVBOX_KLIPPER="$HOME_DIR/klipper" python3 -I "$SCRIPT_DIR/tools/devbox/devbox.py" check "$HOME_DIR/printer_data/config" 2>&1
+}
+config_precheck() {   # 2.34.0: before Klipper is restarted, let Klipper's batch mode read the new config. Only a warning: the automatic return to the backup (auto_rollback) is what acts
+    [ "$DRY" = 1 ] && return 0
+    local out rc; out="$(config_batch_check 2>&1)"; rc=$?
+    case "$rc" in
+        0) print_success "Config check: Klipper loads the new config without an error (batch mode, nothing restarted)." ;;
+        1) print_warning "Config check: Klipper will probably NOT accept the new config:"; echo "$out" | sed 's/^/    /'
+           warn_later "The config check found an error before the restart: $(echo "$out" | tail -n1). If Klipper does not come back, your settings are put back by themselves; or by hand: ./installer.sh --rollback" ;;
+        *) print_info "Config check: not done ($(echo "$out" | tail -n1))" ;;
+    esac
+}
 auto_rollback() {   # 2.34.0: Klipper was ready before the update and did not come back after it: put your settings back from the backup that the update saved first
     [ "${PRE_READY:-0}" = 1 ] && [ "${KLIPPER_AFTER_OK:-1}" = 0 ] || return 0
     [ "$DRY" = 1 ] && return 0
@@ -3051,6 +3068,7 @@ do_update() {
     [ -n "$ONLY_ADDON" ] || step_ultrabackup   # last, after the panel and the add-ons: they write backups of their own (acepro-backup, fluidd_backup_*), and those are swept too
     protect_verify
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
+    config_precheck
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     restart_klipper_after
     auto_rollback
@@ -4560,6 +4578,7 @@ case "$MODE" in
     backup)     do_backup; exit 0 ;;
     restore)    do_restore; exit 0 ;;
     rollback)   do_rollback; exit 0 ;;
+    checkconfig) config_batch_check; exit $? ;;
     bundle)     do_support_bundle; exit 0 ;;
     showlog)    do_show_log; exit 0 ;;
     disable)    do_disable; exit 0 ;;
