@@ -63,13 +63,13 @@ class Home(unittest.TestCase):
         for keep in ("saved_variables.cfg.wm-good", "crowsnest.conf.new", "printer.cfg"):
             self.assertIn("printer_data/config/" + keep, f)
 
-    def test_config_backup_keeps_8_copies_per_file(self):
+    def test_config_backup_keeps_5_copies_per_file(self):
         for i in range(11):
             put(os.path.join(self.c, "backup", "rpi_base.cfg.wm-before-x-202611%02d-100000" % (i + 1)), when=1700000000 + i * 100)
         put(os.path.join(self.c, "backup", "printer.cfg.wm-before-x-20261101-100000"), when=1700000000)
         self.run_cli("prune")
         left = [n for n in self.files() if "backup/rpi_base" in n]
-        self.assertEqual(len(left), 8)
+        self.assertEqual(len(left), 5)
         self.assertIn("printer_data/config/backup/rpi_base.cfg.wm-before-x-20261111-100000", left)
         self.assertTrue(any("backup/printer.cfg" in n for n in self.files()))
 

@@ -16,6 +16,7 @@
 # ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
 # ./installer.sh --extruder-setup        Extruder Setup: picks up T0-T3 and puts the tool head CAN ids in dock order (required after the ids were found by firmware name)
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
+# ./installer.sh --my-overrides        create wm_my_overrides.cfg (the file for your own changes, read last, never changed by an update) and include it above the SAVE_CONFIG block
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
 # ./installer.sh --logs                the troubleshooting logs (wm-events.log, wm-config-check.log, wm-ace.log, wm-system.log, wm-blackbox.log in Fluidd > Configuration > Other Files) and the black box that records the Pi every 10 s. Also done in every install and update; the doctor checks them; --support-bundle includes them
@@ -226,6 +227,7 @@ while [ $# -gt 0 ]; do
         --extruder-setup) MODE=extsetup ;;   # Extruder Setup (pick up T0-T3, put the tool head ids in dock order); forced after the ids were found by firmware name
         --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
         --import-settings) MODE=importset; IMPORT_HOST="${2:-}"; [ $# -gt 1 ] && shift ;;
+        --my-overrides) MODE=myoverrides ;;   # 2.35.0: create wm_my_overrides.cfg and include it last
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --pi-sensors)   MODE=pisensors ;;
         --logs)         MODE=logs ;;         # troubleshooting logs + black box
@@ -1045,6 +1047,58 @@ pisens_mcutemps_content() {
         printf '\n[temperature_sensor %s]\nsensor_type: temperature_mcu\nsensor_mcu: %s\nmin_temp: -20\nmax_temp: 110\n' "$sn" "${n:-mcu}"
     done < <(pisens_mcu_names | sed 's/^mcu$//')
     [ "$any" = 1 ]
+}
+step_my_overrides() {   # 2.35.0: wm_my_overrides.cfg = the one file for YOUR changes to WonderMaker's macros and settings; included last (just above SAVE_CONFIG), created empty, never changed by an update
+    why "Updates bring WonderMaker's newest macro files and keep your edits with a 3-way merge. If you want your own changes to survive every update without any merge, put them in wm_my_overrides.cfg (same section name, only the lines you change). It is read last, so it wins over WonderMaker's file. The installer creates it with only comments, puts its include line just above the SAVE_CONFIG block, and never changes its content."
+    local d="$HOME_DIR/printer_data/config" f="$HOME_DIR/printer_data/config/wm_my_overrides.cfg" cfg="$HOME_DIR/printer_data/config/printer.cfg"
+    [ -f "$cfg" ] || return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would create wm_my_overrides.cfg (only comments) if it is missing and keep its include line last, above SAVE_CONFIG${NC}"; return 0; fi
+    if [ ! -f "$f" ]; then
+        cat > "$f" <<'OVR'
+# wm_my_overrides.cfg - YOUR changes to WonderMaker's settings and macros.
+#
+# How it works: this file is read LAST (its include line sits just above the SAVE_CONFIG block of printer.cfg),
+# so a section written here wins over the same section in WonderMaker's files. Write the section name and only
+# the lines you want to change. An update never changes this file and never needs to merge it.
+#
+# Example (remove the # in front of the three lines to use it):
+#   [gcode_macro SOME_WONDERMAKER_MACRO]
+#   variable_something: 5
+#
+# A gcode: block is replaced as a whole: copy the whole macro here if you change its gcode.
+# Do not put here a value that Klipper saves itself with SAVE_CONFIG (PID, probe z_offset, input shaper, bed mesh,
+# rotation_distance ...): Klipper would refuse to save it. Do not write under the SAVE_CONFIG block of printer.cfg either.
+OVR
+        record "FILE $f"; print_success "Created wm_my_overrides.cfg (only comments): your own changes go there and survive every update"
+    fi
+    cp -p "$cfg" "$cfg.wm-before-overrides-$STAMP" 2>/dev/null
+    local r; r="$(python3 - "$cfg" <<'PYEOF'
+import sys,re
+p=sys.argv[1]; t=open(p).read().split("\n"); inc="[include wm_my_overrides.cfg]"
+pat=re.compile(r"^\s*\[include\s+wm_my_overrides\.cfg\s*\]\s*$")
+si=next((k for k,l in enumerate(t) if re.match(r"^#\*# <-* SAVE_CONFIG",l)),None)
+end=si if si is not None else len(t)
+idx=[k for k,l in enumerate(t) if pat.match(l)]
+tail_ok=False
+if len(idx)==1 and idx[0]<end and all(l.strip()=="" for l in t[idx[0]+1:end]): tail_ok=True
+if tail_ok: print("ok"); sys.exit(0)
+t=[l for l in t if not pat.match(l)]
+si=next((k for k,l in enumerate(t) if re.match(r"^#\*# <-* SAVE_CONFIG",l)),None)
+if si is None:
+    while t and t[-1].strip()=="": t.pop()
+    t+=["",inc,""]
+else:
+    j=si
+    while j>0 and t[j-1].strip()=="": j-=1
+    t[j:si]=["",inc,""]
+open(p,"w").write("\n".join(t)); print("moved")
+PYEOF
+)"
+    case "$r" in
+        moved) print_success "wm_my_overrides.cfg is included last (above the SAVE_CONFIG block)" ;;
+        ok) rm -f "$cfg.wm-before-overrides-$STAMP" ;;
+        *) warn_later "Could not put the include line of wm_my_overrides.cfg into printer.cfg" ;;
+    esac
 }
 cfg_include_last() {   # file : add [include file] to printer.cfg after the other includes, just above the SAVE_CONFIG block (a later section may use the boards defined by earlier includes)
     local cfg="$HOME_DIR/printer_data/config/printer.cfg"
@@ -3065,6 +3119,7 @@ do_update() {
     step_panel_updater
     save_answers
     step_cfgindex
+    [ -n "$ONLY_ADDON" ] || step_my_overrides   # before the config check and the Klipper restart of this update
     [ -n "$ONLY_ADDON" ] || step_ultrabackup   # last, after the panel and the add-ons: they write backups of their own (acepro-backup, fluidd_backup_*), and those are swept too
     protect_verify
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
@@ -3209,6 +3264,18 @@ do_board() {   # --board add|remove|list [user@host]
         *) die_with_fix "--board needs add, remove, list, test-on, test-off or test-status." "./installer.sh --board list" ;;
     esac
 }
+update_lock() {   # one update at a time: the same lock the Fluidd Update button uses (scripts/pi_update.sh), so a hand-run update and Fluidd's never run together
+    [ "${WM_UPDATE_LOCK_HELD:-0}" = 1 ] && return 0
+    [ "$DRY" = 1 ] && return 0
+    command -v flock >/dev/null 2>&1 || return 0
+    exec 8>"${WM_UPDATE_LOCKFILE:-$HOME/.wm-pi-update.lock}"
+    if ! flock -n 8; then
+        print_info "Another update is running (Fluidd's Update button, or another window). Waiting for it to finish (up to ${WM_UPDATE_LOCK_WAIT:-900} s) ..."
+        flock -w "${WM_UPDATE_LOCK_WAIT:-900}" 8 || die_with_fix "the other update did not finish in time." "look at ~/wm-pi-update.log, then run this again."
+        print_info "The other update finished. Going on."
+    fi
+    export WM_UPDATE_LOCK_HELD=1
+}
 do_update_boards() {   # runs the board's own Update (the same root copy the Update button on its screen runs), only for boards whose SCREEN version is behind
     print_header "Update the screen boards"
     local t n=0 bad=0
@@ -3230,6 +3297,7 @@ do_update_boards() {   # runs the board's own Update (the same root copy the Upd
         if ! screen_ver_newer "$newv" "$bv"; then print_success "Board $t is up to date (screen $(screen_show "$bv"))."; continue; fi
         if [ -n "$need" ] && ver_newer "$need" "$pi"; then print_warning "Board $t: screen $newv needs this Pi on installer $need or newer (it is on $pi): the board is NOT updated. Run ./installer.sh --update first."; bad=$((bad+1)); continue; fi
         if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from screen $(screen_show "$bv") to $newv${NC}"; continue; fi
+        if [ -n "$(wm_ssh "$t" 'systemctl is-active wm-screen-update-run 2>/dev/null | grep -x -e active -e activating' 2>/dev/null | tr -d "[:space:]")" ]; then print_info "Board $t: its update is already running (started a moment ago). It restarts the screen by itself in about a minute."; continue; fi
         if wm_ssh "$t" 'sudo -n /usr/local/sbin/wm-factory-restore --update --yes --detach' 2>&1 | tail -n 3; [ "${PIPESTATUS[0]}" = 0 ]; then
             print_success "Board $t: update started (screen $(screen_show "$bv") -> $newv). Its screen restarts by itself in about a minute."; n=$((n+1))
         else print_warning "Board $t: the update did not start. On the board run once: bash ~/wm_ultra_vanilla_klipper/scripts/screen_board.sh --post-update"; bad=$((bad+1)); fi
@@ -3709,6 +3777,8 @@ do_doctor() {
             doc_bad "printer.cfg has an [include] under the SAVE_CONFIG block: $(cfg_below_save_list | tr '\n' ' ')" "Klipper rewrites everything under that line when it saves, so the include is lost or the file breaks."
             offer_fix "move the include above the SAVE_CONFIG block" cfg_below_save_fix
         else doc_ok "no [include] sits under the SAVE_CONFIG block"; fi
+        if [ -f "$HOME_DIR/printer_data/config/wm_my_overrides.cfg" ] && grep -qE "^[[:space:]]*\[include[[:space:]]+wm_my_overrides\.cfg[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg"; then doc_ok "wm_my_overrides.cfg exists and is included"
+        else doc_bad "wm_my_overrides.cfg (the file for your own changes) is missing or not included" "./installer.sh --update creates it; it only holds comments until you write in it."; offer_fix "create wm_my_overrides.cfg and include it last" step_my_overrides; fi
     fi
     ntp_ok && doc_ok "clock is synchronized" || doc_bad "clock is not synchronized" "HTTPS downloads and file times go wrong. Check the network."
     progress_bar 5 5 "Doctor finished"
@@ -4560,6 +4630,7 @@ case "$MODE" in
     rpicfg)     do_rpicfg; exit $? ;;
     light)      do_light; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     webcamsetup) do_webcam_setup; exit $? ;;
+    myoverrides) step_my_overrides; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     pidcfg)     do_pidcfg; exit $? ;;
     importset)  do_import_settings; exit $? ;;
     canids)     do_can_ids; exit $? ;;
@@ -4568,11 +4639,11 @@ case "$MODE" in
     freespace)  do_free_space; exit $? ;;
     doctor)     do_doctor; exit $? ;;
     repair)     do_repair; exit 0 ;;
-    update)     do_update; exit 0 ;;
+    update)     update_lock; do_update; exit 0 ;;
     checkupdates) do_check_updates; exit $? ;;
     getlatest)  do_get_latest; exit $? ;;
-    updateall)  do_update_all; exit $? ;;
-    updateboards) do_update_boards; exit $? ;;
+    updateall)  update_lock; do_update_all; exit $? ;;
+    updateboards) update_lock; do_update_boards; exit $? ;;
     board)      do_board; exit $? ;;
     undo)       do_undo; exit 0 ;;
     backup)     do_backup; exit 0 ;;
@@ -4610,6 +4681,7 @@ step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; s
 step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; migrate_installer_folder; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_cfgindex
+step_my_overrides
 step_ultrabackup   # after the panel and the add-ons, which write backups of their own
 restart_klipper_after
 self_test

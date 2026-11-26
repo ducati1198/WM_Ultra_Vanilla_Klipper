@@ -1499,6 +1499,26 @@ printf '[include b.cfg]\n[include b_HUB.cfg]\n\n[save_variables]\nfilename: /tmp
 check "--pi-sensors writes one temperature sensor for every [mcu] board and names them (part board-temps of rpi_pi.cfg)" "python3 $ROOT/scripts/wm_rpi_pi.py has $PC board-temps && grep -q '^\[temperature_sensor mcu_main\]' $PC/rpi_pi.cfg && grep -q 'sensor_mcu: HUB' $PC/rpi_pi.cfg && grep -q '^\[temperature_sensor mcu_extruder\]' $PC/rpi_pi.cfg && grep -q '^\[temperature_sensor mcu_t0\]' $PC/rpi_pi.cfg && grep -q '^\[temperature_sensor mcu_loadcell\]' $PC/rpi_pi.cfg && [ ! -e $PC/rpi_mcu_temps.cfg ]"
 check "board temperature sensors use sensor_mcu with the right board and a wide range" "grep -c 'min_temp: -20' $PC/rpi_pi.cfg | grep -qx 6 && grep -c 'max_temp: 110' $PC/rpi_pi.cfg | grep -qx 6 && ! grep -q 'sensor_mcu: rpi' $PC/rpi_pi.cfg"
 check "rpi_pi.cfg is included once, above the SAVE_CONFIG block" "[ \$(grep -c '^\[include rpi_pi.cfg\]' $PC/printer.cfg) = 1 ] && awk '/^\[include rpi_pi.cfg\]/{a=NR} /SAVE_CONFIG/{s=NR} END{exit !(a<s)}' $PC/printer.cfg"
+
+# 2.35.0: wm_my_overrides.cfg and the one-update-at-a-time lock
+HO="$T/ovr"; mkdir -p "$HO/printer_data/config"
+printf '[include a.cfg]\n\n[include shaketune.cfg]\n\n#*# <---------------------- SAVE_CONFIG ---------------------->\n#*# DO NOT EDIT THIS BLOCK OR BELOW.\n#*#\n#*# [stepper_x]\n#*# position_endstop = 1\n' > "$HO/printer_data/config/printer.cfg"
+inst "$HO" --my-overrides > "$T/ovr1.out"
+check "--my-overrides creates wm_my_overrides.cfg with only comments" "[ -f $HO/printer_data/config/wm_my_overrides.cfg ] && ! grep -qvE '^#|^[[:space:]]*\$' $HO/printer_data/config/wm_my_overrides.cfg"
+check "--my-overrides puts its include as the last line above the SAVE_CONFIG block, once" "[ \$(grep -c 'wm_my_overrides.cfg\]' $HO/printer_data/config/printer.cfg) = 1 ] && awk '/wm_my_overrides.cfg\\]/{a=NR} /SAVE_CONFIG/{s=NR} /^\\[include/{if(\$0 !~ /wm_my_overrides/) o=NR} END{exit !(a<s && a>o)}' $HO/printer_data/config/printer.cfg"
+M1="$(md5sum $HO/printer_data/config/printer.cfg $HO/printer_data/config/wm_my_overrides.cfg | cut -c1-32)"; echo "my own line" >> "$HO/printer_data/config/wm_my_overrides.cfg"; M1="$(md5sum $HO/printer_data/config/printer.cfg $HO/printer_data/config/wm_my_overrides.cfg | cut -c1-32)"
+inst "$HO" --my-overrides > "$T/ovr2.out"
+check "--my-overrides a second time changes neither printer.cfg nor your file" "[ \"\$(md5sum $HO/printer_data/config/printer.cfg $HO/printer_data/config/wm_my_overrides.cfg | cut -c1-32)\" = \"$M1\" ]"
+sed -i 's/^\[include wm_my_overrides.cfg\]/[include wm_my_overrides.cfg]\n[include later.cfg]/' "$HO/printer_data/config/printer.cfg"
+inst "$HO" --my-overrides > "$T/ovr3.out"
+check "--my-overrides moves its include behind an include that was added later" "awk '/wm_my_overrides.cfg\\]/{a=NR} /later.cfg\\]/{l=NR} END{exit !(a>l)}' $HO/printer_data/config/printer.cfg && [ \$(grep -c 'wm_my_overrides.cfg\]' $HO/printer_data/config/printer.cfg) = 1 ]"
+check "wm_my_overrides.cfg (your own lines) is never changed by --my-overrides" "grep -q 'my own line' $HO/printer_data/config/wm_my_overrides.cfg"
+( flock 7; sleep 8 ) 7>"$T/upd.lock" & sleep 1
+WM_UPDATE_LOCKFILE="$T/upd.lock" WM_UPDATE_LOCK_WAIT=2 WM_TEST_NO_BOARD_UPDATE=1 inst "$HO" --update-boards > "$T/lock1.out"; wait
+check "a second update waits for the running one and stops with a clear message when it does not finish" "grep -q 'Another update is running' $T/lock1.out && grep -q 'did not finish in time' $T/lock1.out"
+WM_UPDATE_LOCKFILE="$T/upd.lock" WM_TEST_NO_BOARD_UPDATE=1 inst "$HO" --update-boards > "$T/lock2.out"
+check "with no other update running the lock is taken without waiting" "! grep -q 'Another update is running' $T/lock2.out && grep -q 'the boards are not updated now' $T/lock2.out"
+check "the Fluidd update script tells the installer it already holds the lock" "grep -q 'export WM_UPDATE_LOCK_HELD=1' $ROOT/scripts/pi_update.sh"
 check "[mcu rpi] is the part host-mcu of rpi_pi.cfg, with the host MCU socket" "python3 $ROOT/scripts/wm_rpi_pi.py has $PC host-mcu && grep -q '^\[mcu rpi\]' $PC/rpi_pi.cfg && grep -q 'serial: /tmp/klipper_host_mcu' $PC/rpi_pi.cfg && [ ! -e $PC/rpi_mcu.cfg ]"
 check "Klipper is restarted once for each, and a copy of printer.cfg is kept" "[ \$(grep -c 'systemctl restart klipper' $PS/.sudo.log) = 2 ] && ls $PC/printer.cfg.wm-before-board-temps-* $PC/printer.cfg.wm-before-host-mcu-*"
 check "a second run changes nothing" "OUT2=\$(inst $PS --pi-sensors); echo \"\$OUT2\" | grep -q 'already in use' && [ \$(grep -c 'include rpi_pi.cfg' $PC/printer.cfg) = 1 ] && [ \$(grep -c '^\[mcu rpi\]' $PC/rpi_pi.cfg) = 1 ]"

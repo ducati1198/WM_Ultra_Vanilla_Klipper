@@ -8,7 +8,7 @@
 
 Folders under ~/ultra-backup (by type, the date inside):
   printer_data/config/backup/   F-157: EVERY copy of a config file (*.wm-before-*, *.wm-*, .bak, .orig, Klipper's printer-<date>_<time>.cfg,
-                 crowsnest.conf.<date>) goes here, flat, so the config folder only holds the live files; newest 8 per file, 60 MB
+                 crowsnest.conf.<date>) goes here, flat, so the config folder only holds the live files; newest 5 per file, 60 MB
   config/        copies that older versions of the installer moved here (kept; no new ones are added)
   fluidd-page/   copies of the Fluidd web page
   fluidd-macros/ Fluidd macro lists (.json)
@@ -28,7 +28,7 @@ import os, re, shutil, sys, time
 MB = 1024 * 1024
 TOTAL_LIMIT = 400 * MB
 LIMITS = {   # category: (max bytes, max copies per name or 0 for no count limit)
-    "config": (60 * MB, 8), "fluidd-page": (120 * MB, 6), "fluidd-macros": (20 * MB, 0),
+    "config": (60 * MB, 5), "fluidd-page": (120 * MB, 6), "fluidd-macros": (20 * MB, 0),
     "settings": (150 * MB, 5), "installer": (20 * MB, 0), "drivers": (20 * MB, 0), "other": (20 * MB, 0),
 }
 MIN_FREE = 2048 * MB
@@ -38,7 +38,7 @@ KLIPPER_COPY_RE = re.compile(r"^printer-\d{8}_\d{6}\.cfg$")               # Klip
 DATED_COPY_RE = re.compile(r"^(?P<base>.+?)\.20\d\d-\d\d-\d\d-\d{4}$")   # e.g. crowsnest.conf.2026-11-18-1616
 ZRBAK_RE = re.compile(r"^(?P<base>.+?)\.zrbak[-_]?(?:\d{8}[-_]\d{6})?$")          # e.g. printer.cfg.zrbak_20261119_092137 (copy made by the factory/ZR tools)
 CONFIG_BACKUP_DIR = "backup"                                                 # printer_data/config/backup (F-157)
-CONFIG_BACKUP_COPIES = 8
+CONFIG_BACKUP_COPIES = 5
 CONFIG_BACKUP_CAP = 60 * MB
 
 

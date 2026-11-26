@@ -21,6 +21,7 @@ KIND=installer; [ "${1:-}" = --panel ] && KIND=panel
 
 exec 9>"$HOME/.wm-pi-update.lock"
 flock -n 9 || { say "another update is running, skipped"; exit 0; }
+export WM_UPDATE_LOCK_HELD=1      # the installer this script starts must not wait for the lock this script holds
 sleep "${WM_PI_UPDATE_DELAY:-5}"          # let Moonraker finish its own update step
 
 if [ "$KIND" = panel ]; then
