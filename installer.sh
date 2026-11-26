@@ -60,6 +60,7 @@
 # ./installer.sh --system-info         read-only: host name, time zone, clock, addresses, Wi-Fi
 # ./installer.sh --set-timezone NAME   for example America/Toronto (asks first)
 # ./installer.sh --set-hostname NAME   the name.local address of this Pi (asks first)
+# ./installer.sh --no-auto-rollback    with --update: do NOT put your settings back by itself when Klipper does not come back after the update (the default is to put them back)
 # ./installer.sh --no-backup           with --update: skip the automatic backup that is otherwise saved first (the newest 5 are kept in ~/ultra-backup/settings)
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen-board user@host   (2.27.0, F-215) install KlipperScreen with the ZR Tools on the screen board over ssh (the board password is asked once, never stored)
@@ -252,6 +253,7 @@ while [ $# -gt 0 ]; do
         --spoolman)     case "${2:-}" in on|yes|1) WANT_SPOOLMAN=1 ;; off|no|0) WANT_SPOOLMAN=0 ;; *) print_error "--spoolman needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE spoolman"; CLI_SPOOLMAN="$WANT_SPOOLMAN"; shift ;;
         --acepro)       case "${2:-}" in on|yes|1) WANT_ACEPRO=1 ;; off|no|0) WANT_ACEPRO=0 ;; *) print_error "--acepro needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE acepro"; CLI_ACEPRO="$WANT_ACEPRO"; shift ;;
         --no-backup)    NO_BACKUP=1 ;;
+        --no-auto-rollback) NO_AUTO_ROLLBACK=1 ;;
         --status)       MODE=status ;;
         --system-info)  MODE=sysinfo ;;
         --set-timezone) MODE=settz; ARG1="${2:-}"; shift ;;
@@ -2942,7 +2944,7 @@ auto_backup() {   # a quick safety copy of your settings before an update or an 
     [ ${#items[@]} -gt 0 ] || return 0
     mkdir -p "$dir"; out="$dir/wm-backup-$(model_now)-before-update-$STAMP.tgz"
     if tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null; then
-        chmod 600 "$out"
+        chmod 600 "$out"; AUTO_BACKUP_FILE="$out"
         print_success "Backup before the update: $out ($(du -h "$out" | cut -f1)). Put it back with: ./installer.sh --restore $out"
         ls -1t "$dir"/wm-backup-*-before-update-*.tgz 2>/dev/null | tail -n +6 | while read -r o; do rm -f "$o"; done
     else
@@ -2971,6 +2973,26 @@ do_rollback() {   # F-222: undo the last update's settings: restore the newest b
     echo "The newest backup from before an update: $f"
     ARG1="$f"; do_restore
 }
+auto_rollback() {   # 2.34.0: Klipper was ready before the update and did not come back after it: put your settings back from the backup that the update saved first
+    [ "${PRE_READY:-0}" = 1 ] && [ "${KLIPPER_AFTER_OK:-1}" = 0 ] || return 0
+    [ "$DRY" = 1 ] && return 0
+    if [ "${NO_AUTO_ROLLBACK:-0}" = 1 ]; then print_warning "Klipper is '${WAIT_ST:-not answering}' after the update and --no-auto-rollback was given: nothing was put back. By hand: ./installer.sh --rollback"; return 0; fi
+    local f="${AUTO_BACKUP_FILE:-}"
+    if [ ! -f "$f" ]; then warn_later "Klipper is '${WAIT_ST:-not answering}' after the update and there is no backup from before it to go back to (--no-backup?). Look at the message in Fluidd, or: ./installer.sh --doctor"; return 0; fi
+    print_header "Klipper did not come back: going back to your settings from before the update"
+    echo "Klipper was ready before the update and is now '${WAIT_ST:-not answering}'. Putting back your config, database and factory settings from: $f"
+    ARG1="$WMB"; do_backup >/dev/null    # a safety copy of the state that did not work, so nothing is lost
+    SUDO systemctl stop klipper; SUDO systemctl stop moonraker
+    if ! tar xzf "$f" -C "$HOME_DIR"; then SUDO systemctl start moonraker; SUDO systemctl start klipper; warn_later "Going back did not work (could not unpack $f). By hand: ./installer.sh --rollback"; return 0; fi
+    SUDO systemctl start moonraker; SUDO systemctl start klipper
+    ROLLED_BACK=1
+    if [ "$TESTING" = 1 ] || wait_klipper_ready; then
+        print_success "Klipper is ready again with your settings from before the update."
+        warn_later "The update could not start Klipper, so your settings were put back (the update itself stays installed). The state that did not work is saved in ~/ultra-backup/settings (newest file). Tell the maker, with the Klipper log: ~/printer_data/logs/klippy.log"
+    else
+        warn_later "Your settings were put back but Klipper is still '${WAIT_ST:-not answering}'. Look at the message in Fluidd, or: ./installer.sh --doctor"
+    fi
+}
 do_update() {
     print_header "Update"
     load_answers || die_with_fix "nothing is installed by this installer yet, so there is nothing to update ($CONF is missing)." "run ./installer.sh and choose 1 (Install or reinstall). To get the newest installer files only: ./installer.sh --get-latest"
@@ -2980,6 +3002,8 @@ do_update() {
     if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
     else echo "Your printer_data (config, calibration) is not touched, except: the Pi's own calibration macros file rpi_calibration.cfg from rpi-cfg (refreshed; an edited copy is kept)$([ "$WANT_ACEPRO" = 1 ] && echo ", and the ACE Pro files (rpi_ace_driver.cfg, rpi_ace.cfg, rpi_endless.cfg, rpi_stats.cfg) which the ACE Pro project's own updater rewrites (its settings are kept)"), plus the Fluidd update entries in moonraker.conf (a copy is kept). Updated: services, nginx, can0 rule, Python packages, the Fluidd panel, add-ons$([ "$WANT_ACEPRO" = 1 ] && echo ", the ACE Pro driver"). Klipper is restarted at the end."; fi
     ask_yn "Go ahead?" y || exit 0
+    PRE_READY=0; ROLLED_BACK=0; AUTO_BACKUP_FILE=""
+    [ "$DRY" = 1 ] || [ "$(klippy_state)" != ready ] || PRE_READY=1
     local UT=8
     progress_bar 0 100 "Update step 1 of $UT: backup"
     auto_backup
@@ -3028,6 +3052,7 @@ do_update() {
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     restart_klipper_after
+    auto_rollback
     pi_sensors_in_flow
     self_test
     publish_versions
@@ -3035,7 +3060,8 @@ do_update() {
     # The screen boards you added: only a board whose SCREEN version is behind is updated (a Pi-only release leaves them alone). Not in the middle of a print.
     if [ -z "$ONLY_ADDON" ] && [ -n "$(boards_list)" ]; then do_update_boards || print_warning "A screen board was not updated (see above). Later: ./installer.sh --update-boards"; fi
     progress_bar 100 100 "Update finished"
-    print_success "Update finished (installer $VERSION)."
+    if [ "${ROLLED_BACK:-0}" = 1 ]; then print_warning "Update finished (installer $VERSION), but Klipper did not start with it: your settings were put back (see above)."
+    else print_success "Update finished (installer $VERSION)."; fi
 }
 # ---------------------------------------------------------------------------------------------------------------
 # Updates of everything this installer manages: the installer itself, the Fluidd panel (ACE Pro project) and the screen boards
@@ -3261,9 +3287,13 @@ restart_klipper_after() {   # after an install or update: restart Klipper so it 
     fi
     print_header "Restarting Klipper"
     SUDO systemctl restart klipper
-    [ "$TESTING" = 1 ] && { print_success "Klipper restarted (test)"; return 0; }
+    KLIPPER_AFTER_OK=1
+    if [ "$TESTING" = 1 ]; then
+        if [ "${WM_TEST_KLIPPY_AFTER:-ready}" != ready ]; then KLIPPER_AFTER_OK=0; WAIT_ST="$WM_TEST_KLIPPY_AFTER"; print_warning "Klipper restarted but reports '$WAIT_ST'."; return 0; fi
+        print_success "Klipper restarted (test)"; return 0
+    fi
     if wait_klipper_ready; then print_success "Klipper restarted and is ready."
-    else case "$WAIT_ST" in
+    else KLIPPER_AFTER_OK=0; case "$WAIT_ST" in
         error|shutdown) print_warning "Klipper restarted but reports '$WAIT_ST'. Look at the message in Fluidd, or: ./installer.sh --doctor" ;;
         *) print_warning "Klipper restarted but is not ready yet (state: ${WAIT_ST:-unknown}). Watch: journalctl -u klipper -f" ;;
     esac; fi
