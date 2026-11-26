@@ -3000,12 +3000,13 @@ auto_backup() {   # a quick safety copy of your settings before an update or an 
     for i in printer_data/config printer_data/database printer_data/moonraker.asvc printer_data/wm-model printer_data/wm-baseline TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
     [ ${#items[@]} -gt 0 ] || return 0
     mkdir -p "$dir"; out="$dir/wm-backup-$(model_now)-before-update-$STAMP.tgz"
-    if tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null; then
+    local trc terr; terr="$(tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>&1 >/dev/null)"; trc=$?   # tar exit 1 = a file changed while it was read (Moonraker's database, a log): the archive is complete enough, it is not a failure
+    if [ "$trc" -le 1 ] && [ -s "$out" ]; then
         chmod 600 "$out"; AUTO_BACKUP_FILE="$out"
         print_success "Backup before the update: $out ($(du -h "$out" | cut -f1)). Put it back with: ./installer.sh --restore $out"
         ls -1t "$dir"/wm-backup-*-before-update-*.tgz 2>/dev/null | tail -n +6 | while read -r o; do rm -f "$o"; done
     else
-        rm -f "$out"; warn_later "The backup before the update could not be saved (disk full?). The update went on; save one yourself: ./installer.sh --backup"
+        rm -f "$out"; warn_later "The backup before the update could not be saved (tar said: $(echo "$terr" | tail -n 1 | cut -c1-120); disk full?). The update went on; save one yourself: ./installer.sh --backup"
     fi
 }
 
@@ -3294,7 +3295,14 @@ do_update_boards() {   # runs the board's own Update (the same root copy the Upd
         if [ -z "$bv" ]; then print_warning "Board $t cannot be reached over ssh: skipped."; bad=$((bad+1)); continue; fi
         board_sync_tz "$t"
         if [ "$FORCE" != 1 ] && [ -n "$(wm_ssh "$t" 'test -f ~/wm-screen-backup/in_test && echo yes' 2>/dev/null | tr -d "[:space:]")" ]; then print_warning "Board $t is marked IN TEST: it is NOT updated. Turn the mark off with: ./installer.sh --board test-off $t   (or run the update with --force)"; continue; fi
-        if ! screen_ver_newer "$newv" "$bv"; then print_success "Board $t is up to date (screen $(screen_show "$bv"))."; continue; fi
+        if ! screen_ver_newer "$newv" "$bv"; then
+            print_success "Board $t is up to date (screen $(screen_show "$bv"))."
+            local pirel brel; pirel="$(release_of "$REPO_DIR")"; brel="$(wm_ssh "$t" 'head -n1 ~/wm-screen-backup/release 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
+            if [ "$DRY" != 1 ] && [ -n "$pirel" ] && [ "$brel" != "$pirel" ]; then   # a Pi-only release: the screen files did not change, only the release mark moves (nothing restarts)
+                if wm_ssh "$t" "printf '%s\\n' '$pirel' > ~/wm-screen-backup/release" >/dev/null 2>&1; then print_info "Board $t: release mark set to $pirel (the screen files did not change, nothing restarted)."; fi
+            fi
+            continue
+        fi
         if [ -n "$need" ] && ver_newer "$need" "$pi"; then print_warning "Board $t: screen $newv needs this Pi on installer $need or newer (it is on $pi): the board is NOT updated. Run ./installer.sh --update first."; bad=$((bad+1)); continue; fi
         if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from screen $(screen_show "$bv") to $newv${NC}"; continue; fi
         if [ -n "$(wm_ssh "$t" 'systemctl is-active wm-screen-update-run 2>/dev/null | grep -x -e active -e activating' 2>/dev/null | tr -d "[:space:]")" ]; then print_info "Board $t: its update is already running (started a moment ago). It restarts the screen by itself in about a minute."; continue; fi

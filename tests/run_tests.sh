@@ -1519,6 +1519,8 @@ check "a second update waits for the running one and stops with a clear message 
 WM_UPDATE_LOCKFILE="$T/upd.lock" WM_TEST_NO_BOARD_UPDATE=1 inst "$HO" --update-boards > "$T/lock2.out"
 check "with no other update running the lock is taken without waiting" "! grep -q 'Another update is running' $T/lock2.out && grep -q 'the boards are not updated now' $T/lock2.out"
 check "the Fluidd update script tells the installer it already holds the lock" "grep -q 'export WM_UPDATE_LOCK_HELD=1' $ROOT/scripts/pi_update.sh"
+check "the backup before an update accepts tar exit 1 (a file changed while it was read) and names tar's reason when it fails" "grep -q 'trc\" -le 1' $ROOT/installer.sh && grep -q 'tar said:' $ROOT/installer.sh"
+check "a board whose screen is current but whose release mark is behind gets only the mark (nothing restarts)" "grep -q 'release mark set to' $ROOT/installer.sh"
 check "[mcu rpi] is the part host-mcu of rpi_pi.cfg, with the host MCU socket" "python3 $ROOT/scripts/wm_rpi_pi.py has $PC host-mcu && grep -q '^\[mcu rpi\]' $PC/rpi_pi.cfg && grep -q 'serial: /tmp/klipper_host_mcu' $PC/rpi_pi.cfg && [ ! -e $PC/rpi_mcu.cfg ]"
 check "Klipper is restarted once for each, and a copy of printer.cfg is kept" "[ \$(grep -c 'systemctl restart klipper' $PS/.sudo.log) = 2 ] && ls $PC/printer.cfg.wm-before-board-temps-* $PC/printer.cfg.wm-before-host-mcu-*"
 check "a second run changes nothing" "OUT2=\$(inst $PS --pi-sensors); echo \"\$OUT2\" | grep -q 'already in use' && [ \$(grep -c 'include rpi_pi.cfg' $PC/printer.cfg) = 1 ] && [ \$(grep -c '^\[mcu rpi\]' $PC/rpi_pi.cfg) = 1 ]"
