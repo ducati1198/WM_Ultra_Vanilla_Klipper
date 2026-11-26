@@ -7,6 +7,7 @@
 - **Backup before an update.** `tar` exit 1 (a file such as Moonraker's database changed while it was read) is no longer reported as "could not be saved"; a real failure names tar's reason.
 - **Release number on a Pi-only release.** When a screen board's screen files are already current but its release mark is behind, the update sets only the mark (nothing restarts), so the release check no longer stays red on a board after a Pi-only release.
 - **Backups: the last 5 copies per file** in `printer_data/config/backup` and `~/ultra-backup/config` (was 8).
+- **Merge fixes.** When you and WonderMaker both add lines at the same place (for example a macro each at the end of a file), both additions are now kept, yours first; before, only yours stayed and WonderMaker's new macro was lost. A file saved with Windows line endings (CRLF) is compared without them and written back the same way; before, every line counted as changed and no WonderMaker update ever reached it.
 
 ## 2.34.0
 

@@ -149,5 +149,83 @@ class T(unittest.TestCase):
         self.assertTrue(os.path.exists(self.live + ".wm-new"))
 
 
+    # 2.35.0 more cases
+    def test_f_wm_removes_a_line_you_never_touched(self):
+        put(self.d, "live.cfg", BASE.replace("line 4\n", "line 4 MINE\n"))
+        put(self.d, "m.cfg", BASE.replace("line 12\n", ""))
+        rc, out = self.go()
+        self.assertEqual(rc, 10, out)
+        t = self.text()
+        self.assertNotIn("line 12\n", t)
+        self.assertIn("line 4 MINE", t)
+
+    def test_g_wm_removes_a_line_you_edited_yours_stays(self):
+        put(self.d, "live.cfg", BASE.replace("line 12\n", "line 12 MINE\n"))
+        put(self.d, "m.cfg", BASE.replace("line 12\n", ""))
+        rc, out = self.go()
+        self.assertEqual(rc, 11, out)
+        self.assertIn("line 12 MINE", self.text())
+        self.assertNotIn("<<<<", self.text())
+
+    def test_h_you_deleted_a_line_wm_did_not_touch_stays_deleted(self):
+        put(self.d, "live.cfg", BASE.replace("line 6\n", ""))
+        put(self.d, "m.cfg", BASE.replace("line 16\n", "line 16 NEW\n"))
+        rc, out = self.go()
+        self.assertEqual(rc, 10, out)
+        t = self.text()
+        self.assertNotIn("line 6\n", t)
+        self.assertIn("line 16 NEW", t)
+
+    def test_i_you_deleted_a_line_wm_changed_no_markers(self):
+        put(self.d, "live.cfg", BASE.replace("line 8\n", ""))
+        put(self.d, "m.cfg", BASE.replace("line 8\n", "line 8 NEW\n"))
+        rc, out = self.go()
+        self.assertIn(rc, (10, 11), out)
+        t = self.text()
+        self.assertNotIn("<<<<", t)
+        self.assertNotIn(">>>>", t)
+
+    def test_j_edits_on_neighbouring_lines(self):
+        put(self.d, "live.cfg", BASE.replace("line 10\n", "line 10 MINE\n"))
+        put(self.d, "m.cfg", BASE.replace("line 11\n", "line 11 NEW\n"))
+        rc, out = self.go()
+        self.assertIn(rc, (10, 11), out)
+        t = self.text()
+        self.assertIn("line 10 MINE", t)
+        self.assertNotIn("<<<<", t)
+
+    def test_k_both_append_at_the_end(self):
+        put(self.d, "live.cfg", BASE + "[gcode_macro MY_OWN]\ngcode:\n  M117 mine\n")
+        put(self.d, "m.cfg", BASE + "[gcode_macro WM_NEW]\ngcode:\n  M117 new\n")
+        rc, out = self.go()
+        self.assertIn(rc, (10, 11), out)
+        t = self.text()
+        self.assertIn("MY_OWN", t)
+        self.assertIn("WM_NEW", t)
+        self.assertNotIn("<<<<", t)
+
+    def test_l_empty_new_file_does_not_wipe_yours(self):
+        put(self.d, "live.cfg", BASE.replace("line 3\n", "line 3 MINE\n"))
+        put(self.d, "m.cfg", "")
+        rc, out = self.go()
+        self.assertIn("line 3 MINE", self.text())
+
+    def test_m_windows_line_endings_in_your_file(self):
+        put(self.d, "live.cfg", BASE.replace("\n", "\r\n"))
+        put(self.d, "m.cfg", BASE.replace("line 15\n", "line 15 NEW\n"))
+        rc, out = self.go()
+        self.assertIn(rc, (0, 10, 11), out)
+        self.assertIn("line 15 NEW", self.text())
+
+    def test_n_rerun_after_a_merge_changes_nothing(self):
+        put(self.d, "live.cfg", BASE.replace("line 3\n", "line 3 MINE\n"))
+        put(self.d, "m.cfg", BASE.replace("line 15\n", "line 15 NEW\n"))
+        self.go()
+        before = self.text()
+        rc, out = self.go()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.text(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
