@@ -3056,6 +3056,9 @@ do_update() {
     pi_sensors_in_flow
     self_test
     publish_versions
+    if [ -z "$ONLY_ADDON" ] && [ "$TESTING" != 1 ] || [ -n "${WM_TEST_RELEASE_CHECK:-}" ]; then
+        print_header "Release check"; release_report && print_success "Pi, panel and screen boards are on the same release." || warn_later "Pi, panel and screen boards are not all on the same release (see the list above). ./installer.sh --update-boards updates the boards; the panel updates with --update."
+    fi
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi   # the update used to hide these
     # The screen boards you added: only a board whose SCREEN version is behind is updated (a Pi-only release leaves them alone). Not in the middle of a print.
     if [ -z "$ONLY_ADDON" ] && [ -n "$(boards_list)" ]; then do_update_boards || print_warning "A screen board was not updated (see above). Later: ./installer.sh --update-boards"; fi
@@ -3375,12 +3378,35 @@ do_undo() {
 
 # Saves the three versions in Moonraker's database (namespace wondermaker, key versions) so the screen (More / System) and the Fluidd panel
 # can show them: Pi = VERSION of this installer, Screen = SCREEN_VERSION, Panel = VERSION of the ACE Pro / Fluidd panel project.
+release_of() {   # the release number a folder carries (file RELEASE); '' when it has none
+    head -n1 "$1/RELEASE" 2>/dev/null | tr -d '[:space:]'
+}
+release_report() {   # 2.34.0: one release number for the Pi installer, the Fluidd panel and every screen board. Prints one line each; returns 1 when one of them is on another release
+    local pi pa t br bad=0 line
+    pi="$(release_of "$REPO_DIR")"; [ -n "$pi" ] || pi="$VERSION"
+    pa="$(release_of "$(ace_dir)")"
+    printf '    %-26s %s\n' "Pi installer:" "$pi"
+    if [ -d "$(ace_dir)" ]; then
+        if [ -z "$pa" ]; then printf '    %-26s %s\n' "Fluidd panel:" "no release mark yet (an older panel; ./installer.sh --update brings it)"; bad=1
+        elif [ "$pa" != "$pi" ]; then printf '    %-26s %s   <-- not the Pi release\n' "Fluidd panel:" "$pa"; bad=1
+        else printf '    %-26s %s\n' "Fluidd panel:" "$pa"; fi
+    else printf '    %-26s %s\n' "Fluidd panel:" "not installed"; fi
+    while read -r t; do
+        [ -n "$t" ] || continue
+        br="$(wm_ssh "$t" 'head -n1 ~/wm-screen-backup/release 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
+        if [ -z "$br" ]; then line="no release mark (an older board, or it does not answer)"; bad=1
+        elif [ "$br" != "$pi" ]; then line="$br   <-- not the Pi release"; bad=1
+        else line="$br"; fi
+        printf '    %-26s %s\n' "Screen board $t:" "$line"
+    done < <(boards_list)
+    [ "$bad" = 0 ]
+}
 publish_versions() {
     [ "$DRY" = 1 ] && return 0
     [ "$TESTING" = 1 ] && { [ -n "${WM_TEST_VERSIONS_FILE:-}" ] && echo "versions saved" >> "$WM_TEST_VERSIONS_FILE"; return 0; }   # the test suite must never write to the real Moonraker of the machine it runs on
     local pi sc pa; pi="$VERSION"; sc="$(head -n1 "$REPO_DIR/SCREEN_VERSION" 2>/dev/null | tr -d '[:space:]')"
     pa="$(head -n1 "$(ace_dir)/VERSION" 2>/dev/null | tr -d '[:space:]')"
-    local body="{\"namespace\":\"wondermaker\",\"key\":\"versions\",\"value\":{\"pi\":\"$pi\",\"screen\":\"$sc\",\"panel\":\"$pa\"}}" try   # the database write can take a while on an SD card
+    local body="{\"namespace\":\"wondermaker\",\"key\":\"versions\",\"value\":{\"pi\":\"$pi\",\"screen\":\"$sc\",\"panel\":\"$pa\",\"release\":\"$(release_of "$REPO_DIR")\"}}" try   # the database write can take a while on an SD card
     for try in 1 2 3; do
         curl -fsS -m 20 -X POST -H 'Content-Type: application/json' -d "$body" http://127.0.0.1:7125/server/database/item >/dev/null 2>&1 && return 0
         sleep 3
@@ -4340,6 +4366,7 @@ do_status() {   # read-only overview
     ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
     echo "  Installer $VERSION   printer: $(model_now)   host: $(hostname)${ip:+   address: http://$ip}"
     echo "  Computer: $(pi_model_line)"
+    echo "  Release (Pi, panel and screen boards must be on the same one):"; release_report || echo "    -> not all on the same release: ./installer.sh --update (it brings the panel and the boards along)"
     echo "  Uptime: $(uptime -p 2>/dev/null | sed 's/^up //')"
     t="$(vcgencmd measure_temp 2>/dev/null | sed 's/temp=//')"
     [ -z "$t" ] && [ -r /sys/class/thermal/thermal_zone0/temp ] && t="$(awk '{printf "%.1f C", $1/1000}' /sys/class/thermal/thermal_zone0/temp)"

@@ -424,6 +424,7 @@ write_screen_marks() {   # the screen's own version (S1.0.0, file SCREEN_VERSION
     mkdir -p "$BK"; cp "$src/SCREEN_VERSION" "$BK/screen_version"
     [ -d "$KS_DIR/panels" ] && cp "$src/SCREEN_VERSION" "$KS_DIR/panels/zr_screen_version.txt"
     [ -f "$src/SCREEN_NEEDS_PI" ] && cp "$src/SCREEN_NEEDS_PI" "$BK/screen_needs_pi"
+    [ -f "$src/RELEASE" ] && cp "$src/RELEASE" "$BK/release"
     return 0
 }
 

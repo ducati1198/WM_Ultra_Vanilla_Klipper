@@ -616,6 +616,7 @@ t="$1"; shift; echo "$t $*" >> "${FAKE_SSH_LOG:-/dev/null}"
 case "$*" in
     true) exit 0 ;;
     *wm-factory-restore*) echo "update handed over"; exit 0 ;;
+    *wm-screen-backup/release*) [ "$t" = t13dp@10.0.0.9 ] && echo "${FAKE_BOARD_RELEASE:-}"; exit 0 ;;
     *wm-screen-backup/screen_version*) [ "$t" = t13dp@10.0.0.9 ] && echo "${FAKE_BOARD_VERSION:-S1.0.0}"; exit 0 ;;
     *"show -p Timezone"*) [ "$t" = t13dp@10.0.0.9 ] && echo "${FAKE_BOARD_TZ:-America/Toronto}"; exit 0 ;;
 esac
@@ -624,6 +625,11 @@ FEOF
 chmod +x "$FS"; BH="$T/bh"; mkdir -p "$BH"; BL="$T/bh.sshlog"; : > "$BL"
 binst() { FAKE_SSH_LOG="$BL" WM_SSH="$FS" WM_TEST_NO_FETCH=1 inst "$BH" "$@"; }
 inst "$BH" --from-github --model ultra-s --screen off >/dev/null
+check "2.34.0: --status lists the release of the Pi, the panel and each screen board, and says when they differ" "binst --board add t13dp@10.0.0.9 >/dev/null; mkdir -p $BH/wm-ultra-fluidd-acepro-panel; cp $ROOT/RELEASE $BH/wm-ultra-fluidd-acepro-panel/RELEASE; O=\$(FAKE_BOARD_RELEASE=0.0.1 binst --status); echo \"\$O\" | grep -q 'Pi installer:' && echo \"\$O\" | grep -q 'Screen board t13dp@10.0.0.9: *0.0.1 *<-- not the Pi release' && echo \"\$O\" | grep -q 'not all on the same release'"
+check "2.34.0: --status says nothing is wrong when all three are on the same release" "O=\$(FAKE_BOARD_RELEASE=\$(head -n1 $ROOT/RELEASE) binst --status); ! echo \"\$O\" | grep -q 'not all on the same release' && echo \"\$O\" | grep -q 'Fluidd panel: *'\$(head -n1 $ROOT/RELEASE)"
+check "2.34.0: a board with no release mark is reported" "O=\$(binst --status); echo \"\$O\" | grep -q 'Screen board t13dp@10.0.0.9: *no release mark'"
+check "2.34.0: the screen board marks carry the release (write_screen_marks copies RELEASE)" "grep -q 'cp \"\$src/RELEASE\" \"\$BK/release\"' $ROOT/scripts/screen_board.sh"
+binst --board remove t13dp@10.0.0.9 >/dev/null 2>&1; rm -rf $BH/wm-ultra-fluidd-acepro-panel
 check "boards: --board list says none at first" "binst --board list | grep -q 'No screen board added'"
 check "boards: --board add needs user@address" "binst --board add 10.0.0.9 | grep -q 'user@address'"
 check "boards: --board add saves it" "binst --board add t13dp@10.0.0.9 | grep -q 'added' && grep -qx 't13dp@10.0.0.9' $BH/wm-rpi-backup/boards.conf && binst --board list | grep -q 't13dp@10.0.0.9'"
