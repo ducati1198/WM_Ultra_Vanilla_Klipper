@@ -669,7 +669,7 @@ filemerge_one() {   # LIVE NEW REPO-PATH: bring WonderMaker's changes in one con
     [ -n "$out" ] && echo "$out" | sed 's/^/        /'
     case "$rc" in
         0|10) return 0 ;;
-        11)   warn_later "$(basename "$new"): some of your own lines were kept where WonderMaker changed the same lines, or no starting point was found (listed in the update output). Copy of the old file: $(basename "$live").wm-before-merge-$STAMP"; return 0 ;;
+        11)   warn_later "$(basename "$new"): some of your own lines were kept where WonderMaker changed the same lines, or no starting point was found (listed in the update output). Copy of the old file: backup/$(basename "$live").wm-before-merge-$STAMP"; return 0 ;;
         *)    return 1 ;;
     esac
 }

@@ -13,7 +13,7 @@ the new version of this repository, and the file on the Pi. Line by line:
 
   wm_filemerge.py LIVE NEW BASEDIR [--name N] [--git-repo R --git-path REL] [--write] [--stamp S]
 
-Without --write nothing is changed. With --write the old file is first copied to LIVE.wm-before-merge-S, and the new version
+Without --write nothing is changed. With --write the old file is first copied to backup/NAME.wm-before-merge-S (a backup folder next to LIVE), and the new version
 becomes the baseline (BASEDIR/N).
 Exit code: 0 nothing to change, 10 the file was changed (or would be), 11 changed, but some lines of yours kept instead of
 WonderMaker's (listed), 2 usage or error."""
@@ -159,7 +159,9 @@ def main(argv):
     changed = out != live
     if write:
         if changed:
-            shutil.copy2(live_p, live_p + ".wm-before-merge-" + stamp)
+            bdir = os.path.join(os.path.dirname(os.path.abspath(live_p)), "backup")
+            os.makedirs(bdir, exist_ok=True)
+            shutil.copy2(live_p, os.path.join(bdir, os.path.basename(live_p) + ".wm-before-merge-" + stamp))
             with open(live_p, "w", newline="") as f:
                 f.write(out)
         os.makedirs(basedir, exist_ok=True)

@@ -42,14 +42,14 @@ class T(unittest.TestCase):
         self.assertEqual(rc, 10, out)
         self.assertIn("line 5 NEW", self.text())
         self.assertEqual(self.text(os.path.join(self.b, "m.cfg")), self.text(self.new))
-        self.assertTrue(os.path.exists(self.live + ".wm-before-merge-T"))
+        self.assertTrue(os.path.exists(os.path.join(os.path.dirname(self.live), "backup", os.path.basename(self.live) + ".wm-before-merge-T")))
 
     def test_b_wonder_maker_did_not_change_it(self):
         put(self.d, "live.cfg", BASE.replace("line 7\n", "line 7 MINE\n"))
         rc, out = self.go()
         self.assertEqual(rc, 0, out)
         self.assertIn("line 7 MINE", self.text())
-        self.assertFalse(os.path.exists(self.live + ".wm-before-merge-T"))
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.live), "backup", os.path.basename(self.live) + ".wm-before-merge-T")))
 
     def test_c_different_lines_both_stay(self):
         put(self.d, "live.cfg", BASE.replace("line 3\n", "line 3 MINE\n"))
