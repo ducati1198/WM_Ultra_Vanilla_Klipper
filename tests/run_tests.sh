@@ -1980,7 +1980,7 @@ sec "== load cell board (CELL): firmware V2 from wm-load-cell-mcu"
 CS="$T/cellstub"; rm -rf "$CS"; mkdir -p "$CS/zr-ultra/firmware"; echo 'echo menu' > "$CS/install.sh"; echo 'echo flash' > "$CS/zr-ultra/2_flash_app_can.sh"; echo KLP_CELL_WM_ZRU_RPI_V2_20261117 > "$CS/zr-ultra/firmware/LATEST"
 cellinst() { local h="$1" v="$2"; shift 2; WM_TEST_CELL_DIR="$CS" WM_TEST_CELL_VERSION="$v" WM_TEST_PANEL_DIR="$T/stubpanel" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" </dev/null 2>&1; }
 CH="$T/cellh"; rm -rf "$CH"; mkdir -p "$CH"
-check "load cell: --load-cell downloads the project and opens its menu" "cellinst $CH '' --load-cell | grep -q 'Load cell board' && [ -f $CH/wm-load-cell-mcu/install.sh ] && grep -q 'load cell menu' $CH/.cell.log"
+check "load cell: --load-cell downloads the project and opens its menu" "cellinst $CH '' --load-cell > $CH.out; grep -q 'Load cell board' $CH.out && [ -f $CH/wm-load-cell-mcu/install.sh ] && grep -q 'load cell menu' $CH/.cell.log"
 check "load cell: --load-cell says so when the project cannot be downloaded" "WM_HOME=$CH WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --load-cell </dev/null 2>&1 | grep -q 'Could not download'"
 CI="$T/celli"; rm -rf "$CI"; mkdir -p "$CI"; mkstage "$T/stage"
 OUTC="$(cellinst $CI KLP_CELL_WM_ZRU_20251223_162212 --from-stage $T/stage)"
