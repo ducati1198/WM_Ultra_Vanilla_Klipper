@@ -37,7 +37,9 @@ class Tool(unittest.TestCase):
     @unittest.skipUnless(os.path.exists(os.path.expanduser("~/klipper/klippy/klippy.py")) and os.path.exists(os.path.expanduser("~/printer_data/config/printer.cfg")),
                          "needs Klipper and a real config on this machine")
     def test_check_tells_a_good_config_from_a_broken_one_and_changes_nothing(self):
-        real = os.path.expanduser("~/printer_data/config")
+        live = os.path.expanduser("~/printer_data/config")
+        real = os.path.join(tempfile.mkdtemp(dir=TMP), "cfg")   # a copy: the live folder of a running machine changes by itself during the suite
+        shutil.copytree(live, real, ignore=shutil.ignore_patterns("backup"))
         before = subprocess.run("cd %s && find . -type f -not -path './backup/*' | sort | xargs md5sum | md5sum" % shlex.quote(real), shell=True, stdout=subprocess.PIPE).stdout
         self.assertEqual(self._check(real)[0], 0)
         bad = os.path.join(tempfile.mkdtemp(dir=TMP), "c"); shutil.copytree(real, bad, ignore=shutil.ignore_patterns("backup"))
