@@ -616,6 +616,7 @@ t="$1"; shift; echo "$t $*" >> "${FAKE_SSH_LOG:-/dev/null}"
 case "$*" in
     true) exit 0 ;;
     *wm-factory-restore*) echo "update handed over"; exit 0 ;;
+    *wm-screen-backup/in_test*) [ "$t" = t13dp@10.0.0.9 ] && [ -f "${FAKE_BOARD_INTEST:-/nonexistent}" ] && echo yes; exit 0 ;;
     *wm-screen-backup/release*) [ "$t" = t13dp@10.0.0.9 ] && echo "${FAKE_BOARD_RELEASE:-}"; exit 0 ;;
     *wm-screen-backup/screen_version*) [ "$t" = t13dp@10.0.0.9 ] && echo "${FAKE_BOARD_VERSION:-S1.0.0}"; exit 0 ;;
     *"show -p Timezone"*) [ "$t" = t13dp@10.0.0.9 ] && echo "${FAKE_BOARD_TZ:-America/Toronto}"; exit 0 ;;
@@ -630,6 +631,9 @@ check "2.34.0: --status says nothing is wrong when all three are on the same rel
 check "2.34.0: a board with no release mark is reported" "O=\$(binst --status); echo \"\$O\" | grep -q 'Screen board t13dp@10.0.0.9: *no release mark'"
 check "2.34.0: the screen board marks carry the release (write_screen_marks copies RELEASE)" "grep -q 'cp \"\$src/RELEASE\" \"\$BK/release\"' $ROOT/scripts/screen_board.sh"
 binst --board remove t13dp@10.0.0.9 >/dev/null 2>&1; rm -rf $BH/wm-ultra-fluidd-acepro-panel
+check "2.34.0: a screen board marked IN TEST is not updated by the Pi (--update-boards skips it and says how to turn the mark off)" "binst --board add t13dp@10.0.0.9 >/dev/null; : > $T/intest.flag; O=\$(FAKE_BOARD_INTEST=$T/intest.flag binst --update-boards); echo \"\$O\" | grep -q 'marked IN TEST: it is NOT updated' && ! grep -q wm-factory-restore $BL; binst --board remove t13dp@10.0.0.9 >/dev/null 2>&1"
+check "2.34.0: --board test-on and test-off set and clear the mark on the board" "binst --board test-on t13dp@10.0.0.9 | grep -q 'marked IN TEST' && grep -q 'wm-screen-backup/in_test' $BL && binst --board test-off t13dp@10.0.0.9 | grep -q 'not in test any more'"
+check "2.34.0: on the board, --update with the mark does nothing and says so; --force goes on; --in-test off clears it" "BD=$T/intestboard; mkdir -p \$BD; s() { WM_HOME=\$BD WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/scripts/screen_board.sh \"\$@\" 2>&1; }; s --in-test on >/dev/null; s --update | grep -q 'marked IN TEST' && ! s --update --force | grep -q 'marked IN TEST' && s --in-test off | grep -q 'not in test any more' && s --in-test status | grep -q 'not in test'"
 check "boards: --board list says none at first" "binst --board list | grep -q 'No screen board added'"
 check "boards: --board add needs user@address" "binst --board add 10.0.0.9 | grep -q 'user@address'"
 check "boards: --board add saves it" "binst --board add t13dp@10.0.0.9 | grep -q 'added' && grep -qx 't13dp@10.0.0.9' $BH/wm-rpi-backup/boards.conf && binst --board list | grep -q 't13dp@10.0.0.9'"

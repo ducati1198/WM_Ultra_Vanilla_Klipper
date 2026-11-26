@@ -31,6 +31,7 @@
 # ./installer.sh --check-updates       read-only: list what is new on GitHub since your copy of this repository (then: git pull, ./installer.sh --update)
 # ./installer.sh --update-all           download and apply every newer version: this installer, the Fluidd panel (ACE Pro project) and the screen boards you added; refused during a print
 # ./installer.sh --update-boards        update only the screen boards you added (--board add user@host)
+# ./installer.sh --board test-on|test-off|test-status user@host   mark a screen board IN TEST: updates leave it alone (the .37 was overwritten once); --force overrides
 # ./installer.sh --board add|remove|list [user@host]   screen boards this Pi may update over ssh (a key is set up once; the password is asked once).
 #                                                      "--board add" alone uses the address the screen board announced (rpi_chamber_light.json)
 # ./installer.sh --get-latest          download the newest installer folder (git pull, or the GitHub tarball when this is not a clone); then run --update
@@ -3180,7 +3181,14 @@ do_board() {   # --board add|remove|list [user@host]
             [ -n "$BOARD_TARGET" ] || die_with_fix "give the board to remove." "./installer.sh --board remove t13dp@<board-ip>"
             if [ -f "$BOARDS_FILE" ]; then grep -vxF "$BOARD_TARGET" "$BOARDS_FILE" > "$BOARDS_FILE.new"; mv "$BOARDS_FILE.new" "$BOARDS_FILE"; fi
             print_success "Board $BOARD_TARGET removed from the list (its key stays on the board)." ;;
-        *) die_with_fix "--board needs add, remove or list." "./installer.sh --board list" ;;
+        test-on|test-off|test-status)
+            [ -n "$BOARD_TARGET" ] || die_with_fix "give the board." "./installer.sh --board $BOARD_ACT t13dp@<board-ip>"
+            case "$BOARD_ACT" in
+                test-on)  wm_ssh "$BOARD_TARGET" 'mkdir -p ~/wm-screen-backup && date "+%F %T" > ~/wm-screen-backup/in_test' && print_success "Board $BOARD_TARGET is marked IN TEST: updates (this Pi, its Update button) leave it alone. Turn it off: ./installer.sh --board test-off $BOARD_TARGET" || print_warning "Could not reach $BOARD_TARGET." ;;
+                test-off) wm_ssh "$BOARD_TARGET" 'rm -f ~/wm-screen-backup/in_test' && print_success "Board $BOARD_TARGET is not in test any more: updates work again." || print_warning "Could not reach $BOARD_TARGET." ;;
+                test-status) if [ -n "$(wm_ssh "$BOARD_TARGET" 'test -f ~/wm-screen-backup/in_test && echo yes' 2>/dev/null | tr -d "[:space:]")" ]; then echo "  Board $BOARD_TARGET is IN TEST: updates leave it alone."; else echo "  Board $BOARD_TARGET is not in test."; fi ;;
+            esac ;;
+        *) die_with_fix "--board needs add, remove, list, test-on, test-off or test-status." "./installer.sh --board list" ;;
     esac
 }
 do_update_boards() {   # runs the board's own Update (the same root copy the Update button on its screen runs), only for boards whose SCREEN version is behind
@@ -3200,6 +3208,7 @@ do_update_boards() {   # runs the board's own Update (the same root copy the Upd
         local bv; bv="$(board_version "$t")"
         if [ -z "$bv" ]; then print_warning "Board $t cannot be reached over ssh: skipped."; bad=$((bad+1)); continue; fi
         board_sync_tz "$t"
+        if [ "$FORCE" != 1 ] && [ -n "$(wm_ssh "$t" 'test -f ~/wm-screen-backup/in_test && echo yes' 2>/dev/null | tr -d "[:space:]")" ]; then print_warning "Board $t is marked IN TEST: it is NOT updated. Turn the mark off with: ./installer.sh --board test-off $t   (or run the update with --force)"; continue; fi
         if ! screen_ver_newer "$newv" "$bv"; then print_success "Board $t is up to date (screen $(screen_show "$bv"))."; continue; fi
         if [ -n "$need" ] && ver_newer "$need" "$pi"; then print_warning "Board $t: screen $newv needs this Pi on installer $need or newer (it is on $pi): the board is NOT updated. Run ./installer.sh --update first."; bad=$((bad+1)); continue; fi
         if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would update board $t from screen $(screen_show "$bv") to $newv${NC}"; continue; fi

@@ -18,6 +18,7 @@
 # bash scripts/screen_board.sh --free-space                  list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # bash scripts/screen_board.sh --camera                      set up (or re-check) the camera plugged into this board: crowsnest 720p 30 fps on port 8080, announced to the Pi as Camera
 # bash scripts/screen_board.sh --post-update                 (re)apply the permissions the Update and Factory mode buttons need (sudoers, root copy) and the version marks
+# bash scripts/screen_board.sh --in-test on|off|status       mark this board as IN TEST: updates (the Update button, --update, the Pi's --update-boards) leave it alone until you turn it off (--force overrides once)
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
@@ -183,6 +184,7 @@ while [ $# -gt 0 ]; do
         --install) MODE=install; NOARGS=0 ;;
         --update) MODE=update ;;
         --post-update) MODE=postupdate ;;
+        --in-test) MODE=intest; ARG1="${2:-status}"; [ $# -gt 1 ] && shift ;;
         --camera) MODE=camera ;;
         --check-updates|--whats-new) MODE=whatsnew ;;
         --remove) MODE=removefiles; ARG1="${2:-}"; shift ;;
@@ -998,6 +1000,7 @@ do_status() {
         echo "  $u: $(svc_enabled "$u" && echo enabled || echo disabled), $(svc_active "$u" && echo running || echo stopped)"; done
     if [ "$TESTING" = 1 ]; then [ -f "$BK/known-good/KlipperScreen.conf" ] && echo "  Rescue tool: installed"; else [ -x "$RESCUE_BIN" ] && echo "  Rescue tool: installed (window after 3 failed starts; USB stick: WM-FACTORY / WM-RESCUE)" || echo "  Rescue tool: not installed"; fi
     [ -d "$KS_DIR" ] && echo "  KlipperScreen: installed ($KS_DIR)" || echo "  KlipperScreen: not installed"
+    [ -f "$(intest_file)" ] && echo "  IN TEST since $(cat "$(intest_file)" 2>/dev/null): updates leave this board alone (--in-test off turns it off)"
     [ -f "$BK/board_mode" ] && echo "  Mode: KlipperScreen ($(cat "$BK/board_mode"))" || echo "  Mode: factory"
     [ -f "$BK/disabled.list" ] && echo "  Saved list for restore: $BK/disabled.list ($(wc -l < "$BK/disabled.list") services)"
 }
@@ -1128,10 +1131,23 @@ do_post_update() {   # optional argument: the folder that holds the newest files
     ks_stop_fix
     print_success "Done. The Update and Factory mode buttons have their permission, and the version is $(cat "$BK/version" 2>/dev/null)."
 }
+intest_file() { echo "$BK/in_test"; }
+do_intest() {   # on | off | status: a board that is IN TEST is not overwritten by updates (the .37 was overwritten once, 2026-11-24)
+    case "${ARG1:-status}" in
+        on)  mkdir -p "$BK" && date '+%F %T' > "$(intest_file)"; print_success "This board is marked IN TEST: updates leave it alone. Turn it off: bash scripts/screen_board.sh --in-test off" ;;
+        off) rm -f "$(intest_file)"; print_success "This board is not in test any more: updates work again." ;;
+        status) if [ -f "$(intest_file)" ]; then echo "  This board is IN TEST (since $(cat "$(intest_file)" 2>/dev/null)). Updates leave it alone."; else echo "  This board is not in test."; fi ;;
+        *) die_with_fix "--in-test needs on, off or status." "bash scripts/screen_board.sh --in-test on" ;;
+    esac
+}
 do_update_board() {
+    if [ -f "$(intest_file)" ] && [ "$FORCE" != 1 ] && [ "${WM_INTEST_OVERRIDE:-0}" != 1 ]; then
+        print_warning "This board is marked IN TEST (since $(cat "$(intest_file)" 2>/dev/null)): it was NOT updated."
+        echo "  To update it anyway: bash scripts/screen_board.sh --update --force      To turn the mark off: bash scripts/screen_board.sh --in-test off"; return 0
+    fi
     if [ "$DETACH" = 1 ] && [ "$TESTING" != 1 ]; then   # the update restarts KlipperScreen, which would kill the button that started it: run as a separate systemd unit
         mkdir -p "$BK"; { echo "== update started $(date '+%F %T')"; } > "$BK/update.log"
-        exec systemd-run --no-block --unit=wm-screen-update-run -p StandardOutput=append:"$BK/update.log" -p StandardError=append:"$BK/update.log" "$(readlink -f "$0")" --update --yes
+        exec systemd-run --no-block --setenv=WM_INTEST_OVERRIDE=1 --unit=wm-screen-update-run -p StandardOutput=append:"$BK/update.log" -p StandardError=append:"$BK/update.log" "$(readlink -f "$0")" --update --yes
     fi
     do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; trap - INT TERM; return $rc; }   # the downloaded copy never stays in /tmp
 do_update_board_core() {
@@ -1512,6 +1528,7 @@ case "$MODE" in
     setdriver) do_setdriver ;;
     update) do_update_board ;;
     postupdate) do_post_update ;;
+    intest) do_intest ;;
     camera) step_screen_camera ;;
     whatsnew) do_whatsnew_board ;;
     removefiles) do_remove_files ;;
