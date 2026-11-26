@@ -37,6 +37,7 @@ More:
 - [Tools: new WonderMaker releases](#tools-new-wondermaker-releases-toolswm-release) (`tools/wm-release`)
 - [The menu](#the-menu)
 - Documents of the Pi: [MACROS](docs/MACROS.md) · [FLUIDD](docs/FLUIDD.md) · [MOONRAKER](docs/MOONRAKER.md) · [DIFFERENCES](docs/DIFFERENCES.md)
+- [How an update treats your files](#how-an-update-treats-your-files-2340) (3-way merge, your own macros, automatic return, one release number, a board in test, install in one command)
 - [Backup before every update](#backup-before-every-update)
 - [Status page and Network and system](#status-page-and-network-and-system)
 - [Klipper gcode shell command (installed automatically)](#klipper-gcode-shell-command-installed-automatically)
@@ -88,6 +89,9 @@ Run these in `~/wm_ultra_vanilla_klipper` on the Pi.
 | **Back up** my settings | `./installer.sh --backup` | Saved to `~/ultra-backup/settings/` as a private `.tgz`. Copy it off the Pi. |
 | **Restore** a backup | `./installer.sh --restore FILE` | A safety copy is made first |
 | **Roll back** the last update | `./installer.sh --rollback` | Restores the newest backup an update saved before it started (safety copy first) |
+| `./installer.sh --check-config` | loads `~/printer_data/config` with Klipper batch mode (no printer, nothing restarted) and reports the first config error; exit 0 when it loads, 1 on a config error, 2 when the check could not run. An update does this before it restarts Klipper |
+| `./installer.sh --update --no-auto-rollback` | an update that does NOT put your settings back by itself when Klipper does not come back after the restart |
+| `./installer.sh --board test-on\|test-off\|test-status user@address` | marks a screen board IN TEST (updates leave it alone), clears the mark, or shows it. On the board: `bash scripts/screen_board.sh --in-test on\|off\|status` |
 | **Undo** the last install | `./installer.sh --undo` | Folders the installer moved aside come back (`~/wm-rpi-backup/`) |
 | **Uninstall** | `./installer.sh --uninstall` | Removes the services, nginx files and can0 rule it added. Your folders in `~` stay. |
 | **Preview** any of the above | add `--dry-run` | Nothing changes |
@@ -346,6 +350,34 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 ### Your own values during an update (2.25.0)
 
 Before the first update step the installer remembers what belongs to you: every value in `saved_variables.cfg` (calibration, trims, probe position), every `rotation_distance` line and the SAVE_CONFIG block in `printer.cfg`, and `crowsnest.conf`. After the last step, before Klipper restarts, it checks them again. If an update step changed one, it is put back and listed; otherwise the update says "Your settings: untouched". Values that the update or Klipper adds are left alone. The helper is `scripts/wm_protect.py` (its copy of your values is in `~/ultra-backup/protect/`, the newest 3 are kept). If anything else goes wrong, `./installer.sh --rollback` restores the backup the update saved first.
+
+### How an update treats your files (2.34.0)
+
+An update never throws your own edits away. For each WonderMaker config file (the macro files `macros.cfg`, `change_macros.cfg`, `offset_calibrate.cfg`, `extruder0-3.cfg`, `hub.cfg` and the Pi's `rpi_*.cfg`; the panel's `rpi_ace.cfg`, `rpi_ace_driver.cfg`, `rpi_endless.cfg`, `rpi_stats.cfg`) the update compares three files line by line:
+
+| File | Where it is |
+|---|---|
+| what WonderMaker gave you last time (the starting point) | `~/printer_data/wm-baseline` (the panel's files in `wm-baseline/panel`); nobody edits it |
+| the new version | this repository |
+| your file | `~/printer_data/config` |
+
+- You never changed the file: it becomes the new version.
+- WonderMaker did not change the file: yours stays.
+- You and WonderMaker changed different lines: both changes are in the result.
+- You and WonderMaker changed the same lines: **your lines stay**, and the update lists WonderMaker's lines it did not use ("look at this").
+- No starting point yet (the first update with this version): it is found in the history of this repository, the older version your file is closest to.
+
+The old file is saved first in the `backup` folder next to it (`~/printer_data/config/backup/<name>.wm-before-merge-<date>`). Machine files (`printer.cfg`, `saved_variables.cfg`, `rpi_pi.cfg`, CAN ids, `moonraker.conf`, `KlipperScreen.conf`) are never merged or replaced.
+
+**Your own macros.** Edits inside a WonderMaker macro survive an update (above). For bigger changes, put your macro in a file of your own and include it **last** in `printer.cfg` (above the SAVE_CONFIG block), for example `[include my_overrides.cfg]`. Klipper reads a later definition over an earlier one: a `[gcode_macro NAME]` in your file replaces only the options you write, and an update never touches your file. (Tested on a dev box on 2026-11-25.)
+
+**If Klipper does not come back.** `--update` notes whether Klipper was ready before. It also lets Klipper's batch mode read the new config just before the restart (`./installer.sh --check-config` does the same by hand, with no printer and nothing restarted) and warns with the first config error. If Klipper was ready before and is not ready after the restart, the update puts your config, database and factory settings back from the backup it saved at its start, saves the state that did not work in `~/ultra-backup/settings`, restarts, and tells you. It does not do this when Klipper was already down before the update, after `--no-backup` (nothing to go back to), or with `--no-auto-rollback`.
+
+**One release number.** The Pi installer, the Fluidd panel and every screen board carry one release number (file `RELEASE`). `./installer.sh --status` and the end of an update list all of them and say which one is on another release; `./installer.sh --update` (panel) and `--update-boards` (boards) bring them level.
+
+**A screen board you are testing.** `./installer.sh --board test-on t13dp@<board-ip>` (on the board itself: `bash scripts/screen_board.sh --in-test on`) marks a board IN TEST: the Update button, `--update` and the Pi's `--update-boards` leave it alone until you turn the mark off (`test-off` / `--in-test off`) or add `--force`.
+
+**Install in one command.** Without the menu: `./installer.sh --install --model ultra-s --yes --from-github` (use `--model ultra` for the Ultra). Run `./installer.sh --dry-run` first to see the plan.
 
 ### 3.5 Open Fluidd
 
