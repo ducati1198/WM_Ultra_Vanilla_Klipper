@@ -37,6 +37,7 @@ More:
 - [Tools: new WonderMaker releases](#tools-new-wondermaker-releases-toolswm-release) (`tools/wm-release`)
 - [The menu](#the-menu)
 - Documents of the Pi: [MACROS](docs/MACROS.md) · [FLUIDD](docs/FLUIDD.md) · [MOONRAKER](docs/MOONRAKER.md) · [DIFFERENCES](docs/DIFFERENCES.md)
+- [One update at a time](#one-update-at-a-time-2350) (a hand-run update and Fluidd's never run together)
 - [How an update treats your files](#how-an-update-treats-your-files-2340) (3-way merge, your own macros, automatic return, one release number, a board in test, install in one command)
 - [Backup before every update](#backup-before-every-update)
 - [Status page and Network and system](#status-page-and-network-and-system)
@@ -356,6 +357,10 @@ Before the first update step the installer remembers what belongs to you: every 
 
 Put your changes to WonderMaker's macros and settings in `printer_data/config/wm_my_overrides.cfg`. Write the section name and only the lines you change. The file is read last (its `[include wm_my_overrides.cfg]` sits just above the SAVE_CONFIG block), so it wins over WonderMaker's file, and an update never changes it. A `gcode:` block is replaced as a whole. Do not put values here that Klipper saves itself (PID, probe z_offset, input shaper, bed mesh, rotation_distance). `./installer.sh --my-overrides` creates the file and fixes the include line; the update and `--doctor` do it too. Only one update runs at a time (Fluidd's Update button and a hand-run update share a lock).
 
+### One update at a time (2.35.0)
+
+An update started by hand (`./installer.sh --update`, `--update-all`, `--update-boards`) and the Update button in Fluidd take the same lock (`~/.wm-pi-update.lock`). The second one waits for the first (up to 15 minutes, change it with `WM_UPDATE_LOCK_WAIT=<seconds>`) and then stops with a clear message that says nothing was changed. A backup before an update no longer reports "could not be saved" when a file such as Moonraker's database changes while it is read (tar exit 1); a real failure names tar's reason. When a screen board's files are already current but its release mark is behind, the update sets only the mark and restarts nothing.
+
 ### How an update treats your files (2.34.0)
 
 An update never throws your own edits away. For each WonderMaker config file (the macro files `macros.cfg`, `change_macros.cfg`, `offset_calibrate.cfg`, `extruder0-3.cfg`, `hub.cfg` and the Pi's `rpi_*.cfg`; the panel's `rpi_ace.cfg`, `rpi_ace_driver.cfg`, `rpi_endless.cfg`, `rpi_stats.cfg`) the update compares three files line by line:
@@ -368,11 +373,11 @@ An update never throws your own edits away. For each WonderMaker config file (th
 
 - You never changed the file: it becomes the new version.
 - WonderMaker did not change the file: yours stays.
-- You and WonderMaker changed different lines: both changes are in the result.
+- You and WonderMaker changed different lines: both changes are in the result. Since 2.35.0 this also holds when you both add lines at the same place (for example a macro each at the end of a file): both stay, yours first. A file saved with Windows line ends is compared without the extra character and written back the same way.
 - You and WonderMaker changed the same lines: **your lines stay**, and the update lists WonderMaker's lines it did not use ("look at this").
 - No starting point yet (the first update with this version): it is found in the history of this repository, the older version your file is closest to.
 
-The old file is saved first in the `backup` folder next to it (`~/printer_data/config/backup/<name>.wm-before-merge-<date>`). Machine files (`printer.cfg`, `saved_variables.cfg`, `rpi_pi.cfg`, CAN ids, `moonraker.conf`, `KlipperScreen.conf`) are never merged or replaced.
+The old file is saved first in the `backup` folder next to it (`~/printer_data/config/backup/<name>.wm-before-merge-<date>`). Since 2.35.0 the newest 5 copies of each file are kept there and in `~/ultra-backup/config` (it was 8). Machine files (`printer.cfg`, `saved_variables.cfg`, `rpi_pi.cfg`, CAN ids, `moonraker.conf`, `KlipperScreen.conf`) are never merged or replaced.
 
 **Your own macros.** Edits inside a WonderMaker macro survive an update (above). For bigger changes, put your macro in a file of your own and include it **last** in `printer.cfg` (above the SAVE_CONFIG block), for example `[include my_overrides.cfg]`. Klipper reads a later definition over an earlier one: a `[gcode_macro NAME]` in your file replaces only the options you write, and an update never touches your file. (Tested on a dev box on 2026-11-25.)
 
@@ -1082,7 +1087,10 @@ config/                 systemd units, nginx files, can0 udev rule, pinned Pytho
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
 tools/wm-release/       release tool: takes a new WonderMaker System version (from their website, a TM_T1_SOC file or the screen board) and keeps your changes; not used by the installer (kept for later)
 docs/                   HARDWARE.md, WIRING.md, HOST_MCU.md (the Klipper-Mcu service), MACROS.md (every macro of the Pi: what it does, calls, risk), MOONRAKER.md, FLUIDD.md, DIFFERENCES.md (this build against upstream Klipper, Moonraker and Fluidd) and images
-tests/                  run_tests.sh (installer, fake home) and test_screen.py (ZR Tools panel)
+tests/                  run_tests.sh (installer, fake home; the full suite, about 37 minutes on a Pi 4) and test_screen.py and the other test_*.py (ZR Tools panel and tools)
+tools/quick_check.sh    quick check, about 1 minute: syntax, versions, macro index, screen bundle (run after every edit)
+tools/test_fast.sh      fast test, about 9 minutes: quick check, the python tests and the backup, restore, repair, update and undo parts of the suite
+tools/split_suite.py    cuts run_tests.sh into its parts and finds which part needs which (used by test_fast.sh)
 ```
 
 `factory/` holds upstream Klipper and Moonraker (GPL), the printer settings, helper scripts, and WonderMaker's compiled modules and MCU firmware (WonderMaker's binaries, see [factory/README.md](factory/README.md)). Your own calibration is not in the repository.
