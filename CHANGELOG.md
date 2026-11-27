@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.37.3
+
+- **Fluidd: "Update available" and "Update now" follow the one update entry.** The versions line at the bottom of the Toolheads card looked for the old entry names, so it said "Up to date" while Fluidd's update page showed a new version (Fluidd build, panel 1.23.8). No change to the installer itself; the release number follows the panel.
+
 ## 2.37.2
 
 - **Clearer message.** The update no longer says that Fluidd's Update button for the Fluidd panel applies the update (that entry is gone since 2.37.1). It now says the panel project's own update path is ready and that the one Update entry is `wm_ultra_vanilla_klipper`. No other change.
