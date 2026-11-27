@@ -3,6 +3,7 @@
 ## 2.36.0
 
 - **Clean reinstall: `./installer.sh --clean-reinstall`** (also in the menu: Check and fix, item 7). It puts the WonderMaker files back exactly to this version: `macros.cfg`, `change_macros.cfg`, `offset_calibrate.cfg`, `extruder0-3.cfg`, `hub.cfg` and the `rpi_*.cfg` files. A full backup is made first; every file where you had edits is saved in `backup/` and listed at the end. Not reset: `printer.cfg`, `saved_variables.cfg` (your calibration), `rpi_pi.cfg`, `moonraker.conf`, `KlipperScreen.conf`, the CAN ids and `wm_my_overrides.cfg`; your own lines in them stay. Then the normal update steps run (restart, automatic return if Klipper does not come back). `--dry-run` only lists what would change and which files have your edits. By hand the question asks twice and defaults to no.
+- **No capital-letter folder name any more.** Renaming an old `~/WM_Ultra_Vanilla_Klipper` no longer leaves a link under the old name. The Fluidd update entry and the update services already follow the new folder.
 - `wm_filemerge.py --reset`: replaces a file with the new version, saves your copy in `backup/` and updates the baseline.
 
 ## 2.35.0

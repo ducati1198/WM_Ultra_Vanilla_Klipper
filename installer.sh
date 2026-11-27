@@ -2049,16 +2049,15 @@ step_acepro() {
     else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
 }
 
-migrate_installer_folder() {   # the installer folder used to be ~/WM_Ultra_Vanilla_Klipper: move it to lower case, keep a link under the old name (F-242)
+migrate_installer_folder() {   # the installer folder used to be ~/WM_Ultra_Vanilla_Klipper: move it to lower case, no capital-letter name is left behind (F-242)
     local old="$HOME_DIR/WM_Ultra_Vanilla_Klipper" new="$HOME_DIR/wm_ultra_vanilla_klipper"
     [ "$REPO_DIR" = "$old" ] || return 0                       # a copy somewhere else, or already the new name: nothing to do
     [ -L "$old" ] && return 0
     if [ -e "$new" ]; then warn_later "Both ~/WM_Ultra_Vanilla_Klipper and ~/wm_ultra_vanilla_klipper exist. Keep one: move the old one away (mv ~/WM_Ultra_Vanilla_Klipper ~/WM_Ultra_Vanilla_Klipper.old), then run ./installer.sh --update again."; return 0; fi
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rename the installer folder ~/WM_Ultra_Vanilla_Klipper to ~/wm_ultra_vanilla_klipper and leave a link under the old name${NC}"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would rename the installer folder ~/WM_Ultra_Vanilla_Klipper to ~/wm_ultra_vanilla_klipper (no capital-letter name is kept)${NC}"; return 0; fi
     if mv "$old" "$new" 2>/dev/null; then
-        ln -s "$new" "$old" 2>/dev/null || true               # old commands and old notes keep working
         REPO_DIR="$new"; SCRIPT_DIR="$new"; MOONRAKER_CHANGED=1
-        print_info "The installer folder is now ~/wm_ultra_vanilla_klipper (no capital letters). The old name stays as a link; the Fluidd update entry and the update service follow the new folder."
+        print_info "The installer folder is now ~/wm_ultra_vanilla_klipper (no capital letters). The old capital-letter name is gone; the Fluidd update entry and the update service follow the new folder. Old commands that say ~/WM_Ultra_Vanilla_Klipper now need ~/wm_ultra_vanilla_klipper."
     else warn_later "Could not rename ~/WM_Ultra_Vanilla_Klipper to ~/wm_ultra_vanilla_klipper. Do it by hand: mv ~/WM_Ultra_Vanilla_Klipper ~/wm_ultra_vanilla_klipper, then ./installer.sh --update."; fi
 }
 installer_update_block() {   # the [update_manager] section of this installer: the Update button downloads it, wm-pi-update.path applies it

@@ -217,7 +217,7 @@ chmod +x installer.sh
 >
 > That only gets the newest files from GitHub and changes nothing else. To also apply the update to the printer, run `./installer.sh --update` afterwards (optional).
 
-> **Installed before version 2.32.0?** The folder used to be called `~/WM_Ultra_Vanilla_Klipper`. The next `./installer.sh --update` (or the Update button in Fluidd) renames it to `~/wm_ultra_vanilla_klipper`, keeps the old name as a link so old commands still work, and replaces the Fluidd update entry with the lower-case one. If both folders exist nothing is moved and the installer tells you to keep one.
+> **Installed before version 2.32.0?** The folder used to be called `~/WM_Ultra_Vanilla_Klipper`. The next `./installer.sh --update` (or the Update button in Fluidd) renames it to `~/wm_ultra_vanilla_klipper`, leaves no capital-letter name behind (commands that say the old name now need the new one), and replaces the Fluidd update entry with the lower-case one. If both folders exist nothing is moved and the installer tells you to keep one.
 
 ### The installer menu
 
