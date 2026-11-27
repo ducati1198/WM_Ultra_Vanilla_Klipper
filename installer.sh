@@ -1290,6 +1290,7 @@ do_load_cell() {   # ./installer.sh --load-cell and Advanced > Load cell board: 
 
 panel_get() {  # sets PANEL_ZIP and PANEL_FROM: the newest panel from the panel repository, else the copy in this repository
     [ -n "$PANEL_ZIP" ] && return 0
+    if [ "$DRY" = 1 ] && [ -z "${WM_TEST_PANEL_DIR:-}" ]; then PANEL_FROM="github.com/$PANEL_REPO"; echo -e "  ${DIM}would download the newest Fluidd panel from $PANEL_REPO (checksum checked)${NC}"; return 0; fi   # a dry run downloads nothing and must not report a failed download
     local tmp="$BACKUP_ROOT/.panel-dl"; local name="" api raw
     if [ "$TESTING" = 1 ]; then
         if [ -n "${WM_TEST_PANEL_DIR:-}" ]; then name="$(ls "$WM_TEST_PANEL_DIR"/*.zip 2>/dev/null | head -1)"; [ -n "$name" ] && PANEL_ZIP="$name" && PANEL_FROM="the panel repository (test)" && return 0; fi
@@ -3132,7 +3133,7 @@ do_update() {
     if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_files; step_pidcfg; step_wm_modules; step_wifi; step_logs; step_blackbox; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
-        local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
+        local sha=""; panel_get && [ -n "$PANEL_ZIP" ] && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
         if [ -n "$sha" ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; else print_success "Fluidd panel is already the latest"; fi
     fi
     progress_bar 55 100 "Update step 6 of $UT: touchscreen and add-ons"

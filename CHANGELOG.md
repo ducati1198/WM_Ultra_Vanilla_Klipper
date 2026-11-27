@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.36.1
+
+- **Dry run no longer reports a failed panel download.** `./installer.sh --dry-run` (menu 8) printed "The Fluidd panel could not be downloaded" and a warning that the web page was not installed, because it skips the download but still treated the missing download as a failure. It now says it would download the newest panel.
+
 ## 2.36.0
 
 - **Clean reinstall: `./installer.sh --clean-reinstall`** (also in the menu: Check and fix, item 7). It puts the WonderMaker files back exactly to this version: `macros.cfg`, `change_macros.cfg`, `offset_calibrate.cfg`, `extruder0-3.cfg`, `hub.cfg` and the `rpi_*.cfg` files. A full backup is made first; every file where you had edits is saved in `backup/` and listed at the end. Not reset: `printer.cfg`, `saved_variables.cfg` (your calibration), `rpi_pi.cfg`, `moonraker.conf`, `KlipperScreen.conf`, the CAN ids and `wm_my_overrides.cfg`; your own lines in them stay. Then the normal update steps run (restart, automatic return if Klipper does not come back). `--dry-run` only lists what would change and which files have your edits. By hand the question asks twice and defaults to no.

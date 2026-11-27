@@ -463,6 +463,8 @@ inst "$H4" --dry-run --from-stage "$T/stage" > "$T/dry.out"
 check "dry run: nothing unpacked" "[ ! -d $H4/klipper ]"
 check "dry run: says would run" "grep -q 'would run' $T/dry.out"
 check "dry run: no sudo log" "[ ! -s $H4/.sudo.log ]"
+WM_HOME="$H4" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --dry-run --from-stage "$T/stage" > "$T/dry-nopanel.out" 2>&1
+check "dry run without a panel download: the panel step says it would download the panel and does not report a failed download or a missing web page" "grep -q 'would download the newest Fluidd panel' $T/dry-nopanel.out && ! grep -q 'panel could not be downloaded' $T/dry-nopanel.out && ! grep -q 'Fluidd web page was NOT installed' $T/dry-nopanel.out"
 
 check "install: wm_sv_guard.sh copied and executable" "[ -x $H/printer_data/scripts/wm_sv_guard.sh ]"
 check "install: guard timer enabled and started" "grep -q 'systemctl enable wm-sv-guard.timer' $H/.sudo.log && grep -q 'systemctl start wm-sv-guard.timer' $H/.sudo.log"
