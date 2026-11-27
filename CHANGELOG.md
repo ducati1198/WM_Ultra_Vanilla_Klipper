@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.37.2
+
+- **Clearer message.** The update no longer says that Fluidd's Update button for the Fluidd panel applies the update (that entry is gone since 2.37.1). It now says the panel project's own update path is ready and that the one Update entry is `wm_ultra_vanilla_klipper`. No other change.
+
 ## 2.37.1
 
 - **One Update entry.** Fluidd's software update page had two entries, one for this installer and one for the Fluidd panel project. The panel entry only pulled the files: the served Fluidd build was never refreshed (on 2026-11-27 the .35 had panel 1.23.5 but still showed the removed Touchscreen line). The installer now takes `[update_manager wm-ultra-fluidd-acepro-panel]` out of `moonraker.conf` (copy kept, said in the report) and no longer adds it. The update of this installer pulls the panel project and the panel's installer refreshes the served Fluidd by itself when its build is not the build of the release (panel 1.23.6). The Update now button of the Toolheads card is unchanged: it follows the one entry.

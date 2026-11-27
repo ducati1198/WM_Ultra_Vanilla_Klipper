@@ -2119,7 +2119,7 @@ step_panel_updater() {   # Fluidd's Update button for the panel project: Moonrak
     local pth svc; pth="$(mktemp)"; svc="$(mktemp)"
     printf '[Unit]\nDescription=Apply the Fluidd panel (ACE Pro) update after Fluidd downloaded it\n\n[Path]\nPathModified=%s/.git/logs/HEAD\nUnit=wm-panel-update.service\n\n[Install]\nWantedBy=multi-user.target\n' "$pd" > "$pth"
     printf '[Unit]\nDescription=WM Ultra installer: apply a Fluidd panel update that Fluidd downloaded (log: ~/wm-pi-update.log)\n\n[Service]\nType=oneshot\nUser=%s\nEnvironment=HOME=%s\nWorkingDirectory=%s\nExecStart=/bin/bash %s/scripts/pi_update.sh --panel\n' "$user" "$HOME_DIR" "$REPO_DIR" "$REPO_DIR" > "$svc"
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm-panel-update.path and wm-panel-update.service (the Fluidd Update button for the panel applies the new version)${NC}"; rm -f "$pth" "$svc"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install wm-panel-update.path and wm-panel-update.service (only used when the panel project is updated on its own; the one Update entry of this installer does the rest)${NC}"; rm -f "$pth" "$svc"; return 0; fi
     if [ "$TESTING" = 1 ]; then mkdir -p "$HOME_DIR/.wm-units"; cp "$pth" "$HOME_DIR/.wm-units/wm-panel-update.path"; cp "$svc" "$HOME_DIR/.wm-units/wm-panel-update.service"; fi
     if ! cmp -s "$pth" /etc/systemd/system/wm-panel-update.path 2>/dev/null || ! cmp -s "$svc" /etc/systemd/system/wm-panel-update.service 2>/dev/null || [ "$TESTING" = 1 ]; then
         SUDO install -m 644 "$pth" /etc/systemd/system/wm-panel-update.path
@@ -2129,7 +2129,7 @@ step_panel_updater() {   # Fluidd's Update button for the panel project: Moonrak
     fi
     SUDO systemctl enable --now wm-panel-update.path
     rm -f "$pth" "$svc"
-    print_success "Fluidd's Update button for the Fluidd panel now also applies the update (wm-panel-update service; log: ~/wm-pi-update.log)"
+    print_success "The panel project's own update path is ready (wm-panel-update service; only used when that project is pulled on its own; log: ~/wm-pi-update.log). Fluidd's one Update entry is wm_ultra_vanilla_klipper."
 }
 step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
 upd_wants() { [ -z "$ONLY_ADDON" ] || [ "$ONLY_ADDON" = "$1" ]; }   # --update --only-addon NAME runs just that add-on
