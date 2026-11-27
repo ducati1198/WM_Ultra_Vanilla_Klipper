@@ -2039,6 +2039,29 @@ check "light watcher: the doctor checks it and the uninstall removes it" "grep -
 check "first run calibration: no Extruder Setup stage, setter position stage first, no second Save and Restart" "! grep -q '_WM_FIRST_RUN_CAL_REST' $ROOT/rpi-cfg/rpi_calibration.cfg && ! grep -q 'WM_EXTRUDER_SETUP' <(sed -n '/gcode_macro _WM_FIRST_RUN_CAL\]/,/gcode_macro _WM_FIRST_RUN_CAL_DONE/p' $ROOT/rpi-cfg/rpi_calibration.cfg) && ! grep -q 'variable_full' $ROOT/rpi-cfg/rpi_nozzle.cfg"
 check "first run calibration: the macros still render and behave" "python3 $ROOT/tests/rpi_cfg_render.py | tail -3 | grep -q 'macros render'"
 
+sec "== 2.36.0: clean reinstall (WonderMaker files back to this version, machine files stay)"
+mkstage "$T/clrstage"; CR="$T/clrhome"; rm -rf "$CR"; mkdir -p "$CR"
+inst "$CR" --from-stage "$T/clrstage" --screen off >/dev/null; inst "$CR" --my-overrides >/dev/null
+CRC="$CR/printer_data/config"; CRM="$(basename $(ls $ROOT/factory/*/config/macros.cfg | head -n1))"
+for crf in macros.cfg change_macros.cfg rpi_base.cfg rpi_calibration.cfg; do [ -f "$CRC/$crf" ] || cp "$( [ -f $ROOT/rpi-cfg/$crf ] && echo $ROOT/rpi-cfg/$crf || ls $ROOT/factory/*/config/$crf | head -n1 )" "$CRC/$crf"; done
+echo "[gcode_macro MY_OWN_EDIT]" >> "$CRC/macros.cfg"; echo "# my own comment" >> "$CRC/rpi_calibration.cfg"
+echo "my own line" >> "$CRC/wm_my_overrides.cfg"
+for crf in printer.cfg saved_variables.cfg rpi_pi.cfg moonraker.conf KlipperScreen.conf; do [ -f "$CRC/$crf" ] || echo "# machine file $crf" > "$CRC/$crf"; echo "# my machine line" >> "$CRC/$crf"; done
+CRALL0="$(cd $CRC && md5sum *.cfg *.conf | md5sum)"
+OUT="$(inst "$CR" --clean-reinstall --dry-run)"
+check "clean reinstall: --dry-run lists the files that would be put back, says which have your edits, and changes nothing" "echo \"\$OUT\" | grep -q 'would be put back' && echo \"\$OUT\" | grep -q 'Dry run: nothing was changed' && [ \"\$(cd $CRC && md5sum *.cfg *.conf | md5sum)\" = \"$CRALL0\" ]"
+mkdir -p "$T/clrbefore"; for crf in printer.cfg saved_variables.cfg rpi_pi.cfg moonraker.conf KlipperScreen.conf wm_my_overrides.cfg; do cp "$CRC/$crf" "$T/clrbefore/$crf"; done
+OUT="$(inst "$CR" --clean-reinstall --yes)"
+check "clean reinstall: a macro file with your own edit is back to this version, and the copy with your edit is saved in backup/ as name.wm-before-reset-<date>" "! grep -q MY_OWN_EDIT $CRC/macros.cfg && ls $CRC/backup/macros.cfg.wm-before-reset-* >/dev/null && grep -q MY_OWN_EDIT \$(ls $CRC/backup/macros.cfg.wm-before-reset-* | head -n1)"
+check "clean reinstall: an rpi_*.cfg file with your own edit is back to the version of the repository" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $CRC/rpi_calibration.cfg && ls $CRC/backup/rpi_calibration.cfg.wm-before-reset-* >/dev/null"
+check "clean reinstall: printer.cfg, saved_variables.cfg, moonraker.conf and KlipperScreen.conf keep your own lines (the normal update steps only add what is missing), and wm_my_overrides.cfg is byte for byte the same" "for crf in printer.cfg saved_variables.cfg moonraker.conf KlipperScreen.conf; do grep -q my machine line $CRC/\$crf || exit 1; done; cmp $T/clrbefore/wm_my_overrides.cfg $CRC/wm_my_overrides.cfg && grep -q my own line $CRC/wm_my_overrides.cfg && ! ls $CRC/backup/wm_my_overrides.cfg.wm-before-reset-* 2>/dev/null"
+check "clean reinstall: it ends by saying how many files were put back, how many had your edits, and what was kept" "echo \"\$OUT\" | grep -q 'Clean reinstall: [0-9]* put back' && echo \"\$OUT\" | grep -q 'Not reset (your own lines stay): printer.cfg'"
+OUT="$(inst "$CR" --clean-reinstall --yes)"
+check "clean reinstall: a second run has nothing to put back" "echo \"\$OUT\" | grep -q 'Clean reinstall: 0 put back'"
+check "clean reinstall: by hand the question defaults to no and nothing changes" "echo 'x' >> $CRC/change_macros.cfg; CRS1=\$(md5sum < $CRC/change_macros.cfg); echo | env \"WM_\"\"HOME=$CR\" WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --clean-reinstall >/dev/null 2>&1; [ \"\$(md5sum < $CRC/change_macros.cfg)\" = \"\$CRS1\" ]"
+check "clean reinstall: it is in the menu under Check and fix and in the header of installer.sh" "grep -q 'menu_item 7 \"Clean reinstall\"' $ROOT/installer.sh && grep -q 'menu_run --clean-reinstall' $ROOT/installer.sh && grep -q '^# ./installer.sh --clean-reinstall' $ROOT/installer.sh"
+check "clean reinstall: wm_filemerge.py --reset puts the new version in place, saves your copy, records the baseline, and does nothing when the file is already the new version" "CRRS=\$(mktemp -d); { echo a; echo b; } > \$CRRS/new.cfg; { echo a; echo MINE; } > \$CRRS/live.cfg; mkdir \$CRRS/base; cp \$CRRS/new.cfg \$CRRS/base/new.cfg; python3 -I $ROOT/scripts/wm_filemerge.py \$CRRS/live.cfg \$CRRS/new.cfg \$CRRS/base --name new.cfg --write --stamp T --reset | grep -q 'had your edits'; cmp \$CRRS/live.cfg \$CRRS/new.cfg && grep -q MINE \$CRRS/backup/live.cfg.wm-before-reset-T && python3 -I $ROOT/scripts/wm_filemerge.py \$CRRS/live.cfg \$CRRS/new.cfg \$CRRS/base --name new.cfg --write --stamp T2 --reset | grep -q 'already the new version'"
+
 repo_guard
 if [ "$(real_sum)" = "$REAL_SUM0" ]; then PASS=$((PASS+1)); echo "  ok   the real home of this machine was not touched (Klipper's driver links, config file list, moonraker.conf)"
 else FAIL=$((FAIL+1)); echo "  FAIL the real home of this machine changed during the run (Klipper's driver links, config file list or moonraker.conf): a test did not use its fake home, or the printer was used during the run"; find "$REAL_HOME/klipper/klippy/extras" -maxdepth 1 -type l -printf '        | %f -> %l\n' 2>/dev/null; fi

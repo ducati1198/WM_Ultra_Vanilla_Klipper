@@ -17,6 +17,7 @@
 # ./installer.sh --extruder-setup        Extruder Setup: picks up T0-T3 and puts the tool head CAN ids in dock order (required after the ids were found by firmware name)
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --my-overrides        create wm_my_overrides.cfg (the file for your own changes, read last, never changed by an update) and include it above the SAVE_CONFIG block
+# ./installer.sh --clean-reinstall   put WonderMaker's macro files and rpi_*.cfg files back to this version (your edits are saved in backup/); printer.cfg, saved_variables.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, CAN ids and wm_my_overrides.cfg are not reset (add --dry-run to only list)
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
 # ./installer.sh --logs                the troubleshooting logs (wm-events.log, wm-config-check.log, wm-ace.log, wm-system.log, wm-blackbox.log in Fluidd > Configuration > Other Files) and the black box that records the Pi every 10 s. Also done in every install and update; the doctor checks them; --support-bundle includes them
@@ -227,6 +228,7 @@ while [ $# -gt 0 ]; do
         --extruder-setup) MODE=extsetup ;;   # Extruder Setup (pick up T0-T3, put the tool head ids in dock order); forced after the ids were found by firmware name
         --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
         --import-settings) MODE=importset; IMPORT_HOST="${2:-}"; [ $# -gt 1 ] && shift ;;
+        --clean-reinstall) MODE=cleanreinstall ;;   # 2.36.0: WonderMaker's own config files back to this version, machine files and wm_my_overrides.cfg stay
         --my-overrides) MODE=myoverrides ;;   # 2.35.0: create wm_my_overrides.cfg and include it last
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --pi-sensors)   MODE=pisensors ;;
@@ -670,10 +672,12 @@ if names:
 }
 filemerge_py() { echo "$SCRIPT_DIR/scripts/wm_filemerge.py"; }
 filemerge_one() {   # LIVE NEW REPO-PATH: bring WonderMaker's changes in one config file into the Pi file with a 3-way merge (baseline: ~/printer_data/wm-baseline). Your own edits stay.
-    local live="$1" new="$2" rel="$3" out rc
+    local live="$1" new="$2" rel="$3" out rc rs=""
     [ -f "$(filemerge_py)" ] || { cp "$new" "$live"; return $?; }
-    out="$(python3 -I "$(filemerge_py)" "$live" "$new" "$(cfgmerge_base_dir)" --name "$(basename "$new")" --git-repo "$SCRIPT_DIR" --git-path "$rel" --write --stamp "$STAMP" 2>&1)"; rc=$?
+    [ "${CLEAN_RESET:-0}" = 1 ] && rs="--reset"   # clean reinstall: no merge, the file becomes this version
+    out="$(python3 -I "$(filemerge_py)" "$live" "$new" "$(cfgmerge_base_dir)" --name "$(basename "$new")" --git-repo "$SCRIPT_DIR" --git-path "$rel" --write --stamp "$STAMP" $rs 2>&1)"; rc=$?
     [ -n "$out" ] && echo "$out" | sed 's/^/        /'
+    [ -z "$rs" ] || case "$out" in *"had your edits"*) CLEAN_N_EDITED=$((${CLEAN_N_EDITED:-0}+1)); CLEAN_N_RESET=$((${CLEAN_N_RESET:-0}+1)) ;; *"reset to WonderMaker"*) CLEAN_N_RESET=$((${CLEAN_N_RESET:-0}+1)) ;; esac
     case "$rc" in
         0|10) return 0 ;;
         11)   warn_later "$(basename "$new"): some of your own lines were kept where WonderMaker changed the same lines, or no starting point was found (listed in the update output). Copy of the old file: backup/$(basename "$live").wm-before-merge-$STAMP"; return 0 ;;
@@ -748,6 +752,7 @@ step_cfgmerge() {   # WonderMaker's new settings (a new version of the factory f
     why "When this repository gets a newer WonderMaker version, its printer.cfg may have new settings. This compares three files: the factory printer.cfg the Pi was set up from, the new one, and yours. WonderMaker's changes are added; your own lines, includes, sections and the SAVE_CONFIG block (PID, input shaper, bed mesh) stay. A setting that you and WonderMaker changed differently is asked one by one."
     local cd="$HOME_DIR/printer_data/config" live="$HOME_DIR/printer_data/config/printer.cfg" b n code out
     b="$(cfgmerge_base_dir)"; n="$(cfgmerge_new_dir)"
+    if [ "${CLEAN_RESET:-0}" = 1 ]; then print_info "printer.cfg is a machine file: a clean reinstall does not touch it."; return 0; fi
     if [ "$DRY" = 1 ] || [ ! -f "$live" ]; then echo -e "  ${DIM}would compare WonderMaker's factory printer.cfg in this repository with the one the Pi was set up from, and merge the difference into printer.cfg${NC}"; return 0; fi
     [ -f "$(cfgmerge_py)" ] && [ -f "$n/printer.cfg" ] || { print_info "no factory printer.cfg for the $(model_now) in this repository: nothing to compare"; return 0; }
     if [ ! -f "$b/printer.cfg" ]; then
@@ -3066,6 +3071,41 @@ auto_rollback() {   # 2.34.0: Klipper was ready before the update and did not co
         warn_later "Your settings were put back but Klipper is still '${WAIT_ST:-not answering}'. Look at the message in Fluidd, or: ./installer.sh --doctor"
     fi
 }
+clean_files_list() {   # the files a clean reinstall puts back: WonderMaker's macro files and the Pi's rpi_*.cfg files (not the panel's ACE files: the panel's own installer owns them)
+    echo "$(macro_files_list) $(rpicfg_list)"
+}
+do_clean_reinstall() {   # ./installer.sh --clean-reinstall [--dry-run]
+    print_header "Clean reinstall"
+    load_answers || die_with_fix "nothing is installed by this installer yet, so there is nothing to put back ($CONF is missing)." "run ./installer.sh and choose 1 (Install or reinstall)."
+    guard_not_printing
+    local cd="$HOME_DIR/printer_data/config" nf="$SCRIPT_DIR/factory/$(model_now)/config" f src n=0 e=0 base
+    base="$(cfgmerge_base_dir)"
+    echo "A clean reinstall puts WonderMaker's own files back to the version of this installer, exactly. Use it when your macro files have gotten messy."
+    echo "  Put back: $(macro_files_list | sed 's/ /, /g'), $(rpicfg_list | sed 's/ /, /g')"
+    echo "  Not reset: printer.cfg, saved_variables.cfg (your calibration), rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, the CAN ids and wm_my_overrides.cfg (your own changes file). Your own lines in them stay; the normal update steps only add what is missing there (an include line, a Moonraker section)."
+    echo "  Your edits in the put-back files are saved in ~/printer_data/config/backup (name.wm-before-reset-<date>), and a full backup is made first."
+    echo "  Then the normal update steps run (packages, services, panel, add-ons), Klipper restarts, and if it does not come back your settings are put back by themselves."
+    echo; echo "What would be put back now:"
+    for f in $(clean_files_list); do
+        case " $(macro_files_list) " in *" $f "*) src="$nf/$f" ;; *) src="$SCRIPT_DIR/rpi-cfg/$f" ;; esac
+        [ -f "$src" ] || continue
+        if [ ! -f "$cd/$f" ]; then echo "  $f: not on this Pi, it would be added"; n=$((n+1))
+        elif cmp -s "$cd/$f" "$src"; then echo "  $f: already this version"
+        elif [ -f "$base/$f" ] && ! cmp -s "$cd/$f" "$base/$f"; then echo "  $f: has your edits, would be put back (copy saved)"; n=$((n+1)); e=$((e+1))
+        else echo "  $f: differs, would be put back (copy saved)"; n=$((n+1)); fi
+    done
+    echo "  $n would change, $e of them with your edits."
+    [ "$DRY" = 1 ] && { print_info "Dry run: nothing was changed."; return 0; }
+    if [ "${WM_ASSUME_YES:-0}" != 1 ]; then   # --yes already said yes; by hand the default is no
+        ask_yn "Put WonderMaker's files back to this version? Your edits stay only in the backup folder." n || { echo "Nothing was changed."; return 0; }
+    fi
+    CLEAN_RESET=1; CLEAN_N_RESET=0; CLEAN_N_EDITED=0
+    do_update
+    local rc=$?
+    CLEAN_RESET=0
+    echo; print_success "Clean reinstall: ${CLEAN_N_RESET:-0} put back to WonderMaker's version, ${CLEAN_N_EDITED:-0} of them had your edits (copies in ~/printer_data/config/backup, name.wm-before-reset-*). Not reset (your own lines stay): printer.cfg, saved_variables.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, CAN ids, wm_my_overrides.cfg."
+    return $rc
+}
 do_update() {
     print_header "Update"
     load_answers || die_with_fix "nothing is installed by this installer yet, so there is nothing to update ($CONF is missing)." "run ./installer.sh and choose 1 (Install or reinstall). To get the newest installer files only: ./installer.sh --get-latest"
@@ -4380,9 +4420,10 @@ menu_fix() {
         menu_item 4 "Quick check" "Report problems, change nothing"
         menu_item 5 "Status" "One page: services, Klipper, Pi health, CAN ids, add-ons, newest backup"
         menu_item 6 "Fix everything" "Doctor, then applies every safe fix after one question"
+        menu_item 7 "Clean reinstall" "Puts WonderMaker's macro and rpi_*.cfg files back to this version. Your calibration and own-changes file stay (asks twice)"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
-        case "$REPLY_MENU" in 1) menu_run --doctor ;; 2) menu_run --repair ;; 3) menu_run --hw-test ;; 4) menu_run --check ;; 5) menu_run --status ;; 6) menu_run --doctor --fix-all ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+        case "$REPLY_MENU" in 7) menu_run --clean-reinstall ;; 1) menu_run --doctor ;; 2) menu_run --repair ;; 3) menu_run --hw-test ;; 4) menu_run --check ;; 5) menu_run --status ;; 6) menu_run --doctor --fix-all ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
     done
 }
 
@@ -4638,6 +4679,7 @@ case "$MODE" in
     rpicfg)     do_rpicfg; exit $? ;;
     light)      do_light; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     webcamsetup) do_webcam_setup; exit $? ;;
+    cleanreinstall) do_clean_reinstall; exit $? ;;
     myoverrides) step_my_overrides; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     pidcfg)     do_pidcfg; exit $? ;;
     importset)  do_import_settings; exit $? ;;

@@ -52,7 +52,7 @@ def analyze(head, secs):
         allfn = set(x for s2 in defs.values() for x in s2)
         for fn in allfn:
             if fn in names: continue
-            if re.search(r'(?<![\w./$-])' + re.escape(fn) + r'(?![\w-])', t) and fn not in head_defs and fn not in defs[n]: names.add(fn)
+            if re.search(r'(?<![\w./$-])' + re.escape(fn) + r'(?![\w=-])', t) and fn not in head_defs and fn not in defs[n]: names.add(fn)
         for v in names:
             if v in head_defs or v in defs[n]: continue
             earlier = [m for m in defs if m < n and v in defs[m]]
