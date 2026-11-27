@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.37.1
+
+- **One Update entry.** Fluidd's software update page had two entries, one for this installer and one for the Fluidd panel project. The panel entry only pulled the files: the served Fluidd build was never refreshed (on 2026-11-27 the .35 had panel 1.23.5 but still showed the removed Touchscreen line). The installer now takes `[update_manager wm-ultra-fluidd-acepro-panel]` out of `moonraker.conf` (copy kept, said in the report) and no longer adds it. The update of this installer pulls the panel project and the panel's installer refreshes the served Fluidd by itself when its build is not the build of the release (panel 1.23.6). The Update now button of the Toolheads card is unchanged: it follows the one entry.
+- A panel change now needs a new release number in both repositories (it reaches the Update entry of this installer).
+
 ## 2.37.0
 
 - **Machine files: add what is missing, fix known bugs, remove old lines.** A new step (`step_machine_fixes`, list `scripts/wm_machine_fixes.json`, module `scripts/wm_machine_fixes.py`) works on `printer.cfg`, `rpi_pi.cfg`, `moonraker.conf`, `KlipperScreen.conf` and `saved_variables.cfg` in every update, in the clean reinstall and through the Fluidd Update button. It adds a missing section or key, fixes a line that has a bug even if you edited it, and removes an old line, with a copy in `printer_data/config/backup` first and a report with the reason for each change. Everything else in those files stays. Each entry is applied once per machine. New command `./installer.sh --machine-files` (with `--dry-run`).

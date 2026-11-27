@@ -2060,10 +2060,10 @@ migrate_installer_folder() {   # the installer folder used to be ~/WM_Ultra_Vani
 installer_update_block() {   # the [update_manager] section of this installer: the Update button downloads it, wm-pi-update.path applies it
     printf '[update_manager wm_ultra_vanilla_klipper]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/WM_Ultra_Vanilla_Klipper.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=WonderMaker Ultra vanilla Klipper Pi installer. The Update button downloads the new installer and applies it (like ./installer.sh --update, log: ~/wm-pi-update.log)\n' "$REPO_DIR"
 }
-moonraker_add_update_entries() {   # [update_manager ...] for this installer's repo and the ACE Pro panel repo, so Fluidd shows when GitHub has a newer version
-    local conf="$HOME_DIR/printer_data/config/moonraker.conf" added=""
+moonraker_add_update_entries() {   # [update_manager ...] for this installer's repo (the only Update entry; 2.37.1 takes the panel repo's entry out), so Fluidd shows when GitHub has a newer version
+    local conf="$HOME_DIR/printer_data/config/moonraker.conf" added="" removed=""
     [ -f "$conf" ] || return 0
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [update_manager wm_ultra_vanilla_klipper] (and the ACE Pro panel) to moonraker.conf so Fluidd shows new versions${NC}"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [update_manager wm_ultra_vanilla_klipper] to moonraker.conf (it updates the Pi, the screen board and the Fluidd panel) and take out the separate entry of the Fluidd panel project${NC}"; return 0; fi
     if [ -d "$REPO_DIR/.git" ]; then
         local want have; want="$(installer_update_block)"
         have="$(python3 - "$conf" <<'PY'
@@ -2083,12 +2083,14 @@ PY
             MOONRAKER_CHANGED=1
         fi
     fi
-    if [ "$WANT_ACEPRO" = 1 ] && [ -d "$(ace_dir)/.git" ] && ! grep -qiE '^\[update_manager +wm-ultra-fluidd-acepro-panel\]' "$conf"; then
-        [ -e "$conf.wm-before-updatemgr-$STAMP" ] || cp "$conf" "$conf.wm-before-updatemgr-$STAMP"
-        printf '\n[update_manager wm-ultra-fluidd-acepro-panel]\ntype: git_repo\npath: %s\norigin: %s.git\nprimary_branch: main\nis_system_service: False\nmanaged_services: klipper\ninfo_tags:\n  desc=Anycubic ACE Pro driver and Fluidd panel (the Update button downloads it and the Pi applies it: backup, install, Klipper restart; log: ~/wm-pi-update.log)\n' "$(ace_dir)" "$ACE_REPO_URL" >> "$conf"
-        added="${added:+$added, }wm-ultra-fluidd-acepro-panel"
+    # 2.37.1: ONE update entry. This installer's update also pulls the Fluidd panel project (step_acepro) and refreshes the served Fluidd
+    # when it is not the build of the release, so the separate Fluidd entry of the panel project is taken out (a copy of moonraker.conf is kept).
+    if grep -qiE '^\[update_manager +wm-ultra-fluidd-acepro-panel\]' "$conf"; then
+        moonraker_drop_update_section wm-ultra-fluidd-acepro-panel >/dev/null
+        MOONRAKER_CHANGED=1; removed="wm-ultra-fluidd-acepro-panel"
     fi
-    [ -z "$added" ] || print_info "Added to moonraker.conf: [update_manager $added]. Fluidd now shows when GitHub has a newer version. Its Update button downloads the files; for this installer they are applied by the wm-pi-update service (like ./installer.sh --update), for the ACE Pro panel run ./installer.sh --update afterwards."
+    [ -z "$added" ] || print_info "Added to moonraker.conf: [update_manager $added]. Fluidd now shows when GitHub has a newer version. Its Update button downloads the files; they are applied by the wm-pi-update service (like ./installer.sh --update): the Pi, the screen board and the Fluidd panel."
+    [ -z "$removed" ] || print_info "Taken out of moonraker.conf: [update_manager $removed] (a copy is in the config folder). There is one Update entry now: it updates the Pi, the screen board and the Fluidd panel (the ACE Pro project folder is pulled by the same update)."
 }
 
 step_pi_updater() {   # Fluidd's Update button for this installer: Moonraker only does "git pull"; wm-pi-update.path sees the new commit and wm-pi-update.service runs scripts/pi_update.sh (installer --update --yes)
