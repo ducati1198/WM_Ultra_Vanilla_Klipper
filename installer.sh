@@ -16,8 +16,8 @@
 # ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
 # ./installer.sh --extruder-setup        Extruder Setup: picks up T0-T3 and puts the tool head CAN ids in dock order (required after the ids were found by firmware name)
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
-# ./installer.sh --my-overrides        create wm_my_overrides.cfg (the file for your own changes, read last, never changed by an update) and include it above the SAVE_CONFIG block
-# ./installer.sh --clean-reinstall   put WonderMaker's macro files and rpi_*.cfg files back to this version (your edits are saved in backup/); printer.cfg, saved_variables.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, CAN ids and wm_my_overrides.cfg are not reset (add --dry-run to only list)
+# ./installer.sh --machine-files        add what is missing, fix known bugs and remove old lines in printer.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf and saved_variables.cfg (copy first, list afterwards; calibration values are never changed); also removes an empty wm_my_overrides.cfg (add --dry-run to only list)
+# ./installer.sh --clean-reinstall   put WonderMaker's macro files and rpi_*.cfg files back to this version (your edits are saved in backup/); printer.cfg, saved_variables.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf and CAN ids are not reset; the machine-file step only adds what is missing and fixes known bugs, with a copy first (add --dry-run to only list)
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
 # ./installer.sh --logs                the troubleshooting logs (wm-events.log, wm-config-check.log, wm-ace.log, wm-system.log, wm-blackbox.log in Fluidd > Configuration > Other Files) and the black box that records the Pi every 10 s. Also done in every install and update; the doctor checks them; --support-bundle includes them
@@ -228,8 +228,8 @@ while [ $# -gt 0 ]; do
         --extruder-setup) MODE=extsetup ;;   # Extruder Setup (pick up T0-T3, put the tool head ids in dock order); forced after the ids were found by firmware name
         --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
         --import-settings) MODE=importset; IMPORT_HOST="${2:-}"; [ $# -gt 1 ] && shift ;;
-        --clean-reinstall) MODE=cleanreinstall ;;   # 2.36.0: WonderMaker's own config files back to this version, machine files and wm_my_overrides.cfg stay
-        --my-overrides) MODE=myoverrides ;;   # 2.35.0: create wm_my_overrides.cfg and include it last
+        --machine-files) MODE=machinefiles ;;   # 2.37.0
+        --clean-reinstall) MODE=cleanreinstall ;;   # 2.36.0: WonderMaker's own config files back to this version, machine files stay (2.37.0: the machine-file step adds what is missing and fixes known bugs)
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --pi-sensors)   MODE=pisensors ;;
         --logs)         MODE=logs ;;         # troubleshooting logs + black box
@@ -1053,57 +1053,53 @@ pisens_mcutemps_content() {
     done < <(pisens_mcu_names | sed 's/^mcu$//')
     [ "$any" = 1 ]
 }
-step_my_overrides() {   # 2.35.0: wm_my_overrides.cfg = the one file for YOUR changes to WonderMaker's macros and settings; included last (just above SAVE_CONFIG), created empty, never changed by an update
-    why "Updates bring WonderMaker's newest macro files and keep your edits with a 3-way merge. If you want your own changes to survive every update without any merge, put them in wm_my_overrides.cfg (same section name, only the lines you change). It is read last, so it wins over WonderMaker's file. The installer creates it with only comments, puts its include line just above the SAVE_CONFIG block, and never changes its content."
-    local d="$HOME_DIR/printer_data/config" f="$HOME_DIR/printer_data/config/wm_my_overrides.cfg" cfg="$HOME_DIR/printer_data/config/printer.cfg"
-    [ -f "$cfg" ] || return 0
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would create wm_my_overrides.cfg (only comments) if it is missing and keep its include line last, above SAVE_CONFIG${NC}"; return 0; fi
-    if [ ! -f "$f" ]; then
-        cat > "$f" <<'OVR'
-# wm_my_overrides.cfg - YOUR changes to WonderMaker's settings and macros.
-#
-# How it works: this file is read LAST (its include line sits just above the SAVE_CONFIG block of printer.cfg),
-# so a section written here wins over the same section in WonderMaker's files. Write the section name and only
-# the lines you want to change. An update never changes this file and never needs to merge it.
-#
-# Example (remove the # in front of the three lines to use it):
-#   [gcode_macro SOME_WONDERMAKER_MACRO]
-#   variable_something: 5
-#
-# A gcode: block is replaced as a whole: copy the whole macro here if you change its gcode.
-# Do not put here a value that Klipper saves itself with SAVE_CONFIG (PID, probe z_offset, input shaper, bed mesh,
-# rotation_distance ...): Klipper would refuse to save it. Do not write under the SAVE_CONFIG block of printer.cfg either.
-OVR
-        record "FILE $f"; print_success "Created wm_my_overrides.cfg (only comments): your own changes go there and survive every update"
-    fi
-    cp -p "$cfg" "$cfg.wm-before-overrides-$STAMP" 2>/dev/null
-    local r; r="$(python3 - "$cfg" <<'PYEOF'
-import sys,re
-p=sys.argv[1]; t=open(p).read().split("\n"); inc="[include wm_my_overrides.cfg]"
-pat=re.compile(r"^\s*\[include\s+wm_my_overrides\.cfg\s*\]\s*$")
-si=next((k for k,l in enumerate(t) if re.match(r"^#\*# <-* SAVE_CONFIG",l)),None)
-end=si if si is not None else len(t)
-idx=[k for k,l in enumerate(t) if pat.match(l)]
-tail_ok=False
-if len(idx)==1 and idx[0]<end and all(l.strip()=="" for l in t[idx[0]+1:end]): tail_ok=True
-if tail_ok: print("ok"); sys.exit(0)
-t=[l for l in t if not pat.match(l)]
-si=next((k for k,l in enumerate(t) if re.match(r"^#\*# <-* SAVE_CONFIG",l)),None)
-if si is None:
-    while t and t[-1].strip()=="": t.pop()
-    t+=["",inc,""]
-else:
-    j=si
-    while j>0 and t[j-1].strip()=="": j-=1
-    t[j:si]=["",inc,""]
-open(p,"w").write("\n".join(t)); print("moved")
-PYEOF
-)"
-    case "$r" in
-        moved) print_success "wm_my_overrides.cfg is included last (above the SAVE_CONFIG block)" ;;
-        ok) rm -f "$cfg.wm-before-overrides-$STAMP" ;;
-        *) warn_later "Could not put the include line of wm_my_overrides.cfg into printer.cfg" ;;
+machine_fixes_py() { echo "$SCRIPT_DIR/scripts/wm_machine_fixes.py"; }
+sv_replace_ask() {   # saved_variables.cfg is missing, empty or damaged: tell the user and ask before anything is replaced (default: no)
+    local cd="$HOME_DIR/printer_data/config" f good src="" what=""
+    f="$cd/saved_variables.cfg"; good="$f.wm-good"
+    if [ "$DRY" = 1 ]; then print_warning "saved_variables.cfg is missing or damaged: a real update would ask whether to replace it"; return 0; fi
+    if [ -s "$good" ] && grep -qi '^\[Variables\]' "$good"; then src="$good"; what="the last good copy (kept by the safeguard)"
+    elif [ -f "$SCRIPT_DIR/factory/$(model_now)/config/saved_variables.cfg" ]; then src="$SCRIPT_DIR/factory/$(model_now)/config/saved_variables.cfg"; what="the factory file (it has NO calibration: tool offsets start from zero)"; fi
+    [ -n "$src" ] || { warn_later "saved_variables.cfg is missing or damaged and there is no copy to put back."; return 0; }
+    print_warning "saved_variables.cfg is missing or damaged. Your calibration lives in it."
+    if ask_yn "Replace it with $what?" n; then
+        mkdir -p "$cd/backup"; [ -f "$f" ] && cp -p "$f" "$cd/backup/saved_variables.cfg.wm-before-replace-$STAMP"
+        cp -p "$src" "$f" && print_success "saved_variables.cfg replaced with $what"
+    else warn_later "saved_variables.cfg is missing or damaged and was NOT replaced (your answer)."; fi
+}
+step_machine_fixes() {   # 2.37.0: new sections, fixed lines and removed old lines in the machine files (printer.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, saved_variables.cfg); list: scripts/wm_machine_fixes.json
+    print_header "Fixes and new sections in the machine files"
+    why "A new version can need a new section or a fixed line in a file that belongs to this machine (printer.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, saved_variables.cfg). This adds what is missing, fixes a line that has a bug and removes an old one, with a copy first (printer_data/config/backup) and a list of what changed. Everything else stays as it is. The calibration values in saved_variables.cfg and the SAVE_CONFIG block are never changed."
+    local cd="$HOME_DIR/printer_data/config" rec="$HOME_DIR/printer_data/wm-baseline/machine-fixes.applied.json" out rc w="--write" lst="$SCRIPT_DIR/scripts/wm_machine_fixes.json"
+    [ "$TESTING" = 1 ] && [ -n "${WM_MACHINE_FIXES_LIST:-}" ] && lst="$WM_MACHINE_FIXES_LIST"
+    [ -f "$(machine_fixes_py)" ] && [ -f "$lst" ] && [ -f "$cd/printer.cfg" ] || { print_info "nothing to compare"; return 0; }
+    [ "$DRY" = 1 ] && w=""
+    out="$(python3 -I "$(machine_fixes_py)" "$cd" --list "$lst" --record "$rec" --backup-dir "$cd/backup" --stamp "$STAMP" $w 2>&1)"; rc=$?
+    [ -n "$out" ] && echo "$out" | sed 's/^/        /'
+    case "$rc" in
+        0)  print_success "the machine files already have every fix and new section of this version" ;;
+        10) if [ "$DRY" = 1 ]; then print_info "would change the lines above (copies go to backup/ first)"; else print_success "machine files updated (copies: backup/<file>.wm-before-machine-fixes-$STAMP)"; fi ;;
+        11) warn_later "Some changes in the machine files were skipped or refused (listed in the update output)." ;;
+        12) sv_replace_ask ;;
+        *)  print_warning "could not check the machine files" ;;
     esac
+}
+step_overrides_retire() {   # 2.37.0: wm_my_overrides.cfg (2.35.0) is gone: an empty file and its include line are removed, a file with your own lines stays
+    local d="$HOME_DIR/printer_data/config" f="$HOME_DIR/printer_data/config/wm_my_overrides.cfg" cfg="$HOME_DIR/printer_data/config/printer.cfg" has_inc=0 user_lines=0
+    [ -f "$cfg" ] || return 0
+    grep -qE '^[[:space:]]*\[include[[:space:]]+wm_my_overrides\.cfg[[:space:]]*\]' "$cfg" && has_inc=1
+    [ -f "$f" ] || [ "$has_inc" = 1 ] || return 0
+    [ -f "$f" ] && user_lines="$(grep -cvE '^[[:space:]]*(#|$)' "$f")"
+    print_header "wm_my_overrides.cfg is gone"
+    why "WonderMaker no longer creates or manages wm_my_overrides.cfg (2.35.0): your edits in the macro files survive an update through the 3-way merge. A file that only holds the comment header is removed with its include line; a file with your own lines stays."
+    if [ "$user_lines" -gt 0 ]; then print_info "wm_my_overrides.cfg has your own lines, so it stays: it is your own file now (its include line in printer.cfg stays)."; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would remove wm_my_overrides.cfg (only comments) and its include line from printer.cfg, with copies in backup/${NC}"; return 0; fi
+    mkdir -p "$d/backup"
+    [ -f "$f" ] && cp -p "$f" "$d/backup/wm_my_overrides.cfg.wm-before-removal-$STAMP"
+    cp -p "$cfg" "$d/backup/printer.cfg.wm-before-overrides-removal-$STAMP"
+    sed -i -E '/^[[:space:]]*\[include[[:space:]]+wm_my_overrides\.cfg[[:space:]]*\][[:space:]]*$/d' "$cfg"
+    rm -f "$f"
+    print_success "wm_my_overrides.cfg was removed (it only held comments); copies are in backup/"
 }
 cfg_include_last() {   # file : add [include file] to printer.cfg after the other includes, just above the SAVE_CONFIG block (a later section may use the boards defined by earlier includes)
     local cfg="$HOME_DIR/printer_data/config/printer.cfg"
@@ -3082,7 +3078,7 @@ do_clean_reinstall() {   # ./installer.sh --clean-reinstall [--dry-run]
     base="$(cfgmerge_base_dir)"
     echo "A clean reinstall puts WonderMaker's own files back to the version of this installer, exactly. Use it when your macro files have gotten messy."
     echo "  Put back: $(macro_files_list | sed 's/ /, /g'), $(rpicfg_list | sed 's/ /, /g')"
-    echo "  Not reset: printer.cfg, saved_variables.cfg (your calibration), rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, the CAN ids and wm_my_overrides.cfg (your own changes file). Your own lines in them stay; the normal update steps only add what is missing there (an include line, a Moonraker section)."
+    echo "  Not reset: printer.cfg, saved_variables.cfg (your calibration), rpi_pi.cfg, moonraker.conf, KlipperScreen.conf and the CAN ids. Your own lines in them stay; the normal update steps only add what is missing there (an include line, a Moonraker section)."
     echo "  Your edits in the put-back files are saved in ~/printer_data/config/backup (name.wm-before-reset-<date>), and a full backup is made first."
     echo "  Then the normal update steps run (packages, services, panel, add-ons), Klipper restarts, and if it does not come back your settings are put back by themselves."
     echo; echo "What would be put back now:"
@@ -3103,7 +3099,7 @@ do_clean_reinstall() {   # ./installer.sh --clean-reinstall [--dry-run]
     do_update
     local rc=$?
     CLEAN_RESET=0
-    echo; print_success "Clean reinstall: ${CLEAN_N_RESET:-0} put back to WonderMaker's version, ${CLEAN_N_EDITED:-0} of them had your edits (copies in ~/printer_data/config/backup, name.wm-before-reset-*). Not reset (your own lines stay): printer.cfg, saved_variables.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, CAN ids, wm_my_overrides.cfg."
+    echo; print_success "Clean reinstall: ${CLEAN_N_RESET:-0} put back to WonderMaker's version, ${CLEAN_N_EDITED:-0} of them had your edits (copies in ~/printer_data/config/backup, name.wm-before-reset-*). Not reset (your own lines stay): printer.cfg, saved_variables.cfg, rpi_pi.cfg, moonraker.conf, KlipperScreen.conf, CAN ids."
     return $rc
 }
 do_update() {
@@ -3130,7 +3126,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_macro_files; step_pidcfg; step_wm_modules; step_wifi; step_logs; step_blackbox; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_light; step_moonraker_tune; step_cfgmerge; step_machine_fixes; step_macro_files; step_pidcfg; step_wm_modules; step_wifi; step_logs; step_blackbox; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && [ -n "$PANEL_ZIP" ] && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -3160,7 +3156,7 @@ do_update() {
     step_panel_updater
     save_answers
     step_cfgindex
-    [ -n "$ONLY_ADDON" ] || step_my_overrides   # before the config check and the Klipper restart of this update
+    [ -n "$ONLY_ADDON" ] || step_overrides_retire   # before the config check and the Klipper restart of this update
     [ -n "$ONLY_ADDON" ] || step_ultrabackup   # last, after the panel and the add-ons: they write backups of their own (acepro-backup, fluidd_backup_*), and those are swept too
     protect_verify
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
@@ -3825,8 +3821,6 @@ do_doctor() {
             doc_bad "printer.cfg has an [include] under the SAVE_CONFIG block: $(cfg_below_save_list | tr '\n' ' ')" "Klipper rewrites everything under that line when it saves, so the include is lost or the file breaks."
             offer_fix "move the include above the SAVE_CONFIG block" cfg_below_save_fix
         else doc_ok "no [include] sits under the SAVE_CONFIG block"; fi
-        if [ -f "$HOME_DIR/printer_data/config/wm_my_overrides.cfg" ] && grep -qE "^[[:space:]]*\[include[[:space:]]+wm_my_overrides\.cfg[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg"; then doc_ok "wm_my_overrides.cfg exists and is included"
-        else doc_bad "wm_my_overrides.cfg (the file for your own changes) is missing or not included" "./installer.sh --update creates it; it only holds comments until you write in it."; offer_fix "create wm_my_overrides.cfg and include it last" step_my_overrides; fi
     fi
     ntp_ok && doc_ok "clock is synchronized" || doc_bad "clock is not synchronized" "HTTPS downloads and file times go wrong. Check the network."
     progress_bar 5 5 "Doctor finished"
@@ -4679,8 +4673,8 @@ case "$MODE" in
     rpicfg)     do_rpicfg; exit $? ;;
     light)      do_light; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     webcamsetup) do_webcam_setup; exit $? ;;
+    machinefiles) guard_not_printing; step_overrides_retire; step_machine_fixes; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     cleanreinstall) do_clean_reinstall; exit $? ;;
-    myoverrides) step_my_overrides; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     pidcfg)     do_pidcfg; exit $? ;;
     importset)  do_import_settings; exit $? ;;
     canids)     do_can_ids; exit $? ;;
@@ -4731,7 +4725,6 @@ step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; s
 step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_wifi; step_logs; step_blackbox; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; migrate_installer_folder; moonraker_add_update_entries; step_pi_updater; step_panel_updater; step_remote; step_crowsnest; step_start
 save_answers
 step_cfgindex
-step_my_overrides
 step_ultrabackup   # after the panel and the add-ons, which write backups of their own
 restart_klipper_after
 self_test

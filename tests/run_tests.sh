@@ -1502,19 +1502,9 @@ check "--pi-sensors writes one temperature sensor for every [mcu] board and name
 check "board temperature sensors use sensor_mcu with the right board and a wide range" "grep -c 'min_temp: -20' $PC/rpi_pi.cfg | grep -qx 6 && grep -c 'max_temp: 110' $PC/rpi_pi.cfg | grep -qx 6 && ! grep -q 'sensor_mcu: rpi' $PC/rpi_pi.cfg"
 check "rpi_pi.cfg is included once, above the SAVE_CONFIG block" "[ \$(grep -c '^\[include rpi_pi.cfg\]' $PC/printer.cfg) = 1 ] && awk '/^\[include rpi_pi.cfg\]/{a=NR} /SAVE_CONFIG/{s=NR} END{exit !(a<s)}' $PC/printer.cfg"
 
-# 2.35.0: wm_my_overrides.cfg and the one-update-at-a-time lock
+# 2.35.0: the one-update-at-a-time lock (2.37.0: wm_my_overrides.cfg is gone, see section 74)
 HO="$T/ovr"; mkdir -p "$HO/printer_data/config"
 printf '[include a.cfg]\n\n[include shaketune.cfg]\n\n#*# <---------------------- SAVE_CONFIG ---------------------->\n#*# DO NOT EDIT THIS BLOCK OR BELOW.\n#*#\n#*# [stepper_x]\n#*# position_endstop = 1\n' > "$HO/printer_data/config/printer.cfg"
-inst "$HO" --my-overrides > "$T/ovr1.out"
-check "--my-overrides creates wm_my_overrides.cfg with only comments" "[ -f $HO/printer_data/config/wm_my_overrides.cfg ] && ! grep -qvE '^#|^[[:space:]]*\$' $HO/printer_data/config/wm_my_overrides.cfg"
-check "--my-overrides puts its include as the last line above the SAVE_CONFIG block, once" "[ \$(grep -c 'wm_my_overrides.cfg\]' $HO/printer_data/config/printer.cfg) = 1 ] && awk '/wm_my_overrides.cfg\\]/{a=NR} /SAVE_CONFIG/{s=NR} /^\\[include/{if(\$0 !~ /wm_my_overrides/) o=NR} END{exit !(a<s && a>o)}' $HO/printer_data/config/printer.cfg"
-M1="$(md5sum $HO/printer_data/config/printer.cfg $HO/printer_data/config/wm_my_overrides.cfg | cut -c1-32)"; echo "my own line" >> "$HO/printer_data/config/wm_my_overrides.cfg"; M1="$(md5sum $HO/printer_data/config/printer.cfg $HO/printer_data/config/wm_my_overrides.cfg | cut -c1-32)"
-inst "$HO" --my-overrides > "$T/ovr2.out"
-check "--my-overrides a second time changes neither printer.cfg nor your file" "[ \"\$(md5sum $HO/printer_data/config/printer.cfg $HO/printer_data/config/wm_my_overrides.cfg | cut -c1-32)\" = \"$M1\" ]"
-sed -i 's/^\[include wm_my_overrides.cfg\]/[include wm_my_overrides.cfg]\n[include later.cfg]/' "$HO/printer_data/config/printer.cfg"
-inst "$HO" --my-overrides > "$T/ovr3.out"
-check "--my-overrides moves its include behind an include that was added later" "awk '/wm_my_overrides.cfg\\]/{a=NR} /later.cfg\\]/{l=NR} END{exit !(a>l)}' $HO/printer_data/config/printer.cfg && [ \$(grep -c 'wm_my_overrides.cfg\]' $HO/printer_data/config/printer.cfg) = 1 ]"
-check "wm_my_overrides.cfg (your own lines) is never changed by --my-overrides" "grep -q 'my own line' $HO/printer_data/config/wm_my_overrides.cfg"
 ( flock 7; sleep 8 ) 7>"$T/upd.lock" & sleep 1
 WM_UPDATE_LOCKFILE="$T/upd.lock" WM_UPDATE_LOCK_WAIT=2 WM_TEST_NO_BOARD_UPDATE=1 inst "$HO" --update-boards > "$T/lock1.out"; wait
 check "a second update waits for the running one and stops with a clear message when it does not finish" "grep -q 'Another update is running' $T/lock1.out && grep -q 'did not finish in time' $T/lock1.out"
@@ -2043,20 +2033,19 @@ check "first run calibration: the macros still render and behave" "python3 $ROOT
 
 sec "== 2.36.0: clean reinstall (WonderMaker files back to this version, machine files stay)"
 mkstage "$T/clrstage"; CR="$T/clrhome"; rm -rf "$CR"; mkdir -p "$CR"
-inst "$CR" --from-stage "$T/clrstage" --screen off >/dev/null; inst "$CR" --my-overrides >/dev/null
+inst "$CR" --from-stage "$T/clrstage" --screen off >/dev/null
 CRC="$CR/printer_data/config"; CRM="$(basename $(ls $ROOT/factory/*/config/macros.cfg | head -n1))"
 for crf in macros.cfg change_macros.cfg rpi_base.cfg rpi_calibration.cfg; do [ -f "$CRC/$crf" ] || cp "$( [ -f $ROOT/rpi-cfg/$crf ] && echo $ROOT/rpi-cfg/$crf || ls $ROOT/factory/*/config/$crf | head -n1 )" "$CRC/$crf"; done
 echo "[gcode_macro MY_OWN_EDIT]" >> "$CRC/macros.cfg"; echo "# my own comment" >> "$CRC/rpi_calibration.cfg"
-echo "my own line" >> "$CRC/wm_my_overrides.cfg"
 for crf in printer.cfg saved_variables.cfg rpi_pi.cfg moonraker.conf KlipperScreen.conf; do [ -f "$CRC/$crf" ] || echo "# machine file $crf" > "$CRC/$crf"; echo "# my machine line" >> "$CRC/$crf"; done
 CRALL0="$(cd $CRC && md5sum *.cfg *.conf | md5sum)"
 OUT="$(inst "$CR" --clean-reinstall --dry-run)"
 check "clean reinstall: --dry-run lists the files that would be put back, says which have your edits, and changes nothing" "echo \"\$OUT\" | grep -q 'would be put back' && echo \"\$OUT\" | grep -q 'Dry run: nothing was changed' && [ \"\$(cd $CRC && md5sum *.cfg *.conf | md5sum)\" = \"$CRALL0\" ]"
-mkdir -p "$T/clrbefore"; for crf in printer.cfg saved_variables.cfg rpi_pi.cfg moonraker.conf KlipperScreen.conf wm_my_overrides.cfg; do cp "$CRC/$crf" "$T/clrbefore/$crf"; done
+mkdir -p "$T/clrbefore"; for crf in printer.cfg saved_variables.cfg rpi_pi.cfg moonraker.conf KlipperScreen.conf ; do cp "$CRC/$crf" "$T/clrbefore/$crf"; done
 OUT="$(inst "$CR" --clean-reinstall --yes)"
 check "clean reinstall: a macro file with your own edit is back to this version, and the copy with your edit is saved in backup/ as name.wm-before-reset-<date>" "! grep -q MY_OWN_EDIT $CRC/macros.cfg && ls $CRC/backup/macros.cfg.wm-before-reset-* >/dev/null && grep -q MY_OWN_EDIT \$(ls $CRC/backup/macros.cfg.wm-before-reset-* | head -n1)"
 check "clean reinstall: an rpi_*.cfg file with your own edit is back to the version of the repository" "cmp $ROOT/rpi-cfg/rpi_calibration.cfg $CRC/rpi_calibration.cfg && ls $CRC/backup/rpi_calibration.cfg.wm-before-reset-* >/dev/null"
-check "clean reinstall: printer.cfg, saved_variables.cfg, moonraker.conf and KlipperScreen.conf keep your own lines (the normal update steps only add what is missing), and wm_my_overrides.cfg is byte for byte the same" "for crf in printer.cfg saved_variables.cfg moonraker.conf KlipperScreen.conf; do grep -q my machine line $CRC/\$crf || exit 1; done; cmp $T/clrbefore/wm_my_overrides.cfg $CRC/wm_my_overrides.cfg && grep -q my own line $CRC/wm_my_overrides.cfg && ! ls $CRC/backup/wm_my_overrides.cfg.wm-before-reset-* 2>/dev/null"
+check "clean reinstall: printer.cfg, saved_variables.cfg, moonraker.conf and KlipperScreen.conf keep your own lines (the normal update steps only add what is missing)" "for crf in printer.cfg saved_variables.cfg moonraker.conf KlipperScreen.conf; do grep -q machine.line $CRC/\$crf || exit 1; done; ! ls $CRC/backup/wm_my_overrides.cfg.wm-before-reset-* 2>/dev/null"
 check "clean reinstall: it ends by saying how many files were put back, how many had your edits, and what was kept" "echo \"\$OUT\" | grep -q 'Clean reinstall: [0-9]* put back' && echo \"\$OUT\" | grep -q 'Not reset (your own lines stay): printer.cfg'"
 OUT="$(inst "$CR" --clean-reinstall --yes)"
 check "clean reinstall: a second run has nothing to put back" "echo \"\$OUT\" | grep -q 'Clean reinstall: 0 put back'"
@@ -2064,7 +2053,60 @@ check "clean reinstall: by hand the question defaults to no and nothing changes"
 check "clean reinstall: it is in the menu under Check and fix and in the header of installer.sh" "grep -q 'menu_item 7 \"Clean reinstall\"' $ROOT/installer.sh && grep -q 'menu_run --clean-reinstall' $ROOT/installer.sh && grep -q '^# ./installer.sh --clean-reinstall' $ROOT/installer.sh"
 check "clean reinstall: wm_filemerge.py --reset puts the new version in place, saves your copy, records the baseline, and does nothing when the file is already the new version" "CRRS=\$(mktemp -d); { echo a; echo b; } > \$CRRS/new.cfg; { echo a; echo MINE; } > \$CRRS/live.cfg; mkdir \$CRRS/base; cp \$CRRS/new.cfg \$CRRS/base/new.cfg; python3 -I $ROOT/scripts/wm_filemerge.py \$CRRS/live.cfg \$CRRS/new.cfg \$CRRS/base --name new.cfg --write --stamp T --reset | grep -q 'had your edits'; cmp \$CRRS/live.cfg \$CRRS/new.cfg && grep -q MINE \$CRRS/backup/live.cfg.wm-before-reset-T && python3 -I $ROOT/scripts/wm_filemerge.py \$CRRS/live.cfg \$CRRS/new.cfg \$CRRS/base --name new.cfg --write --stamp T2 --reset | grep -q 'already the new version'"
 
+
+sec "== 2.37.0: machine files (add a section, fix a line, remove an old line) and wm_my_overrides.cfg is gone"
+MFH="$T/mfhome"; rm -rf "$MFH"; mkdir -p "$MFH/printer_data/config"; MFC="$MFH/printer_data/config"
+printf '[mcu]\ncanbus_uuid: abc\n\n[printer]\nkind: corexy\nmax_velocity: 300\n\n[gcode_macro X]\ngcode:\n    M117 hi\n\n[include wm_my_overrides.cfg]\n\n#*# <---------------------- SAVE_CONFIG ---------------------->\n#*# DO NOT EDIT THIS BLOCK OR BELOW. The contents are auto-generated.\n#*#\n#*# [extruder]\n#*# control = pid\n' > "$MFC/printer.cfg"
+printf '[server]\nhost: 0.0.0.0\n\n[authorization]\ncors_domains:\n  *.local\n' > "$MFC/moonraker.conf"
+printf '[Variables]\nt0_offset = 1.5\n' > "$MFC/saved_variables.cfg"
+printf '# comment only\n' > "$MFC/wm_my_overrides.cfg"
+cat > "$T/mf.json" <<'MFJ'
+{"entries":[
+{"id":"a1","version":"9","file":"printer.cfg","op":"add_section","section":"gcode_macro NEW","lines":["gcode:","    M117 new"],"reason":"new macro"},
+{"id":"a2","version":"9","file":"printer.cfg","op":"set_key","section":"printer","key":"max_velocity","value":"350","reason":"bug in the speed"},
+{"id":"a3","version":"9","file":"moonraker.conf","op":"add_key","section":"server","key":"port","value":"7125","reason":"missing port"},
+{"id":"a4","version":"9","file":"moonraker.conf","op":"remove_key","section":"authorization","key":"cors_domains","reason":"old line"},
+{"id":"a5","version":"9","file":"saved_variables.cfg","op":"set_key","section":"Variables","key":"t0_offset","value":"9","reason":"must be refused"},
+{"id":"a6","version":"9","file":"saved_variables.cfg","op":"add_key","section":"Variables","key":"newkey","value":"0","reason":"new key"},
+{"id":"a7","version":"9","file":"wm_my_overrides.cfg","op":"add_key","section":"x","key":"y","value":"1","reason":"must be refused"},
+{"id":"a8","version":"9","file":"printer.cfg","op":"set_key","section":"mcu","key":"canbus_uuid","value":"zzz","reason":"must be refused"}
+]}
+MFJ
+echo "my own line" >> "$MFC/moonraker.conf"
+MFS0="$(cd $MFC && md5sum printer.cfg moonraker.conf saved_variables.cfg wm_my_overrides.cfg | md5sum)"
+WM_MACHINE_FIXES_LIST="$T/mf.json" inst "$MFH" --machine-files --dry-run > "$T/mf1.out"
+check "machine files: --dry-run lists what would be added, fixed and removed and changes nothing" "grep -q 'added section \[gcode_macro NEW\]' $T/mf1.out && grep -q 'fixed \[printer\] max_velocity: 300 -> 350' $T/mf1.out && grep -q 'removed \[authorization\] cors_domains' $T/mf1.out && [ \"\$(cd $MFC && md5sum printer.cfg moonraker.conf saved_variables.cfg wm_my_overrides.cfg | md5sum)\" = \"$MFS0\" ]"
+SAVEBLK0="$(sed -n '/SAVE_CONFIG/,$p' $MFC/printer.cfg | md5sum)"
+WM_MACHINE_FIXES_LIST="$T/mf.json" inst "$MFH" --machine-files --yes > "$T/mf2.out"
+check "machine files: a new section lands above the SAVE_CONFIG block and the block itself is byte for byte the same" "awk '/gcode_macro NEW/{a=NR} /SAVE_CONFIG/{s=NR} END{exit !(a>0 && a<s)}' $MFC/printer.cfg && [ \"\$(sed -n '/SAVE_CONFIG/,\$p' $MFC/printer.cfg | md5sum)\" = \"$SAVEBLK0\" ]"
+check "machine files: a line with a bug is fixed even when it is the user's value, and the report names the old and new value and the reason" "grep -q 'max_velocity: 350' $MFC/printer.cfg && grep -q '300 -> 350.*bug in the speed' $T/mf2.out"
+check "machine files: a missing key is added, an old key is removed, and the other lines of the user stay" "grep -q '^port: 7125' $MFC/moonraker.conf && ! grep -q cors_domains $MFC/moonraker.conf && grep -q 'my own line' $MFC/moonraker.conf && grep -q 'host: 0.0.0.0' $MFC/moonraker.conf"
+check "machine files: every changed file has a copy in backup/ first" "ls $MFC/backup/printer.cfg.wm-before-machine-fixes-* >/dev/null && ls $MFC/backup/moonraker.conf.wm-before-machine-fixes-* >/dev/null && grep -q 'max_velocity: 300' \$(ls $MFC/backup/printer.cfg.wm-before-machine-fixes-* | head -n1)"
+check "machine files: calibration values in saved_variables.cfg are never changed (only a new key is added)" "grep -q 't0_offset = 1.5' $MFC/saved_variables.cfg && grep -q 'newkey = 0' $MFC/saved_variables.cfg && grep -q 'calibration values are never changed' $T/mf2.out"
+check "machine files: the CAN id is refused" "grep -q 'canbus_uuid: abc' $MFC/printer.cfg && grep -q 'refused  printer.cfg: a8' $T/mf2.out"
+MFU="$T/mfuser"; rm -rf "$MFU"; mkdir -p "$MFU"; printf '[Variables]\nx = 1\n' > "$MFU/saved_variables.cfg"; printf '# mine\n[gcode_macro MINE]\nvariable_a: 1\n' > "$MFU/wm_my_overrides.cfg"; printf '[printer]\nkind: x\n' > "$MFU/printer.cfg"
+MFU1="$(md5sum $MFU/wm_my_overrides.cfg | cut -c1-32)"
+python3 -I $ROOT/scripts/wm_machine_fixes.py "$MFU" --list "$T/mf.json" --write --stamp U1 > "$T/mfu.out"
+check "machine files: a file of the user (wm_my_overrides.cfg) is refused and never changed" "grep -q 'refused  wm_my_overrides.cfg: a7' $T/mfu.out && [ \"\$(md5sum $MFU/wm_my_overrides.cfg | cut -c1-32)\" = \"$MFU1\" ]"
+sed -i 's/^max_velocity: 350/max_velocity: 280/' "$MFC/printer.cfg"
+WM_MACHINE_FIXES_LIST="$T/mf.json" inst "$MFH" --machine-files --yes > "$T/mf3.out"
+check "machine files: a second run does nothing, a fix is applied only once (a later change of the user stays)" "grep -q 'max_velocity: 280' $MFC/printer.cfg && ! grep -q 'bug in the speed' $T/mf3.out"
+: > "$MFC/saved_variables.cfg"
+WM_MACHINE_FIXES_LIST="$T/mf.json" inst "$MFH" --machine-files --yes > "$T/mf4.out"
+check "machine files: an empty saved_variables.cfg is reported and, with --yes and nobody to answer, it is NOT replaced" "grep -q 'saved_variables.cfg is missing or damaged' $T/mf4.out && [ ! -s $MFC/saved_variables.cfg ]"
+printf '[Variables]\nt0_offset = 2.5\n' > "$MFC/saved_variables.cfg.wm-good"
+echo y | env "WM_""HOME=$MFH" WM_INSTALLER_TEST=1 WM_MACHINE_FIXES_LIST="$T/mf.json" bash $ROOT/installer.sh --machine-files > "$T/mf5.out" 2>&1
+check "machine files: asked by hand and answered yes, the damaged saved_variables.cfg is replaced with the last good copy and the damaged one is kept in backup/" "grep -q 't0_offset = 2.5' $MFC/saved_variables.cfg && ls $MFC/backup/saved_variables.cfg.wm-before-replace-* >/dev/null"
+check "wm_my_overrides.cfg: an update removes an empty file (only comments) and its include line, with copies in backup/" "[ ! -e $MFC/wm_my_overrides.cfg ] && ! grep -q wm_my_overrides $MFC/printer.cfg && ls $MFC/backup/wm_my_overrides.cfg.wm-before-removal-* >/dev/null && ls $MFC/backup/printer.cfg.wm-before-overrides-removal-* >/dev/null"
+printf '# header\n[gcode_macro MINE]\nvariable_a: 1\n' > "$MFC/wm_my_overrides.cfg"; printf '\n[include wm_my_overrides.cfg]\n' >> "$MFC/printer.cfg.tmp"; sed -i 's/^\[gcode_macro X\]/[include wm_my_overrides.cfg]\n[gcode_macro X]/' "$MFC/printer.cfg"; rm -f "$MFC/printer.cfg.tmp"
+MFS1="$(cd $MFC && md5sum printer.cfg wm_my_overrides.cfg | md5sum)"
+inst "$MFH" --machine-files --yes > "$T/mf6.out"
+check "wm_my_overrides.cfg: a file with the user's own lines stays, with its include line, and the update says it is the user's own file now" "[ \"\$(cd $MFC && md5sum printer.cfg wm_my_overrides.cfg | md5sum)\" = \"$MFS1\" ] && grep -q 'your own file now' $T/mf6.out"
+check "wm_my_overrides.cfg: the installer no longer creates it or has the --my-overrides command" "! grep -q -- '--my-overrides' $ROOT/installer.sh && ! grep -q 'Created wm_my_overrides' $ROOT/installer.sh"
+check "machine files: the shipped list is valid and --machine-files is in the header of installer.sh" "python3 -c \"import json;json.load(open('$ROOT/scripts/wm_machine_fixes.json'))\" && grep -q '^# ./installer.sh --machine-files' $ROOT/installer.sh"
+
 repo_guard
+
 if [ "$(real_sum)" = "$REAL_SUM0" ]; then PASS=$((PASS+1)); echo "  ok   the real home of this machine was not touched (Klipper's driver links, config file list, moonraker.conf)"
 else FAIL=$((FAIL+1)); echo "  FAIL the real home of this machine changed during the run (Klipper's driver links, config file list or moonraker.conf): a test did not use its fake home, or the printer was used during the run"; find "$REAL_HOME/klipper/klippy/extras" -maxdepth 1 -type l -printf '        | %f -> %l\n' 2>/dev/null; fi
 

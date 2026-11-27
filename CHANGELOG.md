@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.37.0
+
+- **Machine files: add what is missing, fix known bugs, remove old lines.** A new step (`step_machine_fixes`, list `scripts/wm_machine_fixes.json`, module `scripts/wm_machine_fixes.py`) works on `printer.cfg`, `rpi_pi.cfg`, `moonraker.conf`, `KlipperScreen.conf` and `saved_variables.cfg` in every update, in the clean reinstall and through the Fluidd Update button. It adds a missing section or key, fixes a line that has a bug even if you edited it, and removes an old line, with a copy in `printer_data/config/backup` first and a report with the reason for each change. Everything else in those files stays. Each entry is applied once per machine. New command `./installer.sh --machine-files` (with `--dry-run`).
+- **Safety limits.** Calibration values in `saved_variables.cfg` and the SAVE_CONFIG block are never changed or removed. A missing, empty or damaged `saved_variables.cfg` is reported and the installer asks before it is replaced (last good copy first; default no, `--yes` also means no). CAN ids, serial paths and a file that cannot be read are skipped.
+- **`wm_my_overrides.cfg` is gone.** It was added in 2.35.0 and confused more than it helped. The installer no longer creates it, `--my-overrides` and its doctor check are removed. An update removes an empty file (only the comment header) and its include line with copies in `backup/`; a file with your own lines stays and the update says it is your own file now.
+
 ## 2.36.1
 
 - **Dry run no longer reports a failed panel download.** `./installer.sh --dry-run` (menu 8) printed "The Fluidd panel could not be downloaded" and a warning that the web page was not installed, because it skips the download but still treated the missing download as a failure. It now says it would download the newest panel.
