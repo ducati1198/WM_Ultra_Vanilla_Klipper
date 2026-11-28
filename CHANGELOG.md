@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.39.1
+
+No change to the installer itself. The release number follows the panel 1.25.1 (shorter console line when the ACE USB is unplugged).
+
 ## 2.39.0
 
 Release number follows the panel 1.25.0 (ACE driver fixes). Tested by the user on the real printer (main RPi4) before it was copied here.
