@@ -708,6 +708,8 @@ def build_css(theme, style, density="compact", scale=1.0):
     .zr_btn_pink { background-color: #c2477f; border-color: #c2477f; color: #ffffff; }
     .zr_arrow { background-color: #27323c; border-color: #3b4955; color: #ffffff; font-weight: bold; padding: 0; }
     .zr_arrow label { font-size: 125%%; font-weight: bold; }
+    button.zr_pressed, .zr_pressed { background-image: none; background-color: #1f8bff; border: 2px solid #ffffff; color: #ffffff; }
+    .wm_tool_active { border: 2px solid #1f6feb; border-radius: 7px; }
     .zr_btn_off { background-color: #262a3a; border-color: #3b4955; color: #aab0c0; }
     .zr_pill_on { background-color: #33d06b; color: #06280f; }
     .zr_pill_off { background-color: #e04545; color: #ffffff; }
@@ -860,11 +862,11 @@ COLOR_LISTS = [
 
 # touchscreen material list: (name, temperature, index in the ZR Tools material list)
 TOUCH_MATERIALS = [
-    ("PLA", 210, 1), ("PLA Silk", 215, 3), ("ABS", 250, 8), ("PETG", 240, 6), ("PLA Matte", 210, 4),
-    ("PLA Metal", 215, 15), ("ABS Matte", 250, 8), ("PETG Matte", 240, 6), ("PVA", 200, 13), ("TPE", 225, 10),
-    ("Marble", 210, 15), ("HIPS", 235, 14), ("TPU", 225, 10), ("PET", 240, 15), ("Wood", 200, 15), ("ASA", 255, 9),
+    ("PLA", 220, 1), ("PLA Silk", 220, 3), ("ABS", 250, 8), ("PETG", 240, 6), ("PLA Matte", 220, 4),
+    ("PLA Metal", 220, 15), ("ABS Matte", 250, 8), ("PETG Matte", 240, 6), ("PVA", 200, 13), ("TPE", 225, 10),
+    ("Marble", 220, 15), ("HIPS", 235, 14), ("TPU", 225, 10), ("PET", 240, 15), ("Wood", 200, 15), ("ASA", 255, 9),
     # added at the END (no index moves); the factory touchscreen may not know them
-    ("PLA+", 215, 2), ("PLA-CF", 220, 5), ("PETG-CF", 250, 7), ("PA", 270, 11), ("PA-CF", 280, 11),
+    ("PLA+", 220, 2), ("PLA-CF", 220, 5), ("PETG-CF", 250, 7), ("PA", 260, 11), ("PA-CF", 280, 11),
     ("PC", 270, 12), ("ABS-CF", 260, 8), ("PA-GF", 280, 11), ("PC-ABS", 260, 12), ("PP", 230, 15), ("BVOH", 210, 15),
 ]
 

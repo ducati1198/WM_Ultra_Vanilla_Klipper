@@ -44,17 +44,17 @@ POLL_SECONDS = 2
 # (name, default nozzle temperature)
 MATERIALS = [
     ("Empty", 0),
-    ("PLA", 210),
-    ("PLA+", 215),
-    ("PLA Silk", 215),
-    ("PLA Matte", 210),
+    ("PLA", 220),
+    ("PLA+", 220),
+    ("PLA Silk", 220),
+    ("PLA Matte", 220),
     ("PLA-CF", 220),
     ("PETG", 240),
     ("PETG-CF", 245),
     ("ABS", 250),
     ("ASA", 255),
     ("TPU", 220),
-    ("PA / Nylon", 270),
+    ("PA / Nylon", 260),
     ("PC", 270),
     ("PVA", 195),
     ("HIPS", 235),
@@ -303,6 +303,7 @@ class Panel(ViewsMixin, ScreenPanel):
              "extras": self.show_extras, "system": self.show_system, "settings": self.show_settings,
              "mapping": self.show_mapping, "map_start": self.show_map_start, "growth": self.show_growth, "unload": self.show_unload, "load": self.show_load, "resume_tool": self.show_resume_tool, "resume_tool2": self.show_resume_tool2, "resume_confirm": self.show_resume_confirm,
              "purge": lambda: self.show_purge(self.view_tool),
+             "extrude": self.show_extrude,
              "tool": lambda: self.show_tool(self.view_tool), "tool_edit": lambda: self.show_tool_edit(self.view_tool), "color_pick": lambda: self.show_color_pick(), "hsv_pick": lambda: self.show_hsv_pick()}
         return m.get(v)
 
@@ -316,6 +317,8 @@ class Panel(ViewsMixin, ScreenPanel):
             return False
         if self.view == "purge" and not self.__dict__.pop("_purge_quiet", False):
             self._purge_finish()
+        if self.view == "extrude":            # F-262: Close / Back switches off the heater the page switched on (nothing moves)
+            self._gcode("_WM_EXTRUDE_DONE")
         h = self.__dict__.setdefault("_hist", [])
         self.__dict__["_navback"] = True
         try:
@@ -588,6 +591,7 @@ class Panel(ViewsMixin, ScreenPanel):
         if u.get("active"):
             self._screen.show_popup_message("An unload is already running. Stop it with _WM_UNLOAD_STOP.")
             return
+        self.__dict__["unload_sel"] = set()
         self.show_unload()
 
     def _unload_label(self, i):
@@ -597,49 +601,59 @@ class Panel(ViewsMixin, ScreenPanel):
         return ("T%d" % (i + 1)), (" ".join(x for x in (mat, col) if x) or "no data")
 
     def show_unload(self):
+        # F-269: same page as the Load menu: tap several tools, then Unload selected tools (no All tools, no confirm page)
         self.view = "unload"
         self._clear()
+        sel = self.__dict__.setdefault("unload_sel", set())
         self.root.pack_start(self._header("Unload filament"), False, False, 0)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        body.pack_start(self._label("Choose the tool to unload, or all tools one after the other.", "zr_hint", wrap=True), False, False, 0)
+        body.pack_start(self._hint("Tap the tools to unload, then press Unload selected tools. A tool marked Not in its dock cannot be chosen."), False, False, 0)
         grid = Gtk.Grid()
         grid.set_row_spacing(8)
         grid.set_column_spacing(8)
         grid.set_column_homogeneous(True)
         for i in range(NTOOLS):
-            ev = Gtk.EventBox()
-            ev.get_style_context().add_class("zr_card")
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            for m in ("top", "bottom", "start", "end"):
-                getattr(row, "set_margin_" + m)(8)
-            sp = self._spool(88)
-            self._set_swatch(sp, self._tool_info(i)["color"])
-            self._mark_empty(ev, sp, self._sensor("filament%d" % i) is False)
-            row.pack_start(sp, False, False, 0)
-            t1, t2 = self._unload_label(i)
-            txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            txt.set_valign(Gtk.Align.CENTER)
-            a = self._label(t1, "zr_title")
-            a.set_halign(Gtk.Align.START)
-            b = self._label(t2, "zr_small")
-            b.set_halign(Gtk.Align.START)
-            txt.pack_start(a, False, False, 0)
-            txt.pack_start(b, False, False, 0)
-            c = self._label("In head" if self._sensor("filament%d" % i) else "No filament", "zr_small")
-            c.set_halign(Gtk.Align.START)
-            txt.pack_start(c, False, False, 0)
-            self._card_text(a, b, c)
-            row.pack_start(txt, True, True, 0)
-            ev.add(row)
-            ev.connect("button-release-event", lambda _w, _e, n=i: self.show_unload_ask(str(n)))
-            grid.attach(ev, i % 2, i // 2, 1, 1)
+            fil = self._sensor("filament%d" % i)
+            extra = ("In head" if fil else "No filament")
+            if not self._unload_ok(i):
+                extra = "Not in its dock"
+            elif self._active_tool() == i:
+                extra += " \u00b7 on the carriage"
+            if i in sel:
+                extra = "Selected \u00b7 " + extra
+            grid.attach(self._tool_card_row(i, extra, self._unload_toggle, i in sel, 78), i % 2, i // 2, 1, 1)
         body.pack_start(grid, False, False, 0)
-        all_btn = self._button(None, "All tools", "color3", self.show_unload_ask, "ALL")
-        all_btn.get_style_context().add_class("zr_btn_primary")
-        all_btn.set_size_request(-1, BIG_H)
-        body.pack_start(all_btn, False, False, 0)
+        go = self._button(None, "Unload selected tools", "color3", self._unload_sel_go)
+        go.get_style_context().add_class("zr_btn_primary")
+        go.set_size_request(-1, BIG_H)
+        body.pack_start(go, False, False, 0)
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
+
+    def _unload_ok(self, i):
+        """A tool can be unloaded when it hangs in its dock or sits on the carriage (same gate as the Fluidd window)."""
+        return self._sensor("docked%d" % i) is not False or self._active_tool() == i
+
+    def _unload_toggle(self, i):
+        sel = self.__dict__.setdefault("unload_sel", set())
+        if i in sel:
+            sel.discard(i)
+        elif self._unload_ok(i):
+            sel.add(i)
+        else:
+            self._screen.show_popup_message("T%d is not in its dock. Put it into its dock first, then tap it again." % (i + 1))
+        self.show_unload()
+
+    def _unload_sel_go(self, *_):
+        if not self._require_not_printing():
+            return
+        sel = sorted(self.__dict__.get("unload_sel") or [])
+        if not sel:
+            self._screen.show_popup_message("Tap at least one tool first.")
+            return
+        names = ", ".join("T%d" % (i + 1) for i in sel)
+        self._gcode("_WM_UNLOAD_GO T=%s" % ",".join(str(i) for i in sel), "Unloading %s..." % names)
+        self.back()
 
     def show_unload_ask(self, which):
         self.view = "unload_ask"
@@ -669,6 +683,109 @@ class Panel(ViewsMixin, ScreenPanel):
         body.pack_start(row, False, False, 0)
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
+
+    # F-262: the Extrude menu page of a toolhead (same window as the Fluidd prompt WM_EXTRUDE_MENU): extrude or retract
+    # without moving the head. F-268: Extrude on any tool out of its dock (carriage or not); Retract on any tool, also in the dock.
+    EXTRUDE_LENS = (5, 10, 20, 50, 100)        # mm
+    EXTRUDE_SPEEDS = (2, 5, 10, 20)            # mm/s
+    EXTRUDE_TEMPS = (200, 230, 250)            # C
+
+    def _extrude_mode(self, i):
+        if self._active_tool() == i:
+            return "car"
+        return "away" if self._sensor("docked%d" % i) is False else "dock"
+
+    def _extrude_open(self, i):
+        if not self._require_not_printing():
+            return
+        if (self.st.get("gcode_macro _WM_UNLOAD") or {}).get("active"):
+            self._screen.show_popup_message("An unload is running. Stop it with _WM_UNLOAD_STOP.")
+            return
+        ex = self.__dict__.setdefault("extrude", {"len": 20, "speed": 5, "temp": 230})
+        ex["t"] = i
+        self.view_tool = i
+        self.show_extrude()
+
+    def _extrude_pick(self, key, value):
+        ex = self.extrude
+        if key == "t":
+            if ex.get("t") != value:
+                self._gcode("_WM_EXTRUDE_DONE")     # a heater that this page switched on for the other tool goes off
+            ex["t"] = value
+        else:
+            ex[key] = value
+        self.show_extrude()
+
+    def show_extrude(self):
+        self.view = "extrude"
+        ex = self.extrude
+        i = ex["t"]
+        self.view_tool = i
+        mode = self._extrude_mode(i)
+        self._clear()
+        self.root.pack_start(self._header("Extrude / Retract"), False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+
+        def chips(label, key, values, text):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            lab = self._label(label, "zr_hint")
+            lab.set_size_request(80, -1)
+            lab.set_halign(Gtk.Align.START)
+            row.pack_start(lab, False, False, 0)
+            for v in values:
+                b = self._button(None, text(v), "color3", self._extrude_pick, key, v)
+                if ex[key] == v:
+                    b.get_style_context().add_class("zr_btn_primary")
+                b.set_hexpand(True)
+                b.set_size_request(-1, 46)
+                row.pack_start(b, True, True, 0)
+            body.pack_start(row, False, False, 0)
+
+        chips("Tool", "t", range(4), lambda v: "T%d" % (v + 1))
+        chips("Length", "len", self.EXTRUDE_LENS, lambda v: "%d mm" % v)
+        chips("Speed", "speed", self.EXTRUDE_SPEEDS, lambda v: "%d mm/s" % v)
+        chips("Nozzle", "temp", self.EXTRUDE_TEMPS, lambda v: "%d C" % v)
+        n = i + 1
+        if mode == "car":
+            note = "T%d is on the carriage. The head does not move; filament comes out where it stands." % n
+        elif mode == "dock":
+            note = "T%d is in its dock: Extrude is off, Retract works (it heats in the dock). The head does not move." % n
+        else:
+            note = "T%d is out of its dock, not on the carriage. Extrude and Retract work. The head does not move." % n
+        body.pack_start(self._label(note, "zr_hint", wrap=True), False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_homogeneous(True)
+        ext = self._button(None, "Extrude", "color3", self._extrude_go, "extrude")
+        ret = self._button(None, "Retract", "color3", self._extrude_go, "retract")
+        ret.get_style_context().add_class("zr_btn_primary")
+        if mode != "dock":
+            ext.get_style_context().add_class("zr_btn_green")
+        cool = self._button(None, "Cool", "color3", self._extrude_cool)
+        cool.get_style_context().add_class("zr_btn_cyan")
+        cl = self._button(None, "Close", "color3", self.back)
+        for b in (ext, ret, cool, cl):
+            b.set_size_request(-1, 72)
+            row.pack_start(b, True, True, 0)
+        body.pack_start(row, False, False, 0)
+        self.root.pack_start(body, True, True, 0)      # one page, no scrolling
+        self.root.show_all()
+
+    def _extrude_cool(self):
+        i = self.extrude["t"]
+        self._gcode("_WM_EXTRUDE_COOL T=%d WIN=0" % i, "T%d heater off" % (i + 1))
+
+    def _extrude_go(self, direction):
+        if not self._require_not_printing():
+            return
+        ex = self.extrude
+        i = ex["t"]
+        mode = self._extrude_mode(i)
+        if direction == "extrude" and mode == "dock":
+            self._screen.show_popup_message("T%d is in its dock. Extrude works only on a tool that is out of its dock. Retract is allowed." % (i + 1))
+            return
+        self._gcode("_WM_EXTRUDE_GO T=%d DIR=%s LEN=%d SPEED=%d TEMP=%d WIN=0" % (i, direction, ex["len"], ex["speed"], ex["temp"]),
+                    "%s T%d: %d mm at %d mm/s..." % ("Extruding" if direction == "extrude" else "Retracting", i + 1, ex["len"], ex["speed"]))
+        self.show_extrude()
 
     # F-156 (restored 2026-11-19, F-179): the Purge page of a toolhead
     PURGE_TEMPS = (0, 200, 220, 240, 260)      # 0 = the temperature saved for the filament
@@ -1538,8 +1655,7 @@ class Panel(ViewsMixin, ScreenPanel):
         tall = 1 if (lm_ok or L.has_ace(self.st)) else 2
         items = [
             ("extruder", "Select", "color3", self._act_select, "zr_btn_pink", 0, 0, 1, 1),
-            ("arrow-down", "Load", "color2", self._act_load, "", 0, 1, 1, tall),
-            ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1, 1),
+            # wm: no Load/Unload on the toolhead page (the Load menu and Unload menu do that)
             ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 0, 1, 1),
             ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 1, 1, 1),
         ]
@@ -1563,12 +1679,12 @@ class Panel(ViewsMixin, ScreenPanel):
             um_btn = self._button(None, "Unload menu", "color3", self._unload_open)
             um_btn.get_style_context().add_class("zr_btn_orange")
             um_btn.set_vexpand(True)
-            actions.attach(um_btn, 2, 2, 1, 1)
+            actions.attach(um_btn, 1, 1, 1, 1)
         if lm_ok:                       # F-193: Load menu (same window as Fluidd) under Load and Unload
             lm_btn = self._button(None, "Load menu", "color3", self._load_open)
             lm_btn.get_style_context().add_class("zr_btn_primary")
             lm_btn.set_vexpand(True)
-            actions.attach(lm_btn, 0, 2, 1, 1)
+            actions.attach(lm_btn, 0, 1, 1, 1)
         elif L.has_ace(self.st):        # old Pi without WM_LOAD_MENU: ACE feed assist of this toolhead, purple + green ON, dark grey + red OFF
             assist_btn = Gtk.Button()
             assist_btn.get_style_context().add_class("zr_btn")
@@ -1583,12 +1699,22 @@ class Panel(ViewsMixin, ScreenPanel):
             assist_btn.set_hexpand(True)
             assist_btn.set_vexpand(True)
             assist_btn.connect("clicked", lambda _w, n=i: self._act_assist(n))
-            actions.attach(assist_btn, 0, 2, 1, 1)
+            actions.attach(assist_btn, 0, 1, 1, 1)
         # F-156: Purge button (dark blue) beside Feed assist, or under Unload without an ACE; it opens the purge page
         purge_btn = self._button(None, "Purge", "color3", self._purge_open, i)
         purge_btn.get_style_context().add_class("zr_btn_navy")
         purge_btn.set_vexpand(True)
-        actions.attach(purge_btn, 1, 2, 1, 1)
+        # wm F-262: Extrude menu button beside Purge; opens the Extrude menu window for this tool (extrude / retract, no head move)
+        if not have or "GCODE_MACRO WM_EXTRUDE_MENU" in have:
+            ex_btn = self._button(None, "Extrude menu", "color3", self._extrude_open, i)
+            ex_btn.get_style_context().add_class("zr_btn_green")
+            ex_btn.set_vexpand(True)
+            bottom = Gtk.Box(spacing=8, homogeneous=True)
+            bottom.pack_start(purge_btn, True, True, 0)
+            bottom.pack_start(ex_btn, True, True, 0)
+            actions.attach(bottom, 0, 2, 3, 1)
+        else:
+            actions.attach(purge_btn, 0, 2, 3, 1)
         page.pack_start(actions, True, True, 0)
 
         self.root.pack_start(page, True, True, 0)

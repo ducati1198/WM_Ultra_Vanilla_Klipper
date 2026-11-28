@@ -1,6 +1,6 @@
 # MACROS.md - every macro of the WonderMaker Ultra / Ultra-S on the Raspberry Pi
 
-Generated 2026-11-18 from the live config of the dev Pi (the main RPi4), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
+Generated 2026-11-18 from the live config of the dev Pi (<printer-ip>), snapshot `05-notes/reference/pi-config-snapshot-2026-11-18/`.  
 Klipper v0.13.0-827-g29d4ec2d6 (upstream master 2026-11-10 + WonderMaker additions, see DIFFERENCES.md), Moonraker newer than 0.11.0, Fluidd v1.38.0 (patched, see FLUIDD.md), Debian 12.  
 Checked against: Klipper docs of the installed version (`reference/klipper-docs-0.13.0-827-g29d4ec2d6/docs/G-Codes.md`, online https://www.klipper3d.org/G-Codes.html), the live command registry of the running Klipper (`/printer/gcode/help`) and the Klipper source on the Pi, 2026-11-18.
 
@@ -424,14 +424,19 @@ Factory wipe macros
 
 ### WIPE_NOZZLE
 - **File / lines**: fz-wipe-nozzle.cfg L4-30 (gcode_macro)
-- **What it does**: Wipes the nozzle on the wipe brush: Z up, moves to the saved wipe position, 4 strokes at wipe_speed.
+- **What it does**: Wipes the nozzle on the wipe brush: Z up, moves to the saved wipe position, 4 strokes. F-267: with parameter STYLE=SWITCH (only macros outside a print pass it) and the Fluidd switch Wipe_Slow_Fast ON (default) strokes 1-2 run at slow_speed (F3000), strokes 3-4 at wipe_speed (F12000); switch OFF, no parameter, or a print running (printing/paused) = all 4 strokes at wipe_speed as before.
 - **Calls**: _WM_CAL_CLEARANCE, z_rise
 - **Called by**: CANCEL_PRINT, EXTRUDE_FILAMENT, G29, LOAD_FILAMENT, PRINT_END, RESUME, START_PRINT, UNLOAD_FILAMENT, WM_OFFSETS_RAPID, WM_SCREWS_CAL, Z_HOMING, _WM_ACE_HOME, _WM_BEDWARP_START, _WM_PID_HEAD, _WM_UNLOAD_TIP, _WM_WIPE_PURGE_GO, _WM_ZR_LOAD_GO, _WM_Z_TOUCH, filament_insert_gcode
-- **Variables**: wipe_speed
-- **Uses**: reads printer.save_variables, printer.toolhead
+- **Variables**: wipe_speed, slow_speed
+- **Uses**: reads printer.save_variables, printer.toolhead, printer.print_stats, output_pin Wipe_Slow_Fast
 - **Commands**: all exist (built-in/module commands used: G0, G28, G90, RESPOND, RESTORE_GCODE_STATE, SAVE_GCODE_STATE) - checked 2026-11-18
+- **STYLE=SWITCH callers (F-267, 20 calls)**: G29, EXTRUDE_FILAMENT, LOAD_FILAMENT, UNLOAD_FILAMENT, filament_insert_gcode, WM_SCREWS_CAL, _WM_PID_HEAD x2, _WM_Z_TOUCH x3, _WM_BEDWARP_START x2, _WM_WIPE_PURGE_GO, _WM_PURGE_DONE x2, _WM_ACE_HOME, _WM_ESTEP_WIPEPARK, _WM_UNLOAD_TIP, _WM_ZR_LOAD_GO. NOT changed: START_PRINT, PRINT_END, CANCEL_PRINT, RESUME, _Z_HOMING (wipes only in a print), tool changes.
 - **Risk**: MOVES THE TOOLHEAD  |  **Tags**: wipe  |  **Fluidd**: WM Ultra Filament
 - **Tested**: no per-macro record in FIX-LOG.md
+### _WM_WIPE_SETTINGS
+- **File / lines**: rpi_base.cfg (gcode_macro, F-267)
+- **What it does**: only holds the start-up flag pin_synced of the Fluidd switch Wipe_Slow_Fast (output_pin, saved variable wm_wipe_slowfast, default 1, kept after restart; delayed_gcode WM_WIPE_PIN_WATCH, same pattern as F-206).
+- **Risk**: none (no moves)
 ### _SAVE_WIPE_POSITION
 - **File / lines**: fz-wipe-nozzle.cfg L31-40 (gcode_macro)
 - **What it does**: Saves the dock hall position as the wipe position.
@@ -4035,7 +4040,7 @@ Purge, push and heat spots moved from the wipe area (X-13 Y240) and X-13 Y80 to 
 
 ## F-217 (2026-11-22): WM_OFFSETS_RAPID opens WM_NOZZLE_CLEAN first (THEN="WM_OFFSETS_RAPID CONFIRM=1 CLEANED=1").
 
-## F-212 round 8 (2026-11-22): _WM_NCLEAN_COOL: ACE feed assist off (via _WM_PURGE_ASSIST) and 5 mm retract before the heater goes off.
+## F-212 round 8 (2026-11-22): _WM_NCLEAN_COOL: ACE feed assist off (via _WM_PURGE_ASSIST) and 5 mm retract before the heater goes off. CHANGED 2026-11-25 (F-244): the retract is now 10 mm (G1 E-10 F1200), see FIX-LOG.
 - **Change log WM_OFFSETS_RAPID**: 2026-11-22 01:20 Toronto (F-218, checked against rpi_calibration.cfg af995c33 on the .35): Old: all extruders heated to 140 C, then measured. New: no heating; extruder targets set to 0 and TEMPERATURE_WAIT MAXIMUM=80 for every tool after the nozzle clean, then measured. Why: user's word. Backup backup/rpi_calibration.cfg.20261122-0120-before-rapid-cooldown. File now 9312ddf6, Klipper restart pending.
 
 ## CHANGE 2026-11-22 (F-219, pi400 devbox, checked against rpi_calibration.cfg 9e34c8df)
@@ -4136,3 +4141,41 @@ F-231 windows (rpi_calibration.cfg, rpi_nozzle.cfg, rpi_base.cfg) and F-232 time
 - ACE_WM_LOAD / ACE_WM_UNLOAD: old: ran at once. New: run by hand (no CONFIRM, T=0-3, not printing) they open _WM_WIN_START (Start / What it does / Cancel); Start calls the macro again with CONFIRM=1. Callers that pass CONFIRM=1: the ACE watcher, the unload queue, _WM_ACE_ASK_YES (rpi_ace.cfg) and the Load and Unload menus (rpi_base.cfg).
 - 2026-11-25 addition: the window is opened only when the macro _WM_WIN_START exists (printer["gcode_macro _WM_WIN_START"] is defined), so the panel still works on a Pi without the Pi installer (there the macros run at once, as before). Why: the panel project must not need a macro of the installer.
 - Tested by the user 2026-11-25 8:20 am Toronto (their word).
+
+## Change log: F-243 transferred to the .35 (2026-11-25 8:27 am Toronto)
+rpi_base.cfg, rpi_calibration.cfg and rpi_ace.cfg with the F-243 windows are live on the main RPi4 .35 as on the pi400 (checked: md5 equal to the work copies of installer 2.33.0 and panel 1.22.0). Backups in printer_data/config/backup/.
+
+## Tool gate (added 2026-11-27, rollback name: rollback dock) - built on the pi400, not pushed
+New hidden macros in rpi_base.cfg: `_WM_TOOL_GATE` (T= / TOOLS= / ALL=1 / PUT=1 / STOP=0; sets `blocked` and `why`: missing, busy, unknown), `_WM_GATE_STOP` (the stop window), `_WM_GATE_NOTE` (grey button note + reopen), `_WM_START_GATE` + `_WM_START_GATE_RUN` (print start: T0, the first tool and every tool of the file), `_WM_UNLOAD_SHOW`, `_WM_UNLOAD_PICK` (pick-several unload window).
+New in change_macros.cfg: `_CHANGE_TOOL_GO`, `_CHANGE_TOOL_RUN` (the old `_CHANGE_TOOL` body), `_PARK_CURRENT_TOOL_GO`, `_PARK_CURRENT_TOOL_RUN` (the old `PARK_CURRENT_TOOL` body). `_CHANGE_TOOL` and `PARK_CURRENT_TOOL` now call the gate first.
+Changed: WM_UNLOAD_MENU, _WM_UNLOAD_ASK (list), _WM_UNLOAD_INFO, _WM_UNLOAD_GO (list, skips a tool not in its dock), `_wm_unload_runner` (skips a tool not in its dock), `_WM_UNLOAD.sel`; `_WM_LOAD_SHOW`/`_WM_LOAD_PICK`, `_WM_PURGE_PROMPT`/`_WM_PURGE_PICK`, `_WM_NCLEAN_SHOW`/`_WM_NCLEAN_PICK`, `_WM_RTOOL_SHOW1`/`_WM_RTOOL_PICK`, WM_ESTEP_CAL, WM_NOZZLE_FULL_PID (grey not in its dock). Early gate line in: LOAD_FILAMENT, UNLOAD_FILAMENT, START_PRINT, _WM_BEDWARP_START, WM_SCREWS_CAL, WM_OFFSETS_Z_HOT, WM_OFFSETS_RAPID, _WM_FIRST_RUN_CAL, WM_NOZZLE_GROWTH_CAL, WM_NOZZLE_FULL_PID, _WM_SETTER_GO, _WM_AUTO_SPEED_READY, _WM_ESTEP_POS.
+Gate is off while `is_nozzle_setting` = 1 (WM_NOZZLE_CHANGE, matching, Extruder Setup). Details: TOOL-GATE-PLAN.md and FIX-LOG.md.
+
+## WM_EXTRUDE_MENU (F-259, 2026-11-27, pi400 only, not pushed; checked against pi400 files, 2026-11-27)
+### WM_EXTRUDE_MENU
+- **File**: rpi_base.cfg (before the F-166 Resume tool block). **What it does**: Fluidd / KlipperScreen prompt window to extrude or retract filament WITHOUT moving the head, homing, or changing a tool: choose tool (T1-T4), length (5 10 20 50 100 mm), speed (2 5 10 20 mm/s), nozzle temperature (200 230 250 C), then Extrude (green) or Retract (blue). The window stays open after each push; Close switches off the heater the window switched on. **Rules**: Extrude only on the tool on the carriage (a tool in its dock gets a grey "Extrude · in dock" button and a message; typed command = stop window); Retract also works in the dock (the tool's heater is switched on there); a tool that is neither on the carriage nor in its dock ("away") is refused for both; not while printing; while paused only the carriage tool; never during an unload or an ACE job; extrude needs filament at the head sensor. **Risk**: HEATS, pushes filament out where the tool stands (no head move). **Fluidd**: WM Ultra Filament (orange). **Tested** (pi400 dev box, fake docks/hall): window renders; extrude in dock refused; retract in dock heats and pulls, head position unchanged, no homing; carriage tool extrudes; away tool refused; printing refused; paused: dock tool refused, carriage tool retracts; Close switches the heater off. Real printer test: not yet.
+### _WM_EXTRUDE_GO (hidden)
+- T=0..3 DIR=extrude|retract [LEN=1..300 mm, 20] [SPEED=1..30 mm/s, 5] [TEMP=170..max-10 C, 230] [WIN=0]. Checks, heats only when the nozzle is below max(TEMP-10, min_extrude_temp+5) and waits to TEMP-3, ACTIVATE_EXTRUDER the tool, G1 E (SAVE/RESTORE_GCODE_STATE, M83), puts the earlier extruder back, ACE feed assist on/off around an extrude (_WM_PURGE_ASSIST). Never moves X/Y/Z.
+### _WM_EXTRUDE_PROMPT, _WM_EXTRUDE_PICK, _WM_EXTRUDE_NOTE, _WM_EXTRUDE_DONE, _WM_EXTRUDE_SEL (hidden)
+- _PROMPT draws the window (tool state: carriage / dock / away from custom_hall + docked sensors, same logic as the tool gate). _PICK K=t|len|speed|temp V= (changing tool switches off a heater the window had on). _NOTE message for the grey Extrude button. _DONE closes the window, heater off (no wipe, no park, no move). _SEL variables t (-1 = carriage tool), len, speed, temp, hot.
+- **Change log**: 2026-11-27 new. Not a copy of E_axis_move (no window, never heats) nor of WM_PURGE_MENU (moves to the purge location, picks up and parks the tool).
+
+### LOAD_FILAMENT / UNLOAD_FILAMENT change (F-260, 2026-11-27, pi400 Fluidd list only, checked against pi400 files, 2026-11-27)
+- Kept (macro text unchanged, tool gate stays). Hidden in the Fluidd macro list (visible=false) because the Load menu and Unload menu replace them for users. Still needed: the KlipperScreen Extrude page Load/Unload buttons call them (panels/extrude.py). Backup fluidd-macros-db.pre-hideloadunload-20261127.json on the pi400. Not on .35.
+
+### WM_EXTRUDE_MENU change (F-262, 2026-11-27, pi400 + screen board .37 only, checked against pi400 and .37 files, 2026-11-27)
+- Renamed WM_EXTRUDE -> WM_EXTRUDE_MENU (like WM_LOAD_MENU / WM_UNLOAD_MENU); Fluidd list entry renamed too (category WM Ultra Filament). New optional T=0..3 pre-selects the tool (the tool pages use it). Hidden helpers keep the names _WM_EXTRUDE_*.
+- KlipperScreen .37 (panels/zr_tools.py, md5 bea67ef6): green "Extrude menu" button beside Purge on every Toolhead page; it opens a native one-page, non-scrolling Extrude / Retract page (tool, length, speed, nozzle, Extrude / Retract / Close; Extrude off in the dock, both off for an away tool) that runs _WM_EXTRUDE_GO ... WIN=0; Close/Back runs _WM_EXTRUDE_DONE. The Fluidd-style prompt does not fit the 800x480 screen, so the screen does not use it. Tested live on the .37: Retract T4 20 mm in the dock heated, pulled, Close switched the heater off.
+
+### Extrude menu: Cool button (F-263, 2026-11-27, pi400 + .37 only)
+- New hidden macro `_WM_EXTRUDE_COOL T=0..3 [WIN=0]`: heater of that tool off (nothing moves), clears `_WM_EXTRUDE_SEL.hot` when it was that tool. Cool button (blue) in the Fluidd window and on the .37 Extrude / Retract page (cyan, between Retract and Close). rpi_base.cfg md5 c3964f13, zr_tools.py md5 f91e113e. Backups rpi_base.cfg.pre-extrudecool.20261127-1510, zr_tools.py.wm-before-extrudecool-*. Tested: macro on the dev box (T4 heater off); button seen in the window text.
+
+### Tip forming and material table: PLA 220 C (F-264, 2026-11-27, pi400 + .37 only, checked against pi400 and .37 files, 2026-11-27)
+- zr_tools.cfg `_WM_UNLOAD_TIP`: new `_WM_LOAD_SETTINGS.tip_min_temp` {"1": 220}: a tool with material 1 (PLA) forms the tip at 220 C at least, even when 210 was saved before (other materials unchanged; PLA+, Silk, Matte, CF keep their own temperature). Backup zr_tools.cfg.pre-pla220.20261127-1520.
+- KlipperScreen .37 (zr_tools.py, Edit filament "Color and material" table): PLA 210 -> 220 C (md5 aa6d4f12). PLA+ 215, Silk 215, Matte 210, CF 220 unchanged.
+- Tested: dev box `_WM_UNLOAD_TIP T=0 S=210` with material 1: "T1 heats to 220 C", PLA recipe, tip formed, wipe, heater off. Still 210 elsewhere (not changed, ask): ACE driver table (extras/ace/instance.py), Orca plugin material table (spool_toolhead_mapper.py), tools that already saved 210 keep 210 in the table until you pick PLA again.
+
+## F-277 Wipe while the nozzle cools (added 2026-11-27, checked against the live pi400 config)
+- _WM_WIPE_COOL EN=extruderN TARGET=C [SET=C] [WAIT=1] [FAN=0] (hidden helper, rpi_base.cfg): outside a print wipes slow/fast (switch Wipe_Slow_Fast) with the part fan on until the nozzle is at TARGET or below. During a print or pause: nothing (WAIT=1: plain TEMPERATURE_WAIT).
+- _WM_WC_PASS: one pass of 4 strokes. _WM_WC_01 to _WM_WC_31: the chain of passes (a macro cannot call itself in Klipper); 31 is the end that only waits.
+- Callers: _WM_PURGE_DONE, _WM_PID_HEAD, _WM_UNLOAD_END, _WM_ZR_LOAD_GO, LOAD_FILAMENT, UNLOAD_FILAMENT, EXTRUDE_FILAMENT.

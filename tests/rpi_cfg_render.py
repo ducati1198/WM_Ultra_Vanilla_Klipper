@@ -96,12 +96,12 @@ want("shaper", run("WM_VIBRATION_COMP", {"CONFIRM": "1"}, homed=""), "G28", "SHA
 want("shaper when already homed: no second homing", run("WM_VIBRATION_COMP", {"CONFIRM": "1"}, homed="xyz"), "SHAPER_CALIBRATE", none=("G28", "homing all axes"))
 want("pid tool 1", run("WM_NOZZLE_FULL_PID", {"CONFIRM": "1", "T": "1"}), "_WM_PID_HEAD T=1 TARGET=220 FAN=100", "M106 S0", "TURN_OFF_HEATERS")
 _ph = run("_WM_PID_HEAD", {"T": "1", "TARGET": "220", "FAN": "70"})
-_order = ["T1", "_WM_CAL_CLEARANCE", "G0 Y240.0 F12000", "G0 X-13.0 F12000", "M106 S178", "PID_CALIBRATE HEATER=extruder1 TARGET=220", "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=220", "TEMPERATURE_WAIT SENSOR=extruder1 MINIMUM=217", "WIPE_NOZZLE", "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=0", "M106 S255", "TEMPERATURE_WAIT SENSOR=extruder1 MAXIMUM=140", "M106 S0", "WIPE_NOZZLE"]
+_order = ["T1", "_WM_CAL_CLEARANCE", "G0 Y240.0 F12000", "G0 X-13.0 F12000", "M106 S178", "PID_CALIBRATE HEATER=extruder1 TARGET=220", "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=220", "TEMPERATURE_WAIT SENSOR=extruder1 MINIMUM=217", "WIPE_NOZZLE", "SET_HEATER_TEMPERATURE HEATER=extruder1 TARGET=0", "_WM_WIPE_COOL EN=extruder1 TARGET=140 WAIT=1", "WIPE_NOZZLE"]    # 2.38.0 (F-277): the cool-down wipes slow/fast while the nozzle cools (part fan inside _WM_WIPE_COOL)
 _txt = "\n".join(_ph)
 _pos = []; _at = 0
 for x in _order:
     _at = _txt.find(x, _at); _pos.append(_at); _at = _at + 1 if _at >= 0 else _at
-want("pid head: wipe position, tune, heat back, wipe, cool to 140, wipe again (in this order)", ["ok" if all(p >= 0 for p in _pos) and _pos == sorted(_pos) and _txt.count("WIPE_NOZZLE") == 2 else "wrong order %s" % _pos], "ok")
+want("pid head: wipe position, tune, heat back, wipe, wipe while cooling to 140, wipe again (in this order)", ["ok" if all(p >= 0 for p in _pos) and _pos == sorted(_pos) and _txt.count("WIPE_NOZZLE") == 2 else "wrong order %s" % _pos], "ok")
 want("pid head: not in the middle of the bed any more", _ph, "PID_CALIBRATE HEATER=extruder1", none=("X150",))
 want("pid skips watermark", run("WM_NOZZLE_FULL_PID", {"CONFIRM": "1"}, control="watermark"), "Hotend PID skipped: T1, T2, T3, T4 do not use control: pid.", none=("_WM_PID_HEAD",))
 want("pid refuses odd target", run("WM_NOZZLE_FULL_PID", {"TARGET": "400"}), '_WM_FAIL MSG="TARGET=400 is outside 150 to 280 C')
@@ -367,14 +367,14 @@ for path in ("factory/ultra/config/macros.cfg", "factory/ultra-s/config/macros.c
     for T, cn in (("1", "1"), ("0", "0")):
         ld = run_gw("LOAD_FILAMENT", {"T": T}, path, extra=["_WM_GO_WIPE_HEAT"], cur=(0 if T == "1" else 0))
         want("%s LOAD_FILAMENT T%s heats at the wipe position, wipes after, parks" % (path, T), ld, "_WM_GO_WIPE_HEAT T=%s S=220" % T, "WIPE_NOZZLE", "PARK_CURRENT_TOOL", "M104 S0 T%s" % T, none=("M109 S220",))
-        if ld.index("WIPE_NOZZLE") < max(i for i, l in enumerate(ld) if l.startswith("G1 E")): bad.append("%s LOAD_FILAMENT: the wipe must come after the load in\n%s" % (path, "\n".join(ld)))
+        if next(i for i, l in enumerate(ld) if l.startswith("WIPE_NOZZLE")) < max(i for i, l in enumerate(ld) if l.startswith("G1 E")): bad.append("%s LOAD_FILAMENT: the wipe must come after the load in\n%s" % (path, "\n".join(ld)))
     want(path + " LOAD_FILAMENT T1 picks the head up when T0 is on the carriage", run_gw("LOAD_FILAMENT", {"T": "1"}, path, extra=["_WM_GO_WIPE_HEAT"], cur=0), "_CHANGE_TOOL T=1")
     want(path + " LOAD_FILAMENT T1 does not change tool when it is already on the carriage", run_gw("LOAD_FILAMENT", {"T": "1"}, path, extra=["_WM_GO_WIPE_HEAT"], cur=1), "_WM_GO_WIPE_HEAT T=1 S=220", none=("_CHANGE_TOOL",))
     want(path + " LOAD_FILAMENT not homed homes first", run_gw("LOAD_FILAMENT", {"T": "0"}, path, extra=["_WM_GO_WIPE_HEAT"], homed=""), "G28")
     want(path + " LOAD_FILAMENT without zr_tools heats where it is as before", run_gw("LOAD_FILAMENT", {"T": "0"}, path), "M109 S220 T0", none=("_WM_GO_WIPE_HEAT", "WIPE_NOZZLE", "PARK_CURRENT_TOOL", "_CHANGE_TOOL"))
     ul = run_gw("UNLOAD_FILAMENT", {"T": "2"}, path, extra=["_WM_GO_WIPE_HEAT"], cur=2)
     want(path + " UNLOAD_FILAMENT heats at the wipe position, retracts, wipes, parks", ul, "_WM_GO_WIPE_HEAT T=2 S=220", "G1 E-45 F600", "WIPE_NOZZLE", "SET_STEPPER_ENABLE STEPPER=extruder2 ENABLE=0", none=("M109 S220", "_CHANGE_TOOL"))
-    if ul.index("WIPE_NOZZLE") < ul.index("G1 E-45 F600"): bad.append("%s UNLOAD_FILAMENT: the wipe must come after the retract in\n%s" % (path, "\n".join(ul)))
+    if next(i for i, l in enumerate(ul) if l.startswith("WIPE_NOZZLE")) < ul.index("G1 E-45 F600"): bad.append("%s UNLOAD_FILAMENT: the wipe must come after the retract in\n%s" % (path, "\n".join(ul)))
 for path in ("factory/ultra/config/offset_calibrate.cfg", "factory/ultra-s/config/offset_calibrate.cfg"):
     npj = run_gw("NOZZLE_PREPARE", {"T": "1"}, path, extra=["_WM_GO_WIPE"])
     want(path + " NOZZLE_PREPARE heats to 220 at the wipe position and goes back", npj, "SAVE_GCODE_STATE NAME=_wm_prep", "_WM_GO_WIPE", "M109 S220 T1", "RESTORE_GCODE_STATE NAME=_wm_prep MOVE=1")

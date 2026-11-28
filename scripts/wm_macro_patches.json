@@ -691,5 +691,75 @@
   "new": "\n        G0 Y310 F9600\n        G0 Y270 F12000",
   "old": "\n        G0 Y310 F12000\n        G0 Y270 F12000",
   "version": "2.33.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 1,
+  "new": "    G90                            # G90: a jog error can leave G91 on (F-181), every print start begins in absolute mode\n    # tool gate: every tool this print needs is in its dock or on the carriage, before the bed heats (rollback dock)\n    _WM_START_GATE INITIAL_TOOL={params.INITIAL_TOOL|default(0)|int}\n    {% if \"gcode_macro _WM_LIVEZ_RESET\" in printer %}",
+  "old": "    G90                            # G90: a jog error can leave G91 on (F-181), every print start begins in absolute mode\n    {% if \"gcode_macro _WM_LIVEZ_RESET\" in printer %}",
+  "version": "2.38.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 2,
+  "new": "    M109 S140            # set the nozzle temperature to 140 degrees and wait until it is reached (blocking wait)\n    WIPE_NOZZLE STYLE=SWITCH \n    M118 {(printer.configfile.settings.bed_mesh.probe_count[0] * printer.configfile.settings.bed_mesh.probe_count[1])|int}-point calibration is in progress",
+  "old": "    M109 S140            # set the nozzle temperature to 140 degrees and wait until it is reached (blocking wait)\n    WIPE_NOZZLE \n    M118 {(printer.configfile.settings.bed_mesh.probe_count[0] * printer.configfile.settings.bed_mesh.probe_count[1])|int}-point calibration is in progress",
+  "version": "2.38.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 3,
+  "new": "    G90\n    M400\n    # F-277: wipe slow/fast while the nozzle cools to 160 C (part fan on), then the usual wipe\n    _WM_WIPE_COOL EN={'extruder' if T == 0 else 'extruder%d' % T} TARGET=160 SET=160 WAIT=1\n    M400\n    WIPE_NOZZLE STYLE=SWITCH\n    PARK_CURRENT_TOOL",
+  "old": "    G90\n    M106 S255\n    M400\n    M109 S160 T{T}\n    M106 S0\n    M400\n    WIPE_NOZZLE\n    PARK_CURRENT_TOOL",
+  "version": "2.38.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 4,
+  "new": "gcode:\n    _WM_TOOL_GATE T={params.T|default(0)|int}\n    RESPOND MSG=\"Loading filament on T{params.T|default(0)|int}\"",
+  "old": "gcode:\n    RESPOND MSG=\"Loading filament on T{params.T|default(0)|int}\"",
+  "version": "2.38.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 5,
+  "new": "    G1 E{extrude_length} F400\n    G90\n    M400\n    {% if at_wipe %}\n        WIPE_NOZZLE STYLE=SWITCH\n    {% endif %}\n    M104 S0 T{T}\n    {% if at_wipe %}\n        # F-277: wipe slow/fast until the nozzle is at 140 C or below (nothing during a print)\n        _WM_WIPE_COOL EN={en} TARGET=140\n    {% endif %}\n    SET_STEPPER_ENABLE STEPPER={en} ENABLE=0\n    {% if at_wipe %}\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "old": "    G1 E{extrude_length} F400\n    G90\n    M400\n    {% if at_wipe %}\n        WIPE_NOZZLE\n    {% endif %}\n    M104 S0 T{T}\n    SET_STEPPER_ENABLE STEPPER={en} ENABLE=0\n    {% if at_wipe %}\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "version": "2.38.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 6,
+  "new": "gcode:\n    _WM_TOOL_GATE T={params.T|default(0)|int}\n    RESPOND MSG=\"Unloading filament on T{params.T|default(0)|int}\"",
+  "old": "gcode:\n    RESPOND MSG=\"Unloading filament on T{params.T|default(0)|int}\"",
+  "version": "2.38.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 7,
+  "new": "    G1 E-{retract_length} F600\n    G90\n    M400\n    {% if at_wipe %}\n        WIPE_NOZZLE STYLE=SWITCH\n    {% endif %}\n    M104 S0 T{T}\n    {% if at_wipe %}\n        # F-277: wipe slow/fast until the nozzle is at 140 C or below (nothing during a print)\n        _WM_WIPE_COOL EN={en} TARGET=140\n    {% endif %}\n    SET_STEPPER_ENABLE STEPPER={en} ENABLE=0\n    {% if at_wipe %}\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "old": "    G1 E-{retract_length} F600\n    G90\n    M400\n    {% if at_wipe %}\n        WIPE_NOZZLE\n    {% endif %}\n    M104 S0 T{T}\n    SET_STEPPER_ENABLE STEPPER={en} ENABLE=0\n    {% if at_wipe %}\n        PARK_CURRENT_TOOL\n    {% endif %}",
+  "version": "2.38.0"
+ },
+ {
+  "file": "macros.cfg",
+  "n": 8,
+  "new": "    G1 E100 F600\n    M400\n    WIPE_NOZZLE STYLE=SWITCH\n\n[gcode_macro filament_insert]",
+  "old": "    G1 E100 F600\n    M400\n    WIPE_NOZZLE\n\n[gcode_macro filament_insert]",
+  "version": "2.38.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 1,
+  "new": "variable_save_position: 0\nvariable_target_tool: 0 \ngcode:\n    # tool gate: the tool must be in its dock before anything moves (rollback dock)\n    _WM_TOOL_GATE T={params.T|default(0)|int}\n    _CHANGE_TOOL_GO T={params.T|default(0)|int}\n\n[gcode_macro _CHANGE_TOOL_GO]\ndescription: The tool change itself, only when the tool gate did not stop it\ngcode:\n  {% if printer[\"gcode_macro _WM_TOOL_GATE\"].blocked|int == 0 %}\n    _CHANGE_TOOL_RUN T={params.T|default(0)|int}\n  {% endif %}\n\n[gcode_macro _CHANGE_TOOL_RUN]\ngcode:\n    _WM_CAL_CLEARANCE",
+  "old": "variable_save_position: 0\nvariable_target_tool: 0 \ngcode:\n    _WM_CAL_CLEARANCE",
+  "version": "2.38.0"
+ },
+ {
+  "file": "change_macros.cfg",
+  "n": 2,
+  "new": "[gcode_macro PARK_CURRENT_TOOL]\ngcode:\n    # tool gate: the dock of the carriage tool must be free (rollback dock)\n    _WM_TOOL_GATE PUT=1\n    _PARK_CURRENT_TOOL_GO\n\n[gcode_macro _PARK_CURRENT_TOOL_GO]\ndescription: The put back itself, only when the tool gate did not stop it\ngcode:\n  {% if printer[\"gcode_macro _WM_TOOL_GATE\"].blocked|int == 0 %}\n    _PARK_CURRENT_TOOL_RUN\n  {% endif %}\n\n[gcode_macro _PARK_CURRENT_TOOL_RUN]\ngcode:\n    {% set pc = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Parking {'T' ~ (pc + 1) if pc < 4 else 'the tool'} in its dock\"",
+  "old": "[gcode_macro PARK_CURRENT_TOOL]\ngcode:\n    {% set pc = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Parking {'T' ~ (pc + 1) if pc < 4 else 'the tool'} in its dock\"",
+  "version": "2.38.0"
  }
 ]

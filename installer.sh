@@ -552,6 +552,9 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
     # rpi_base.cfg (_WM_START_PURGE) reads the print info of the file (used tools and temperatures) from the driver wm_print_info.py, loaded by [wm_print_info] in printer.cfg: copy it first, so a merged printer.cfg never makes Klipper fail
     local pi="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_print_info.py"
     if [ -f "$pi" ] && [ -d "$ex" ] && ! cmp -s "$pi" "$ex/wm_print_info.py"; then cp "$pi" "$ex/wm_print_info.py" && print_info "driver wm_print_info.py copied into Klipper's extras (the print start purge reads the slicer's tool list with it)"; fi
+    # rpi_base.cfg (the Extrude menu, F-271) sends WMFORCE=1 on its extrude move: the factory grip check in wm_gcode_compat.py lets that move through (a plain G1 E is still refused). Klipper reads a driver only when it starts, the update restarts it at the end
+    local gc="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras/wm_gcode_compat.py"
+    if [ -f "$gc" ] && [ -f "$ex/wm_gcode_compat.py" ] && ! cmp -s "$gc" "$ex/wm_gcode_compat.py"; then cp "$ex/wm_gcode_compat.py" "$ex/wm_gcode_compat.py.wm-before-$STAMP" 2>/dev/null; cp "$gc" "$ex/wm_gcode_compat.py" && print_info "driver wm_gcode_compat.py copied into Klipper's extras (the Extrude menu needs it; the old one is kept as wm_gcode_compat.py.wm-before-$STAMP)"; fi
     # rpi_nozzle.cfg (the speed test part, joined from rpi_auto_speed.cfg in 2.21.1) needs the speed test module (klipper_auto_speed by Anonoei, MIT, with this repository's changes): same reason
     local asd="$SCRIPT_DIR/factory/$(model_now)/klipper/klippy/extras" af
     if [ -d "$ex" ] && [ -f "$asd/auto_speed.py" ]; then
@@ -684,12 +687,12 @@ filemerge_one() {   # LIVE NEW REPO-PATH: bring WonderMaker's changes in one con
         *)    return 1 ;;
     esac
 }
-macro_files_list() { echo "macros.cfg change_macros.cfg offset_calibrate.cfg extruder0.cfg extruder1.cfg extruder2.cfg extruder3.cfg hub.cfg"; }
+macro_files_list() { echo "macros.cfg change_macros.cfg offset_calibrate.cfg extruder0.cfg extruder1.cfg extruder2.cfg extruder3.cfg hub.cfg fz-wipe-nozzle.cfg"; }
 step_macro_files() {   # --update: WonderMaker's changes in its macro files (factory/<model>/config) into the Pi files, 3-way, your edits stay
     print_header "WonderMaker's macro files"
-    why "A new install gets the macro files of this repository. On an update this compares three files for each of macros.cfg, change_macros.cfg, offset_calibrate.cfg, extruder0-3.cfg and hub.cfg: the version WonderMaker gave you last time, the new version, and yours. WonderMaker's changes are added; lines you changed yourself stay. Where you and WonderMaker changed the same lines, yours stay and WonderMaker's are listed. A copy of every changed file is kept."
+    why "A new install gets the macro files of this repository. On an update this compares three files for each of macros.cfg, change_macros.cfg, offset_calibrate.cfg, extruder0-3.cfg, hub.cfg and fz-wipe-nozzle.cfg: the version WonderMaker gave you last time, the new version, and yours. WonderMaker's changes are added; lines you changed yourself stay. Where you and WonderMaker changed the same lines, yours stay and WonderMaker's are listed. A copy of every changed file is kept."
     local cd="$HOME_DIR/printer_data/config" n="$SCRIPT_DIR/factory/$(model_now)/config" f
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would merge this version's changes into macros.cfg, change_macros.cfg, offset_calibrate.cfg, extruder0-3.cfg and hub.cfg${NC}"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would merge this version's changes into macros.cfg, change_macros.cfg, offset_calibrate.cfg, extruder0-3.cfg, hub.cfg and fz-wipe-nozzle.cfg${NC}"; return 0; fi
     [ -f "$(filemerge_py)" ] && [ -d "$cd" ] && [ -d "$n" ] || { print_info "nothing to compare"; return 0; }
     for f in $(macro_files_list); do
         [ -f "$n/$f" ] && [ -f "$cd/$f" ] || continue

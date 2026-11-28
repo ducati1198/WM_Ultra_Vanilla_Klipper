@@ -46,6 +46,9 @@ def printer(state="standby", count=4, ext_temp=220.0, t=1, entry="", prev="extru
         "filament_switch_sensor filament0": {"filament_detected": False}, "filament_switch_sensor filament1": {"filament_detected": fil},
         "filament_switch_sensor filament2": {"filament_detected": True}, "filament_switch_sensor filament3": {"filament_detected": True},
         "gcode_macro _WM_HEAD_QUEUE": {},
+        "custom_hall": {"Raw": 5000},     # 2.38.0: the tool buttons ask the docks (F-259 tool gate)
+        "filament_switch_sensor docked0": {"filament_detected": True}, "filament_switch_sensor docked1": {"filament_detected": True},
+        "filament_switch_sensor docked2": {"filament_detected": True}, "filament_switch_sensor docked3": {"filament_detected": True},
     }
     return mk(p)
 

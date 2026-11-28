@@ -65,6 +65,9 @@ class WMGcodeCompat:
         e = gcmd.get_command_parameters().get('E')
         if e is None:
             return
+        # F-271: the Extrude menu sends WMFORCE=1 on its own move so a tool out of its dock but not on the carriage can extrude
+        if str(gcmd.get_command_parameters().get('WMFORCE', '')).lstrip('=').strip() == '1':
+            return
         try:
             v = float(e) * self.gm.extrude_factor
         except ValueError:

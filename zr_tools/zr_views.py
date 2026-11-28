@@ -330,6 +330,7 @@ class ViewsMixin:
                                           ("Home Z", lambda: self._move_home("G28 Z", "Homing Z...")),
                                           ("Motors off", lambda: self._move_home("M84", "Motors off")))):
             b = self._button(None, label, "color1" if n == 0 else "color3", cb)
+            self._move_fb(b)       # F-274: press feedback
             b.set_size_request(-1, bh)
             if n == 0:
                 b.get_style_context().add_class("zr_btn_primary")
@@ -345,6 +346,7 @@ class ViewsMixin:
         pad.set_row_homogeneous(True)
         for col, row, label, axis, sign in ((1, 0, "Y+", "Y", 1), (0, 1, "X-", "X", -1), (2, 1, "X+", "X", 1), (1, 2, "Y-", "Y", -1)):
             b = self._button(None, label, "color3", self._move_jog, axis, sign)
+            self._move_fb(b, lambda a=axis, s=sign: "%s %+g mm" % (a, self.move_step * s))
             b.set_size_request(100, key_h)
             self._move_big_label(b, label)           # F-235: big letters on the X and Y keys
             pad.attach(b, col, row, 1, 1)
@@ -355,14 +357,16 @@ class ViewsMixin:
 
         zc = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         zc.set_homogeneous(True)
-        for label, sign in (("Z up", 1), ("Z down", -1)):
+        for label, sign in (("Z up", -1), ("Z down", 1)):   # F-272: Z up = bed closer to nozzle (G1 Z-)
             b = self._button(None, label, "color3", self._move_jog, "Z", sign)
+            self._move_fb(b, lambda l=label: "%s %g mm" % (l, self.move_step))
             b.set_size_request(100, -1)
             zc.pack_start(b, True, True, 0)
         page.pack_start(zc, False, False, 0)
 
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.w["mv_pos"] = self._button(None, "", "color3", self.show_goto)    # tap the coordinates: Go to position window
+        self._move_fb(self.w["mv_pos"])
         self.w["mv_pos"].set_size_request(230, max(48, int(bh * 1.0)))      # fixed size: a longer number never pushes the step keys
         right.pack_start(self.w["mv_pos"], False, False, 0)
         self.w["mv_hint"] = self._label("Step (mm)", "zr_small")   # also shows "Homing..." (no popup bar: it pushed the whole page down)
@@ -376,6 +380,7 @@ class ViewsMixin:
         self.w["mv_steps"] = {}
         for n, v in enumerate(self.MOVE_STEPS):
             b = self._button(None, ("%g" % v), "color3", self._move_set_step, v)
+            self._move_fb(b, lambda x=v: "Step %g mm" % x)
             b.set_size_request(100, max(48, int(bh * 1.05)))          # smaller step keys
             grid.attach(b, n % 2, n // 2, 1, 1)
             self.w["mv_steps"][v] = b
@@ -509,6 +514,19 @@ class ViewsMixin:
                 ctx.add_class("zr_selected")
             else:
                 ctx.remove_class("zr_selected")
+
+    def _move_fb(self, b, hint=None):
+        """F-274: every Move page button flashes bright blue for 0.3 s when pressed; hint = text (or function giving the text)
+        shown on the line under the coordinates for 1.5 s, so the person sees the press was taken."""
+        def on_press(_w, *a):
+            ctx = b.get_style_context()
+            ctx.add_class("zr_pressed")
+            GLib.timeout_add(300, lambda: (ctx.remove_class("zr_pressed"), False)[1])
+            h = self.w.get("mv_hint")
+            if hint is not None and h is not None:
+                h.set_text(hint() if callable(hint) else hint)
+                GLib.timeout_add(1500, self._move_hint_reset)
+        b.connect("pressed", on_press)
 
     def _move_set_step(self, v):
         self.move_step = v
@@ -973,7 +991,7 @@ class ViewsMixin:
         self.w["sys"] = self._label("", wrap=True)
         body.pack_start(self.w["sys"], False, False, 0)
         if L.board_mode():     # KlipperScreen runs on the WonderMaker screen board
-            tiles = [("home", "Factory mode", self._sys_factory),
+            tiles = [("home", "Uninstall KlipperScreen", self._sys_factory),
                      ("refresh", "Reboot the Pi", self._sys_reboot),
                      ("shutdown", "Shut down the Pi", self._sys_shutdown)]
             if L.rescue_available():
@@ -1076,7 +1094,7 @@ class ViewsMixin:
     def _sys_factory(self):
         if not self._require_idle():
             return
-        self._confirm_call("Factory mode",
+        self._confirm_call("Uninstall KlipperScreen",
                            "Switch this screen back to the WonderMaker factory software?\n"
                            "KlipperScreen is removed, the factory services are turned back on and the board reboots.\n"
                            "The screen turns black: wait about 5 minutes for the WonderMaker app to appear.",
@@ -1099,7 +1117,7 @@ class ViewsMixin:
             self._screen.show_popup_message("Could not reboot: %s" % e)
 
     def _sys_modeswitch(self):
-        """Factory software: only a switch, nothing is removed (Factory mode, next to it, is the full restore)."""
+        """Factory software: only a switch, nothing is removed (Uninstall KlipperScreen, next to it, is the full restore)."""
         if not self._require_idle():
             return
         self._ask_page3("Factory software",
