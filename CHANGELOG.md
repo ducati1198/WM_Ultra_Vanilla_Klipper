@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.39.0
+
+Release number follows the panel 1.25.0 (ACE driver fixes). Tested by the user on the real printer (main RPi4) before it was copied here.
+
+- **A hub tangle sensor no longer pauses an unload (F-283).** Klipper counts a running macro as "printing", so when the filament passed a hub sensor at the end of an ACE unload, `pause_on_runout` paused the macro and the unload failed. In `hub.cfg` (all four paths, Ultra and Ultra-S) `pause_on_runout` is now `False` and the `runout_gcode` runs `PAUSE` itself only when a real print is running (`print_stats.state == printing`). The tangle message and the endless spool call stay as they were. An update brings the change into your `hub.cfg` (macro patch list, 4 new entries).
+- **Unload tip with the ACE (F-284).** `_WM_UNLOAD_TIP` has a new parameter `KEEP=1`: the heater and the extruder stay on after the tip, so the ACE unload can pull with the extruder (panel 1.25.0). The default (0) is the old behaviour for an unload without the ACE.
+- **ABS tip (F-285).** The ABS tip recipe cools 50 C (it was 20) and holds 8 s (it was 4 s), so the tip is hard before the pull; ABS unloads no longer leave a plug in the hotend.
+
 ## 2.38.0
 
 Screen S1.4.0. Everything in this release was tested by the user on the real printer (the main RPi4 and the screen board) before it was copied here.

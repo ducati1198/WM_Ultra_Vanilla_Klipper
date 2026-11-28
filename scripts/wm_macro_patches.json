@@ -761,5 +761,33 @@
   "new": "[gcode_macro PARK_CURRENT_TOOL]\ngcode:\n    # tool gate: the dock of the carriage tool must be free (rollback dock)\n    _WM_TOOL_GATE PUT=1\n    _PARK_CURRENT_TOOL_GO\n\n[gcode_macro _PARK_CURRENT_TOOL_GO]\ndescription: The put back itself, only when the tool gate did not stop it\ngcode:\n  {% if printer[\"gcode_macro _WM_TOOL_GATE\"].blocked|int == 0 %}\n    _PARK_CURRENT_TOOL_RUN\n  {% endif %}\n\n[gcode_macro _PARK_CURRENT_TOOL_RUN]\ngcode:\n    {% set pc = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Parking {'T' ~ (pc + 1) if pc < 4 else 'the tool'} in its dock\"",
   "old": "[gcode_macro PARK_CURRENT_TOOL]\ngcode:\n    {% set pc = printer.save_variables.variables.current_extruder|int %}\n    RESPOND MSG=\"Parking {'T' ~ (pc + 1) if pc < 4 else 'the tool'} in its dock\"",
   "version": "2.38.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 1,
+  "new": "\n# F-283: pause_on_runout is off: Klipper counts a running macro (an ACE unload) as printing and paused it when the filament passed the hub.\n# The runout_gcode pauses only a real print.\n[filament_switch_sensor path_0]\nswitch_pin: !HUB:PC13\npause_on_runout: False\nrunout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        PAUSE\n    {% endif %}\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "old": "\n[filament_switch_sensor path_0]\nswitch_pin: !HUB:PC13\npause_on_runout: True\nrunout_gcode:\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "version": "2.39.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 2,
+  "new": "switch_pin: !HUB:PB12\npause_on_runout: False\nrunout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        PAUSE\n    {% endif %}\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "old": "switch_pin: !HUB:PB12\npause_on_runout: True\nrunout_gcode:\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "version": "2.39.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 3,
+  "new": "switch_pin: !HUB:PA2\npause_on_runout: False\nrunout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        PAUSE\n    {% endif %}\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "old": "switch_pin: !HUB:PA2\npause_on_runout: True\nrunout_gcode:\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "version": "2.39.0"
+ },
+ {
+  "file": "hub.cfg",
+  "n": 4,
+  "new": "switch_pin: !HUB:PA3\npause_on_runout: False\nrunout_gcode:\n    {% if printer.print_stats.state == \"printing\" %}\n        PAUSE\n    {% endif %}\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "old": "switch_pin: !HUB:PA3\npause_on_runout: True\nrunout_gcode:\n    {% if printer.print_stats.state in [\"printing\", \"paused\"] %}",
+  "version": "2.39.0"
  }
 ]
